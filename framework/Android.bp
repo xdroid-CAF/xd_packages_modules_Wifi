@@ -122,6 +122,7 @@ java_sdk_library {
     impl_library_visibility: [
         "//frameworks/opt/net/wifi/service:__subpackages__",
         "//packages/modules/Wifi/service:__subpackages__",
+        "//vendor:__subpackages__",
     ] + test_access_hidden_api_whitelist,
 
     apex_available: [
