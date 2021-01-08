@@ -131,7 +131,8 @@ public class WifiConfiguration implements Parcelable {
                 WAPI_PSK,
                 WAPI_CERT,
                 FILS_SHA256,
-                FILS_SHA384})
+                FILS_SHA384,
+                DPP})
         public @interface KeyMgmtScheme {}
 
         /** WPA is not used; plaintext or static WEP could be used. */
@@ -222,13 +223,18 @@ public class WifiConfiguration implements Parcelable {
          * @hide
          */
         public static final int FILS_SHA384 = 16;
+        /**
+         * Device Provisioning Protocol
+         * @hide
+         */
+        public static final int DPP = 17;
 
         public static final String varName = "key_mgmt";
 
         public static final String[] strings = { "NONE", "WPA_PSK", "WPA_EAP",
                 "IEEE8021X", "WPA2_PSK", "OSEN", "FT_PSK", "FT_EAP",
                 "SAE", "OWE", "SUITE_B_192", "WPA_PSK_SHA256", "WPA_EAP_SHA256",
-                "WAPI_PSK", "WAPI_CERT", "FILS_SHA256", "FILS_SHA384" };
+                "WAPI_PSK", "WAPI_CERT", "FILS_SHA256", "FILS_SHA384", "DPP",  };
     }
 
     /**
@@ -955,6 +961,12 @@ public class WifiConfiguration implements Parcelable {
      * @hide
      */
     public static final int AP_BAND_60GHZ = 2;
+
+    /**
+     * 2GHz + 5GHz Dual band.
+     * @hide
+     */
+    public static final int AP_BAND_DUAL = 3;
 
     /**
      * Device is allowed to choose the optimal band (2Ghz or 5Ghz) based on device capability,

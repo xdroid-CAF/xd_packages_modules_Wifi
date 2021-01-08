@@ -229,6 +229,8 @@ interface IWifiManager
 
     void unregisterTrafficStateCallback(int callbackIdentifier);
 
+    String getCapabilities(String capaType);
+
     void registerNetworkRequestMatchCallback(in IBinder binder, in INetworkRequestMatchCallback callback, int callbackIdentifier);
 
     void unregisterNetworkRequestMatchCallback(int callbackIdentifier);
@@ -309,4 +311,8 @@ interface IWifiManager
     boolean addSuggestionUserApprovalStatusListener(in IBinder binder, in ISuggestionUserApprovalStatusListener listener, int listenerIdentifier, String packageName, String featureId);
 
     void removeSuggestionUserApprovalStatusListener(int listenerIdentifier, String packageName);
+
+    int getSoftApWifiStandard();
+
+    boolean isVht8ssCapableDevice();
 }
