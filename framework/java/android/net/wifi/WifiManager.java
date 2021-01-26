@@ -873,6 +873,20 @@ public class WifiManager {
             "android.net.wifi.action.NETWORK_SETTINGS_RESET";
 
     /**
+     * Broadcast intent action indicating that the wifi network profiles provisioned
+     * may need refresh.
+     *
+     * Note: This intent is sent as a directed broadcast to each manifest registered receiver;
+     * And restricted to those apps which have the NETWORK_CARRIER_PROVISIONING permission.
+     * Intent will not be received by dynamically registered receivers.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.NETWORK_CARRIER_PROVISIONING)
+    public static final String ACTION_REFRESH_USER_PROVISIONING =
+            "android.net.wifi.action.REFRESH_USER_PROVISIONING";
+
+    /**
      * Broadcast intent action indicating that a connection to the supplicant has
      * been established (and it is now possible
      * to perform Wi-Fi operations) or the connection to the supplicant has been
@@ -1074,7 +1088,7 @@ public class WifiManager {
      * A batch of access point scans has been completed and the results areavailable.
      * Call {@link #getBatchedScanResults()} to obtain the results.
      * @deprecated This API is nolonger supported.
-     * Use {@link android.net.wifi.WifiScanner} API
+     * Use {@link WifiScanner} API
      * @hide
      */
     @Deprecated
@@ -1963,6 +1977,32 @@ public class WifiManager {
             mService.unregisterNetworkRequestMatchCallback(callback.hashCode());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Privileged API to revoke all app state from wifi stack (equivalent to operations that the
+     * wifi stack performs to clear state for an app that was uninstalled.
+     * This removes:
+     * <li> All saved networks or passpoint profiles added by the app </li>
+     * <li> All previously approved peer to peer connection to access points initiated by the app
+     * using {@link WifiNetworkSpecifier}</li>
+     * <li> All network suggestions and approvals provided using {@link WifiNetworkSuggestion}</li>
+     * <p>
+     * @param targetAppUid UID of the app.
+     * @param targetAppPackageName Package name of the app.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.NETWORK_SETTINGS)
+    public void removeAppState(int targetAppUid, @NonNull String targetAppPackageName) {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            mService.removeAppState(targetAppUid, targetAppPackageName);
+        } catch (RemoteException e) {
+            throw e.rethrowAsRuntimeException();
         }
     }
 
@@ -3116,6 +3156,137 @@ public class WifiManager {
     }
 
     /**
+     * Abstract callback class for applications to receive updates about the Wi-Fi subsystem
+     * restarting. The Wi-Fi subsystem can restart due to internal recovery mechanisms or via user
+     * action.
+     */
+    public abstract static class SubsystemRestartTrackingCallback {
+        private final SubsystemRestartTrackingCallback.SubsystemRestartCallbackProxy mProxy;
+
+        public SubsystemRestartTrackingCallback() {
+            mProxy = new SubsystemRestartTrackingCallback.SubsystemRestartCallbackProxy();
+        }
+
+        /*package*/ @NonNull
+        SubsystemRestartTrackingCallback.SubsystemRestartCallbackProxy getProxy() {
+            return mProxy;
+        }
+
+        /**
+         * Indicates that the Wi-Fi subsystem is about to restart.
+         */
+        public abstract void onSubsystemRestarting();
+
+        /**
+         * Indicates that the Wi-Fi subsystem has restarted.
+         */
+        public abstract void onSubsystemRestarted();
+
+        private static class SubsystemRestartCallbackProxy extends ISubsystemRestartCallback.Stub {
+            private final Object mLock = new Object();
+            @Nullable
+            @GuardedBy("mLock")
+            private Executor mExecutor;
+            @Nullable
+            @GuardedBy("mLock")
+            private SubsystemRestartTrackingCallback mCallback;
+
+            SubsystemRestartCallbackProxy() {
+                mExecutor = null;
+                mCallback = null;
+            }
+
+            /*package*/ void initProxy(@NonNull Executor executor,
+                    @NonNull SubsystemRestartTrackingCallback callback) {
+                synchronized (mLock) {
+                    mExecutor = executor;
+                    mCallback = callback;
+                }
+            }
+
+            /*package*/ void cleanUpProxy() {
+                synchronized (mLock) {
+                    mExecutor = null;
+                    mCallback = null;
+                }
+            }
+
+            @Override
+            public void onSubsystemRestarting() {
+                Executor executor;
+                SubsystemRestartTrackingCallback callback;
+                synchronized (mLock) {
+                    executor = mExecutor;
+                    callback = mCallback;
+                }
+                if (executor == null || callback == null) {
+                    return;
+                }
+                Binder.clearCallingIdentity();
+                executor.execute(callback::onSubsystemRestarting);
+            }
+
+            @Override
+            public void onSubsystemRestarted() {
+                Executor executor;
+                SubsystemRestartTrackingCallback callback;
+                synchronized (mLock) {
+                    executor = mExecutor;
+                    callback = mCallback;
+                }
+                if (executor == null || callback == null) {
+                    return;
+                }
+                Binder.clearCallingIdentity();
+                executor.execute(callback::onSubsystemRestarted);
+            }
+        }
+    }
+
+    /**
+     * Registers a {@link SubsystemRestartTrackingCallback} to listen to Wi-Fi subsystem restarts.
+     * The subsystem may restart due to internal recovery mechanisms or via user action.
+     *
+     * @param executor Executor to execute callback on
+     * @param callback {@link SubsystemRestartTrackingCallback} to register
+     */
+    @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE)
+    public void registerSubsystemRestartTrackingCallback(
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull SubsystemRestartTrackingCallback callback) {
+        if (executor == null) throw new IllegalArgumentException("executor must not be null");
+        if (callback == null) throw new IllegalArgumentException("callback must not be null");
+        SubsystemRestartTrackingCallback.SubsystemRestartCallbackProxy proxy = callback.getProxy();
+        proxy.initProxy(executor, callback);
+        try {
+            mService.registerSubsystemRestartCallback(proxy);
+        } catch (RemoteException e) {
+            proxy.cleanUpProxy();
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Unregisters a {@link SubsystemRestartTrackingCallback} registered with
+     * {@link #registerSubsystemRestartTrackingCallback(Executor, SubsystemRestartTrackingCallback)}
+     *
+     * @param callback {@link SubsystemRestartTrackingCallback} to unregister
+     */
+    @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE)
+    public void unregisterWifiSubsystemRestartTrackingCallback(
+            @NonNull SubsystemRestartTrackingCallback callback) {
+        if (callback == null) throw new IllegalArgumentException("callback must not be null");
+        SubsystemRestartTrackingCallback.SubsystemRestartCallbackProxy proxy = callback.getProxy();
+        try {
+            mService.unregisterSubsystemRestartCallback(proxy);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        } finally {
+            proxy.cleanUpProxy();
+        }
+    }
+
+    /**
      * Restart the Wi-Fi subsystem.
      *
      * Restarts the Wi-Fi subsystem - effectively disabling it and re-enabling it. All existing
@@ -3125,6 +3296,10 @@ public class WifiManager {
      * The state of the system after restart is not guaranteed to match its state before the API is
      * called - for instance the device may associate to a different Access Point (AP), and tethered
      * hotspots may or may not be restored.
+     *
+     * Use the
+     * {@link #registerSubsystemRestartTrackingCallback(Executor, SubsystemRestartTrackingCallback)}
+     * to track the operation.
      *
      * @param reason If non-null, requests a bug report and attaches the reason string to it. A bug
      *               report may still not be generated based on framework criteria - for instance,
@@ -3136,9 +3311,6 @@ public class WifiManager {
     @SystemApi
     @RequiresPermission(android.Manifest.permission.NETWORK_AIRPLANE_MODE)
     public void restartWifiSubsystem(@Nullable String reason) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         try {
             mService.restartWifiSubsystem(reason);
         } catch (RemoteException e) {
@@ -7171,6 +7343,29 @@ public class WifiManager {
         try {
             mService.removeSuggestionUserApprovalStatusListener(listener.hashCode(),
                     mContext.getOpPackageName());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Indicates the start/end of an emergency scan request being processed by {@link WifiScanner}.
+     * The wifi stack should ensure that the wifi chip remains on for the duration of the scan.
+     * WifiScanner detects emergency scan requests via
+     * {@link WifiScanner.ScanSettings#ignoreLocationSettings} flag.
+     *
+     * If the wifi stack is off (because location & wifi toggles are off) when this indication is
+     * received, the wifi stack will temporarily move to a scan only mode. Since location toggle
+     * is off, only scan with
+     * {@link WifiScanner.ScanSettings#ignoreLocationSettings} flag set will be
+     * allowed to be processed for this duration.
+     *
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.NETWORK_STACK)
+    public void setEmergencyScanRequestInProgress(boolean inProgress) {
+        try {
+            mService.setEmergencyScanRequestInProgress(inProgress);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

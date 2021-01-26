@@ -352,6 +352,14 @@ public class WifiNetworkSuggestionsManager {
             config.getNetworkSelectionStatus().setConnectChoiceRssi(connectChoiceRssi);
             if (carrierInfoManager != null) {
                 config.subscriptionId = carrierInfoManager.getBestMatchSubscriptionId(config);
+                // shouldDisableMacRandomization checks if the SSID matches with a SSID configured
+                // in CarrierConfigManger for the provided subscriptionId.
+                if (carrierInfoManager.shouldDisableMacRandomization(config.SSID,
+                        config.carrierId, config.subscriptionId)) {
+                    Log.i(TAG, "Disabling MAC randomization on " + config.SSID
+                            + " due to CarrierConfig override");
+                    config.macRandomizationSetting = WifiConfiguration.RANDOMIZATION_NONE;
+                }
             }
             return config;
         }
@@ -1045,12 +1053,14 @@ public class WifiNetworkSuggestionsManager {
                 return false;
             }
             if (wns.passpointConfiguration == null) {
-                if (!WifiConfigurationUtil.validate(wns.wifiConfiguration,
+                WifiConfiguration config = wns.wifiConfiguration;
+                if (!WifiConfigurationUtil.validate(config,
                         WifiConfigurationUtil.VALIDATE_FOR_ADD)) {
                     return false;
                 }
-                if (wns.wifiConfiguration.isEnterprise()
-                        && wns.wifiConfiguration.enterpriseConfig.isInsecure()) {
+                if (config.isEnterprise() && config.enterpriseConfig.isTlsBasedEapMethod()
+                        && !config.enterpriseConfig
+                        .isMandatoryParameterSetForServerCertValidation()) {
                     Log.e(TAG, "Insecure enterprise suggestion is invalid.");
                     return false;
                 }
@@ -1452,7 +1462,7 @@ public class WifiNetworkSuggestionsManager {
     private PendingIntent getPrivateBroadcast(@NonNull String action,
             @NonNull Pair<String, String> extra1, @NonNull Pair<String, Integer> extra2) {
         Intent intent = new Intent(action)
-                .setPackage(mWifiInjector.getWifiStackPackageName())
+                .setPackage(mContext.getServiceWifiPackageName())
                 .putExtra(extra1.first, extra1.second)
                 .putExtra(extra2.first, extra2.second);
         return mFrameworkFacade.getBroadcast(mContext, 0, intent,

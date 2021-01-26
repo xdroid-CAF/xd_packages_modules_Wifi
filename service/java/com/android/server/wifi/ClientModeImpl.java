@@ -22,6 +22,8 @@ import static android.net.wifi.WifiConfiguration.NetworkSelectionStatus.DISABLED
 import static android.net.wifi.WifiManager.WIFI_FEATURE_FILS_SHA256;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_FILS_SHA384;
 
+import static com.android.server.wifi.ActiveModeManager.ROLE_CLIENT_SECONDARY_LONG_LIVED;
+import static com.android.server.wifi.ActiveModeManager.ROLE_CLIENT_SECONDARY_TRANSIENT;
 import static com.android.server.wifi.WifiDataStall.INVALID_THROUGHPUT;
 
 import android.annotation.IntDef;
@@ -102,6 +104,7 @@ import com.android.modules.utils.build.SdkLevel;
 import com.android.net.module.util.Inet4AddressUtils;
 import com.android.net.module.util.MacAddressUtils;
 import com.android.net.module.util.NetUtils;
+import com.android.server.wifi.ActiveModeManager.ClientRole;
 import com.android.server.wifi.MboOceController.BtmFrameData;
 import com.android.server.wifi.WifiCarrierInfoManager.SimAuthRequestData;
 import com.android.server.wifi.WifiCarrierInfoManager.SimAuthResponseData;
@@ -221,6 +224,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
     private final WifiLockManager mWifiLockManager;
     private final WifiP2pConnection mWifiP2pConnection;
     private final WifiGlobals mWifiGlobals;
+    private final ClientModeManagerBroadcastQueue mBroadcastQueue;
     private final long mId;
 
     private boolean mScreenOn = false;
@@ -368,7 +372,8 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
     private final UntrustedWifiNetworkFactory mUntrustedNetworkFactory;
     private final OemPaidWifiNetworkFactory mOemPaidWifiNetworkFactory;
     @Nullable private final OemPrivateWifiNetworkFactory mOemPrivateWifiNetworkFactory;
-    private WifiNetworkAgent mNetworkAgent;
+    @VisibleForTesting
+    WifiNetworkAgent mNetworkAgent;
 
     private byte[] mRssiRanges;
 
@@ -580,6 +585,13 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
     @Nullable
     private StateMachineObituary mObituary = null;
 
+    /**
+     * Whether this ClientModeImpl is in lingering mode. When in lingering mode, the ClientModeImpl
+     * will automatically stop its owner {@link ClientModeManager} upon disconnecting from its
+     * current Wifi network (i.e. exiting {@link L2ConnectedState}.
+     */
+    private boolean mLingering = false;
+
     /** Note that this constructor will also start() the StateMachine. */
     public ClientModeImpl(
             @NonNull Context context,
@@ -632,6 +644,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             @NonNull String ifaceName,
             @NonNull ConcreteClientModeManager clientModeManager,
             @NonNull ClientModeImplMonitor cmiMonitor,
+            @NonNull ClientModeManagerBroadcastQueue broadcastQueue,
             boolean verboseLoggingEnabled) {
         super(TAG, looper);
         mWifiMetrics = wifiMetrics;
@@ -648,6 +661,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
         mLinkProbeManager = linkProbeManager;
         mMboOceController = mboOceController;
         mWifiCarrierInfoManager = wifiCarrierInfoManager;
+        mBroadcastQueue = broadcastQueue;
         mNetworkAgentState = DetailedState.DISCONNECTED;
 
         mBatteryStatsManager = batteryStatsManager;
@@ -1134,8 +1148,6 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
     /**
      * Update interface capabilities
      * This method is used to update some of interface capabilities defined in overlay
-     *
-     * @param ifaceName name of interface to update
      */
     private void updateInterfaceCapabilities() {
         DeviceWiphyCapabilities cap = getDeviceWiphyCapabilities();
@@ -2196,14 +2208,23 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
         Intent intent = new Intent(WifiManager.RSSI_CHANGED_ACTION);
         intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
         intent.putExtra(WifiManager.EXTRA_NEW_RSSI, newRssi);
-        mContext.sendBroadcastAsUser(intent, UserHandle.ALL,
-                android.Manifest.permission.ACCESS_WIFI_STATE);
+        mBroadcastQueue.queueOrSendBroadcast(
+                mClientModeManager,
+                () -> mContext.sendBroadcastAsUser(intent, UserHandle.ALL,
+                        android.Manifest.permission.ACCESS_WIFI_STATE));
     }
 
     private void sendLinkConfigurationChangedBroadcast() {
         Intent intent = new Intent(WifiManager.ACTION_LINK_CONFIGURATION_CHANGED);
         intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
-        mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+        String summary = "broadcast=ACTION_LINK_CONFIGURATION_CHANGED";
+        if (mVerboseLoggingEnabled) Log.d(getTag(), "Queuing " + summary);
+        mBroadcastQueue.queueOrSendBroadcast(
+                mClientModeManager,
+                () -> {
+                    if (mVerboseLoggingEnabled) Log.d(getTag(), "Sending " + summary);
+                    mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+                });
     }
 
     /**
@@ -2216,7 +2237,15 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
         Intent intent = new Intent(WifiManager.SUPPLICANT_CONNECTION_CHANGE_ACTION);
         intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
         intent.putExtra(WifiManager.EXTRA_SUPPLICANT_CONNECTED, connected);
-        mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+        String summary = "broadcast=SUPPLICANT_CONNECTION_CHANGE_ACTION"
+                + " EXTRA_SUPPLICANT_CONNECTED=" + connected;
+        if (mVerboseLoggingEnabled) Log.d(getTag(), "Queuing " + summary);
+        mBroadcastQueue.queueOrSendBroadcast(
+                mClientModeManager,
+                () -> {
+                    if (mVerboseLoggingEnabled) Log.d(getTag(), "Sending " + summary);
+                    mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+                });
     }
 
     /**
@@ -2243,8 +2272,9 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             hidden = true;
         }
         if (mVerboseLoggingEnabled) {
-            log("setDetailed state, old ="
-                    + mNetworkAgentState + " and new state=" + state
+            log("sendNetworkChangeBroadcast"
+                    + " oldState=" + mNetworkAgentState
+                    + " newState=" + state
                     + " hidden=" + hidden);
         }
         if (hidden || state == mNetworkAgentState) return;
@@ -2253,18 +2283,47 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
     }
 
     private void sendNetworkChangeBroadcastWithCurrentState() {
-        Intent intent = new Intent(WifiManager.NETWORK_STATE_CHANGED_ACTION);
-        intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
-        NetworkInfo networkInfo = makeNetworkInfo();
-        intent.putExtra(WifiManager.EXTRA_NETWORK_INFO, networkInfo);
-        //TODO(b/69974497) This should be non-sticky, but settings needs fixing first.
-        mContext.sendStickyBroadcastAsUser(intent, UserHandle.ALL);
+        // copy into local variables to force lambda to capture by value and not reference, since
+        // mNetworkAgentState is mutable and can change
+        final DetailedState networkAgentState = mNetworkAgentState;
+        if (mVerboseLoggingEnabled) {
+            Log.d(getTag(), "Queueing broadcast=NETWORK_STATE_CHANGED_ACTION"
+                    + " networkAgentState=" + networkAgentState);
+        }
+        mBroadcastQueue.queueOrSendBroadcast(
+                mClientModeManager,
+                () -> sendNetworkChangeBroadcast(
+                        mContext, networkAgentState, mVerboseLoggingEnabled));
     }
 
-    private NetworkInfo makeNetworkInfo() {
+    /** Send a NETWORK_STATE_CHANGED_ACTION broadcast. */
+    public static void sendNetworkChangeBroadcast(
+            Context context, DetailedState networkAgentState, boolean verboseLoggingEnabled) {
+        Intent intent = new Intent(WifiManager.NETWORK_STATE_CHANGED_ACTION);
+        intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
+        NetworkInfo networkInfo = makeNetworkInfo(networkAgentState);
+        intent.putExtra(WifiManager.EXTRA_NETWORK_INFO, networkInfo);
+        if (verboseLoggingEnabled) {
+            Log.d(TAG, "Sending broadcast=NETWORK_STATE_CHANGED_ACTION"
+                    + " networkAgentState=" + networkAgentState);
+        }
+        //TODO(b/69974497) This should be non-sticky, but settings needs fixing first.
+        context.sendStickyBroadcastAsUser(intent, UserHandle.ALL);
+    }
+
+    private static NetworkInfo makeNetworkInfo(DetailedState networkAgentState) {
         final NetworkInfo ni = new NetworkInfo(ConnectivityManager.TYPE_WIFI, 0, NETWORKTYPE, "");
-        ni.setDetailedState(mNetworkAgentState, null, null);
+        ni.setDetailedState(networkAgentState, null, null);
         return ni;
+    }
+
+    private List<ScanResult.InformationElement> findMatchingInfoElements(@Nullable String bssid) {
+        if (bssid == null) return null;
+        ScanResult matchingScanResult = mScanRequestProxy.getScanResult(bssid);
+        if (matchingScanResult == null || matchingScanResult.informationElements == null) {
+            return null;
+        }
+        return Arrays.asList(matchingScanResult.informationElements);
     }
 
     private SupplicantState handleSupplicantStateChange(StateChangeResult stateChangeResult) {
@@ -2283,12 +2342,14 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             if (state == SupplicantState.ASSOCIATED) {
                 updateWifiInfoAfterAssociation();
             }
+            mWifiInfo.setInformationElements(findMatchingInfoElements(stateChangeResult.bssid));
         } else {
             // Reset parameters according to WifiInfo.reset()
             mWifiInfo.setNetworkId(WifiConfiguration.INVALID_NETWORK_ID);
             mWifiInfo.setBSSID(null);
             mWifiInfo.setSSID(null);
             mWifiInfo.setWifiStandard(ScanResult.WIFI_STANDARD_UNKNOWN);
+            mWifiInfo.setInformationElements(null);
         }
         updateLayer2Information();
         // SSID might have been updated, so call updateCapabilities
@@ -3337,6 +3398,10 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
                     int uid = message.arg2;
                     String bssid = (String) message.obj;
                     mSentHLPs = false;
+                    // Stop lingering (if it was lingering before) if we start a new connection.
+                    // This means that the ClientModeManager was reused for another purpose, so it
+                    // should no longer be in lingering mode.
+                    mClientModeManager.setShouldReduceNetworkScore(false);
 
                     if (!hasConnectionRequests()) {
                         if (mNetworkAgent == null) {
@@ -3665,7 +3730,10 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             builder.removeCapability(NetworkCapabilities.NET_CAPABILITY_TRUSTED);
         }
         if (SdkLevel.isAtLeastS()) {
-            if (mWifiInfo.isOemPaid()) {
+            if (mWifiInfo.isOemPaid()
+                    // TODO(b/177373513): hack to match OEM_PAID NetworkRequest for Make Before
+                    //  Break
+                    || mClientModeManager.getRole() == ROLE_CLIENT_SECONDARY_TRANSIENT) {
                 builder.addCapability(NetworkCapabilities.NET_CAPABILITY_OEM_PAID);
             } else {
                 builder.removeCapability(NetworkCapabilities.NET_CAPABILITY_OEM_PAID);
@@ -3958,6 +4026,26 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             mWifiInfo.reset();
             mWifiInfo.setSupplicantState(SupplicantState.DISCONNECTED);
             mWifiScoreCard.noteSupplicantStateChanged(mWifiInfo);
+
+            // For secondary client roles, they should stop themselves upon disconnection.
+            // - Primary role shouldn't because it is persistent, and should try connecting to other
+            //   networks upon disconnection.
+            // - ROLE_CLIENT_LOCAL_ONLY shouldn't because it has auto-retry logic if the connection
+            //   fails. WifiNetworkFactory will explicitly remove the CMM when the request is
+            //   complete.
+            // TODO(b/160346062): Maybe clean this up by having ClientModeManager register a
+            //  onExitConnectingOrConnectedState() callback with ClientModeImpl and implementing
+            //  this logic in ClientModeManager. ClientModeImpl should be role-agnostic.
+            ClientRole role = mClientModeManager.getRole();
+            if (role == ROLE_CLIENT_SECONDARY_LONG_LIVED
+                    || role == ROLE_CLIENT_SECONDARY_TRANSIENT) {
+                if (mVerboseLoggingEnabled) {
+                    Log.d(TAG, "Disconnected in ROLE_CLIENT_SECONDARY_*, stop ClientModeManager="
+                            + mClientModeManager);
+                }
+                // stop owner ClientModeManager, which will in turn stop this ClientModeImpl
+                mClientModeManager.stop();
+            }
         }
 
         @Override
@@ -4085,14 +4173,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
                             // The cached scan result of connected network would be null at the
                             // first connection, try to check full scan result list again to look up
                             // matched scan result associated to the current SSID and BSSID.
-                            List<ScanResult> scanResults = mScanRequestProxy.getScanResults();
-                            for (ScanResult result : scanResults) {
-                                if (result.SSID.equals(WifiInfo.removeDoubleQuotes(config.SSID))
-                                        && result.BSSID.equals(mLastBssid)) {
-                                    scanResult = result;
-                                    break;
-                                }
-                            }
+                            scanResult = mScanRequestProxy.getScanResult(mLastBssid);
                         }
                         if (scanResult != null) {
                             mPasspointManager.requestVenueUrlAnqpElement(scanResult);
@@ -4242,18 +4323,21 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
 
                     int level2FailureReason =
                             WifiMetricsProto.ConnectionEvent.FAILURE_REASON_UNKNOWN;
-                    if (statusCode == StatusCode.AP_UNABLE_TO_HANDLE_NEW_STA) {
+                    if (statusCode == StatusCode.AP_UNABLE_TO_HANDLE_NEW_STA
+                            || statusCode == StatusCode.ASSOC_REJECTED_TEMPORARILY
+                            || statusCode == StatusCode.DENIED_INSUFFICIENT_BANDWIDTH) {
                         level2FailureReason = WifiMetricsProto.ConnectionEvent
                                 .ASSOCIATION_REJECTION_AP_UNABLE_TO_HANDLE_NEW_STA;
                     }
-                    // If rejection occurred while Metrics is tracking a ConnnectionEvent, end it.
+                    // If rejection occurred while Metrics is tracking a ConnectionEvent, end it.
                     reportConnectionAttemptEnd(
                             timedOut
                                     ? WifiMetrics.ConnectionEvent.FAILURE_ASSOCIATION_TIMED_OUT
                                     : WifiMetrics.ConnectionEvent.FAILURE_ASSOCIATION_REJECTION,
                             WifiMetricsProto.ConnectionEvent.HLF_NONE,
                             level2FailureReason);
-                    if (statusCode != StatusCode.AP_UNABLE_TO_HANDLE_NEW_STA) {
+                    if (level2FailureReason != WifiMetricsProto.ConnectionEvent
+                            .ASSOCIATION_REJECTION_AP_UNABLE_TO_HANDLE_NEW_STA) {
                         mWifiLastResortWatchdog.noteConnectionFailureAndTriggerIfNeeded(
                                 getConnectingSsidInternal(), bssid,
                                 WifiLastResortWatchdog.FAILURE_CODE_ASSOCIATION);
@@ -5986,7 +6070,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
 
     @Override
     public boolean setCountryCode(String countryCode) {
-        return mWifiNative.setCountryCode(mInterfaceName, countryCode);
+        return mWifiNative.setStaCountryCode(mInterfaceName, countryCode);
     }
 
     @Override
@@ -5997,6 +6081,11 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
     @Override
     public List<RxFateReport> getRxPktFates() {
         return mWifiNative.getRxPktFates(mInterfaceName);
+    }
+
+    @Override
+    public void setShouldReduceNetworkScore(boolean shouldReduceNetworkScore) {
+        mWifiScoreReport.setShouldReduceNetworkScore(shouldReduceNetworkScore);
     }
 
     private void addPasspointUrlsToLinkProperties(LinkProperties linkProperties) {
@@ -6017,9 +6106,8 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
         }
 
         // Update the friendly name to populate the notification
-        CaptivePortalData.Builder captivePortalDataBuilder = new CaptivePortalData.Builder();
-        // TODO: Add when new API is available
-        //    .setVenueFriendlyName(currentNetwork.providerFriendlyName);
+        CaptivePortalData.Builder captivePortalDataBuilder = new CaptivePortalData.Builder()
+                .setVenueFriendlyName(currentNetwork.providerFriendlyName);
 
         // Update the Venue URL if available
         if (venueUrl != null) {
@@ -6034,5 +6122,18 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
         }
 
         linkProperties.setCaptivePortalData(captivePortalDataBuilder.build());
+    }
+
+    private boolean mHasQuit = false;
+
+    @Override
+    protected void onQuitting() {
+        mHasQuit = true;
+        mClientModeManager.onClientModeImplQuit();
+    }
+
+    /** Returns true if the ClientModeImpl has fully stopped, false otherwise. */
+    public boolean hasQuit() {
+        return mHasQuit;
     }
 }

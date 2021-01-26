@@ -120,6 +120,7 @@ import android.net.wifi.IOnWifiActivityEnergyInfoListener;
 import android.net.wifi.IOnWifiUsabilityStatsListener;
 import android.net.wifi.IScanResultsCallback;
 import android.net.wifi.ISoftApCallback;
+import android.net.wifi.ISubsystemRestartCallback;
 import android.net.wifi.ISuggestionConnectionStatusListener;
 import android.net.wifi.ISuggestionUserApprovalStatusListener;
 import android.net.wifi.ITrafficStateCallback;
@@ -149,6 +150,7 @@ import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.IPowerManager;
 import android.os.IThermalService;
+import android.os.Parcel;
 import android.os.PowerManager;
 import android.os.Process;
 import android.os.RemoteException;
@@ -338,6 +340,7 @@ public class WifiServiceImplTest extends WifiBaseTest {
     @Mock ISuggestionConnectionStatusListener mSuggestionConnectionStatusListener;
     @Mock ISuggestionUserApprovalStatusListener mSuggestionUserApprovalStatusListener;
     @Mock IOnWifiActivityEnergyInfoListener mOnWifiActivityEnergyInfoListener;
+    @Mock ISubsystemRestartCallback mSubsystemRestartCallback;
     @Mock IWifiConnectedNetworkScorer mWifiConnectedNetworkScorer;
     @Mock WifiSettingsConfigStore mWifiSettingsConfigStore;
     @Mock WifiScanAlwaysAvailableSettingsCompatibility mScanAlwaysAvailableSettingsCompatibility;
@@ -1083,6 +1086,7 @@ public class WifiServiceImplTest extends WifiBaseTest {
      * Verify that the restartWifiSubsystem fails w/o the NETWORK_AIRPLANE_MODE permission.
      */
     @Test public void testRestartWifiSubsystemWithoutPermission() {
+        assumeTrue(SdkLevel.isAtLeastS());
         doThrow(new SecurityException()).when(mContext).enforceCallingOrSelfPermission(
                 eq(android.Manifest.permission.NETWORK_AIRPLANE_MODE), eq("WifiService"));
 
@@ -1095,9 +1099,55 @@ public class WifiServiceImplTest extends WifiBaseTest {
     }
 
     /**
+     * Verify that a call to registerSubsystemRestartCallback throws a SecurityException if the
+     * caller does not have the ACCESS_WIFI_STATE permission.
+     */
+    @Test
+    public void testRegisterSubsystemRestartThrowsSecurityExceptionOnMissingPermissions() {
+        doThrow(new SecurityException()).when(mContext)
+                .enforceCallingOrSelfPermission(eq(ACCESS_WIFI_STATE),
+                        eq("WifiService"));
+        try {
+            mWifiServiceImpl.registerSubsystemRestartCallback(mSubsystemRestartCallback);
+            fail("expected SecurityException");
+        } catch (SecurityException expected) { }
+    }
+
+    /**
+     * Verify that a call to unregisterSubsystemRestartCallback throws a SecurityException if the
+     * caller does not have the ACCESS_WIFI_STATE permission.
+     */
+    @Test
+    public void testUnregisterSubsystemRestartThrowsSecurityExceptionOnMissingPermissions() {
+        doThrow(new SecurityException()).when(mContext)
+                .enforceCallingOrSelfPermission(eq(ACCESS_WIFI_STATE),
+                        eq("WifiService"));
+        try {
+            mWifiServiceImpl.unregisterSubsystemRestartCallback(mSubsystemRestartCallback);
+            fail("expected SecurityException");
+        } catch (SecurityException expected) { }
+    }
+
+
+    /**
+     * Test register and unregister subsystem restart callback will go to ActiveModeManager;
+     */
+    @Test
+    public void testRegisterUnregisterSubsystemRestartCallback() throws Exception {
+        when(mCoexCallback.asBinder()).thenReturn(mAppBinder);
+        mWifiServiceImpl.registerSubsystemRestartCallback(mSubsystemRestartCallback);
+        mLooper.dispatchAll();
+        verify(mActiveModeWarden).registerSubsystemRestartCallback(mSubsystemRestartCallback);
+        mWifiServiceImpl.unregisterSubsystemRestartCallback(mSubsystemRestartCallback);
+        mLooper.dispatchAll();
+        verify(mActiveModeWarden).unregisterSubsystemRestartCallback(mSubsystemRestartCallback);
+    }
+
+    /**
      * Verify that the restartWifiSubsystem succeeds and passes correct parameters.
      */
     @Test public void testRestartWifiSubsystemWithReason() {
+        assumeTrue(SdkLevel.isAtLeastS());
         when(mContext.checkPermission(eq(android.Manifest.permission.NETWORK_AIRPLANE_MODE),
                 anyInt(), anyInt())).thenReturn(PackageManager.PERMISSION_GRANTED);
 
@@ -2039,6 +2089,14 @@ public class WifiServiceImplTest extends WifiBaseTest {
         return wifiInfo;
     }
 
+    private WifiInfo parcelingRoundTrip(WifiInfo wifiInfo) {
+        Parcel parcel = Parcel.obtain();
+        wifiInfo.writeToParcel(parcel, 0);
+        // Rewind the pointer to the head of the parcel.
+        parcel.setDataPosition(0);
+        return WifiInfo.CREATOR.createFromParcel(parcel);
+    }
+
     /**
      * Test that connected SSID and BSSID are not exposed to an app that does not have the
      * appropriate permissions.
@@ -2052,7 +2110,8 @@ public class WifiServiceImplTest extends WifiBaseTest {
                 anyString(), nullable(String.class), anyInt(), nullable(String.class));
 
         mLooper.startAutoDispatch();
-        WifiInfo connectionInfo = mWifiServiceImpl.getConnectionInfo(TEST_PACKAGE, TEST_FEATURE_ID);
+        WifiInfo connectionInfo = parcelingRoundTrip(
+                mWifiServiceImpl.getConnectionInfo(TEST_PACKAGE, TEST_FEATURE_ID));
         mLooper.stopAutoDispatchAndIgnoreExceptions();
 
         assertEquals(WifiManager.UNKNOWN_SSID, connectionInfo.getSSID());
@@ -2075,7 +2134,8 @@ public class WifiServiceImplTest extends WifiBaseTest {
                 anyString(), nullable(String.class), anyInt(), nullable(String.class));
 
         mLooper.startAutoDispatch();
-        WifiInfo connectionInfo = mWifiServiceImpl.getConnectionInfo(TEST_PACKAGE, TEST_FEATURE_ID);
+        WifiInfo connectionInfo = parcelingRoundTrip(
+                mWifiServiceImpl.getConnectionInfo(TEST_PACKAGE, TEST_FEATURE_ID));
         mLooper.stopAutoDispatchAndIgnoreExceptions();
 
         assertEquals(WifiManager.UNKNOWN_SSID, connectionInfo.getSSID());
@@ -2095,7 +2155,8 @@ public class WifiServiceImplTest extends WifiBaseTest {
         when(mClientModeManager.syncRequestConnectionInfo()).thenReturn(wifiInfo);
 
         mLooper.startAutoDispatch();
-        WifiInfo connectionInfo = mWifiServiceImpl.getConnectionInfo(TEST_PACKAGE, TEST_FEATURE_ID);
+        WifiInfo connectionInfo = parcelingRoundTrip(
+                mWifiServiceImpl.getConnectionInfo(TEST_PACKAGE, TEST_FEATURE_ID));
         mLooper.stopAutoDispatchAndIgnoreExceptions();
 
         assertEquals(TEST_SSID_WITH_QUOTES, connectionInfo.getSSID());
@@ -2122,8 +2183,8 @@ public class WifiServiceImplTest extends WifiBaseTest {
                 .thenReturn(Arrays.asList(secondaryCmm));
 
         mLooper.startAutoDispatch();
-        WifiInfo connectionInfo =
-                mWifiServiceImpl.getConnectionInfo(TEST_PACKAGE, TEST_FEATURE_ID);
+        WifiInfo connectionInfo = parcelingRoundTrip(
+                mWifiServiceImpl.getConnectionInfo(TEST_PACKAGE, TEST_FEATURE_ID));
         mLooper.stopAutoDispatchAndIgnoreExceptions();
 
         assertEquals(TEST_SSID_WITH_QUOTES, connectionInfo.getSSID());
@@ -2150,8 +2211,8 @@ public class WifiServiceImplTest extends WifiBaseTest {
                 .thenReturn(Arrays.asList(secondaryCmm));
 
         mLooper.startAutoDispatch();
-        WifiInfo connectionInfo =
-                mWifiServiceImpl.getConnectionInfo(TEST_PACKAGE, TEST_FEATURE_ID);
+        WifiInfo connectionInfo = parcelingRoundTrip(
+                mWifiServiceImpl.getConnectionInfo(TEST_PACKAGE, TEST_FEATURE_ID));
         mLooper.stopAutoDispatchAndIgnoreExceptions();
 
         assertEquals(TEST_SSID_WITH_QUOTES, connectionInfo.getSSID());
@@ -7044,5 +7105,47 @@ public class WifiServiceImplTest extends WifiBaseTest {
         mLooper.stopAutoDispatchAndIgnoreExceptions();
 
         assertEquals(dhcpResultsParcelable.leaseDuration, dhcpInfo.leaseDuration);
+    }
+
+    @Test
+    public void testSetEmergencyScanRequestInProgress() throws Exception {
+        mWifiServiceImpl.setEmergencyScanRequestInProgress(true);
+        verify(mActiveModeWarden).setEmergencyScanRequestInProgress(true);
+
+        mWifiServiceImpl.setEmergencyScanRequestInProgress(false);
+        verify(mActiveModeWarden).setEmergencyScanRequestInProgress(false);
+    }
+
+    @Test
+    public void testSetEmergencyScanRequestWithoutPermissionThrowsException() throws Exception {
+        when(mContext.checkCallingOrSelfPermission(android.Manifest.permission.NETWORK_STACK))
+                .thenReturn(PackageManager.PERMISSION_DENIED);
+        doThrow(new SecurityException()).when(mContext).enforceCallingOrSelfPermission(
+                eq(NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK), any());
+        try {
+            mWifiServiceImpl.setEmergencyScanRequestInProgress(true);
+            fail();
+        } catch (SecurityException e) { }
+    }
+
+    @Test
+    public void testRemoveAppState() throws Exception {
+        mWifiServiceImpl.removeAppState(TEST_UID, TEST_PACKAGE_NAME);
+        mLooper.dispatchAll();
+
+        verify(mScanRequestProxy).clearScanRequestTimestampsForApp(TEST_PACKAGE_NAME, TEST_UID);
+        verify(mWifiNetworkSuggestionsManager).removeApp(TEST_PACKAGE_NAME);
+        verify(mWifiNetworkFactory).removeUserApprovedAccessPointsForApp(TEST_PACKAGE_NAME);
+        verify(mPasspointManager).removePasspointProviderWithPackage(TEST_PACKAGE_NAME);
+    }
+
+    @Test
+    public void testRemoveAppStateWithoutPermissionThrowsException() throws Exception {
+        doThrow(new SecurityException()).when(mContext).enforceCallingOrSelfPermission(
+                eq(Manifest.permission.NETWORK_SETTINGS), any());
+        try {
+            mWifiServiceImpl.removeAppState(TEST_UID, TEST_PACKAGE_NAME);
+            fail();
+        } catch (SecurityException e) { }
     }
 }
