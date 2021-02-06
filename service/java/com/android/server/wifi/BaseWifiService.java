@@ -16,6 +16,7 @@
 
 package com.android.server.wifi;
 
+import android.annotation.NonNull;
 import android.net.DhcpInfo;
 import android.net.Network;
 import android.net.wifi.CoexUnsafeChannel;
@@ -28,6 +29,7 @@ import android.net.wifi.IOnWifiActivityEnergyInfoListener;
 import android.net.wifi.IOnWifiUsabilityStatsListener;
 import android.net.wifi.IScanResultsCallback;
 import android.net.wifi.ISoftApCallback;
+import android.net.wifi.ISubsystemRestartCallback;
 import android.net.wifi.ISuggestionConnectionStatusListener;
 import android.net.wifi.ISuggestionUserApprovalStatusListener;
 import android.net.wifi.ITrafficStateCallback;
@@ -216,6 +218,16 @@ public class BaseWifiService extends IWifiManager.Stub {
 
     @Override
     public boolean setWifiEnabled(String packageName, boolean enable) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void registerSubsystemRestartCallback(ISubsystemRestartCallback callback) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void unregisterSubsystemRestartCallback(ISubsystemRestartCallback callback) {
         throw new UnsupportedOperationException();
     }
 
@@ -732,6 +744,16 @@ public class BaseWifiService extends IWifiManager.Stub {
     @Override
     public void removeSuggestionUserApprovalStatusListener(int listenerIdentifier,
             String packageName) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setEmergencyScanRequestInProgress(boolean inProgress) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void removeAppState(int targetAppUid, @NonNull String targetAppPackageName) {
         throw new UnsupportedOperationException();
     }
 
