@@ -222,9 +222,9 @@ interface IWifiManager
 
     void unregisterSoftApCallback(int callbackIdentifier);
 
-    void addOnWifiUsabilityStatsListener(in IBinder binder, in IOnWifiUsabilityStatsListener listener, int listenerIdentifier);
+    void addOnWifiUsabilityStatsListener(in IOnWifiUsabilityStatsListener listener);
 
-    void removeOnWifiUsabilityStatsListener(int listenerIdentifier);
+    void removeOnWifiUsabilityStatsListener(in IOnWifiUsabilityStatsListener listener);
 
     void registerTrafficStateCallback(in IBinder binder, in ITrafficStateCallback callback, int callbackIdentifier);
 
@@ -232,9 +232,9 @@ interface IWifiManager
 
     String getCapabilities(String capaType);
 
-    void registerNetworkRequestMatchCallback(in IBinder binder, in INetworkRequestMatchCallback callback, int callbackIdentifier);
+    void registerNetworkRequestMatchCallback(in INetworkRequestMatchCallback callback);
 
-    void unregisterNetworkRequestMatchCallback(int callbackIdentifier);
+    void unregisterNetworkRequestMatchCallback(in INetworkRequestMatchCallback callback);
 
     int addNetworkSuggestions(in List<WifiNetworkSuggestion> networkSuggestions, in String packageName,
         in String featureId);
@@ -247,8 +247,8 @@ interface IWifiManager
 
     void setDeviceMobilityState(int state);
 
-    void startDppAsConfiguratorInitiator(in IBinder binder, in String enrolleeUri,
-        int selectedNetworkId, int netRole, in IDppCallback callback);
+    void startDppAsConfiguratorInitiator(in IBinder binder, in String packageName,
+        in String enrolleeUri, int selectedNetworkId, int netRole, in IDppCallback callback);
 
     void startDppAsEnrolleeInitiator(in IBinder binder, in String configuratorUri,
         in IDppCallback callback);
@@ -270,9 +270,9 @@ interface IWifiManager
 
     void unregisterScanResultsCallback(in IScanResultsCallback callback);
 
-    void registerSuggestionConnectionStatusListener(in IBinder binder, in ISuggestionConnectionStatusListener listener, int listenerIdentifier, String packageName, String featureId);
+    void registerSuggestionConnectionStatusListener(in ISuggestionConnectionStatusListener listener, String packageName, String featureId);
 
-    void unregisterSuggestionConnectionStatusListener(int listenerIdentifier, String packageName);
+    void unregisterSuggestionConnectionStatusListener(in ISuggestionConnectionStatusListener listener, String packageName);
 
     int calculateSignalLevel(int rssi);
 
@@ -297,8 +297,6 @@ interface IWifiManager
 
     boolean isAutoWakeupEnabled();
 
-    int getNetworkSuggestionUserApprovalStatus(String packageName);
-
     void startTemporarilyDisablingAllNonCarrierMergedWifi(int subId);
 
     void stopTemporarilyDisablingAllNonCarrierMergedWifi();
@@ -313,13 +311,15 @@ interface IWifiManager
 
     void restartWifiSubsystem(String reason);
 
-    boolean addSuggestionUserApprovalStatusListener(in IBinder binder, in ISuggestionUserApprovalStatusListener listener, int listenerIdentifier, String packageName, String featureId);
+    void addSuggestionUserApprovalStatusListener(in ISuggestionUserApprovalStatusListener listener, String packageName);
 
-    void removeSuggestionUserApprovalStatusListener(int listenerIdentifier, String packageName);
+    void removeSuggestionUserApprovalStatusListener(in ISuggestionUserApprovalStatusListener listener, String packageName);
 
     void setEmergencyScanRequestInProgress(boolean inProgress);
 
     void removeAppState(int targetAppUid, String targetApppackageName);
+
+    boolean setWifiScoringEnabled(boolean enabled);
 
     int getSoftApWifiStandard();
 

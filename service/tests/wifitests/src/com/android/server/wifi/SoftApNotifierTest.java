@@ -44,6 +44,7 @@ import org.mockito.MockitoAnnotations;
 @SmallTest
 public class SoftApNotifierTest extends WifiBaseTest {
     private static final String TEST_SSID = "Test SSID";
+    private static final String NOTIFICATION_TAG = "com.android.wifi";
 
     @Mock WifiContext mContext;
     @Mock Resources mResources;
@@ -62,6 +63,7 @@ public class SoftApNotifierTest extends WifiBaseTest {
                 .thenReturn(mNotificationManager);
         when(mContext.getResources()).thenReturn(mResources);
         when(mContext.getWifiOverlayApkPkgName()).thenReturn("test.com.android.wifi.resources");
+        when(mContext.getNotificationTag()).thenReturn(NOTIFICATION_TAG);
         mSoftApNotifier = new SoftApNotifier(mContext, mFrameworkFacade);
     }
 
@@ -71,11 +73,11 @@ public class SoftApNotifierTest extends WifiBaseTest {
      * @throws Exception
      */
     @Test
-    public void showSoftApShutDownTimeoutExpiredNotification() throws Exception {
+    public void showSoftApShutdownTimeoutExpiredNotification() throws Exception {
         when(mFrameworkFacade.makeNotificationBuilder(any(),
                 eq(WifiService.NOTIFICATION_NETWORK_STATUS))).thenReturn(mNotificationBuilder);
-        mSoftApNotifier.showSoftApShutDownTimeoutExpiredNotification();
-        verify(mNotificationManager).notify(
+        mSoftApNotifier.showSoftApShutdownTimeoutExpiredNotification();
+        verify(mNotificationManager).notify(eq(NOTIFICATION_TAG),
                 eq(mSoftApNotifier.NOTIFICATION_ID_SOFTAP_AUTO_DISABLED), any());
         ArgumentCaptor<Intent> intent = ArgumentCaptor.forClass(Intent.class);
         verify(mFrameworkFacade).getActivity(
@@ -90,9 +92,9 @@ public class SoftApNotifierTest extends WifiBaseTest {
      * @throws Exception
      */
     @Test
-    public void dismissSoftApShutDownTimeoutExpiredNotification() throws Exception {
-        mSoftApNotifier.dismissSoftApShutDownTimeoutExpiredNotification();
-        verify(mNotificationManager).cancel(any(),
+    public void dismissSoftApShutdownTimeoutExpiredNotification() throws Exception {
+        mSoftApNotifier.dismissSoftApShutdownTimeoutExpiredNotification();
+        verify(mNotificationManager).cancel(eq(NOTIFICATION_TAG),
                 eq(mSoftApNotifier.NOTIFICATION_ID_SOFTAP_AUTO_DISABLED));
     }
 }
