@@ -39,6 +39,7 @@ import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
@@ -50,6 +51,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.verifyZeroInteractions;
 import static org.mockito.Mockito.when;
 
+import android.annotation.Nullable;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -68,6 +70,7 @@ import android.net.wifi.WifiManager;
 import android.os.BatteryStatsManager;
 import android.os.IBinder;
 import android.os.Process;
+import android.os.RemoteException;
 import android.os.WorkSource;
 import android.os.test.TestLooper;
 import android.telephony.TelephonyManager;
@@ -142,6 +145,7 @@ public class ActiveModeWardenTest extends WifiBaseTest {
     @Mock WifiMetrics mWifiMetrics;
     @Mock ISubsystemRestartCallback mSubsystemRestartCallback;
     @Mock ConnectivityManager mConnectivityManager;
+    @Mock ExternalScoreUpdateObserverProxy mExternalScoreUpdateObserverProxy;
 
     ActiveModeManager.Listener<ConcreteClientModeManager> mClientListener;
     ActiveModeManager.Listener<SoftApManager> mSoftApListener;
@@ -259,7 +263,8 @@ public class ActiveModeWardenTest extends WifiBaseTest {
                 mSettingsStore,
                 mFacade,
                 mWifiPermissionsUtil,
-                mWifiMetrics);
+                mWifiMetrics,
+                mExternalScoreUpdateObserverProxy);
         // SelfRecovery is created in WifiInjector after ActiveModeWarden, so getSelfRecovery()
         // returns null when constructing ActiveModeWarden.
         when(mWifiInjector.getSelfRecovery()).thenReturn(mSelfRecovery);
@@ -2152,6 +2157,9 @@ public class ActiveModeWardenTest extends WifiBaseTest {
                 SelfRecovery.REASON_STRINGS[SelfRecovery.REASON_WIFINATIVE_FAILURE], true);
         mLooper.dispatchAll();
 
+        mLooper.moveTimeForward(TEST_WIFI_RECOVERY_DELAY_MS + 10);
+        mLooper.dispatchAll();
+
         assertInDisabledState();
         verifyNoMoreInteractions(mClientModeManager, mSoftApManager);
     }
@@ -3155,6 +3163,7 @@ public class ActiveModeWardenTest extends WifiBaseTest {
         IBinder iBinder = mock(IBinder.class);
         IWifiConnectedNetworkScorer iScorer = mock(IWifiConnectedNetworkScorer.class);
         mActiveModeWarden.setWifiConnectedNetworkScorer(iBinder, iScorer);
+        verify(iScorer).onSetScoreUpdateObserver(mExternalScoreUpdateObserverProxy);
         enterClientModeActiveState();
         assertInEnabledState();
         verify(mClientModeManager).setWifiConnectedNetworkScorer(iBinder, iScorer);
@@ -3172,6 +3181,7 @@ public class ActiveModeWardenTest extends WifiBaseTest {
         IBinder iBinder = mock(IBinder.class);
         IWifiConnectedNetworkScorer iScorer = mock(IWifiConnectedNetworkScorer.class);
         mActiveModeWarden.setWifiConnectedNetworkScorer(iBinder, iScorer);
+        verify(iScorer).onSetScoreUpdateObserver(mExternalScoreUpdateObserverProxy);
         enterClientModeActiveState();
         assertInEnabledState();
         verify(mClientModeManager).setWifiConnectedNetworkScorer(iBinder, iScorer);
@@ -3179,6 +3189,19 @@ public class ActiveModeWardenTest extends WifiBaseTest {
         enterScanOnlyModeActiveState(true);
 
         verify(mClientModeManager).clearWifiConnectedNetworkScorer();
+    }
+
+    @Test
+    public void handleWifiScorerSetScoreUpdateObserverFailure() throws Exception {
+        IBinder iBinder = mock(IBinder.class);
+        IWifiConnectedNetworkScorer iScorer = mock(IWifiConnectedNetworkScorer.class);
+        doThrow(new RemoteException()).when(iScorer).onSetScoreUpdateObserver(any());
+        mActiveModeWarden.setWifiConnectedNetworkScorer(iBinder, iScorer);
+        verify(iScorer).onSetScoreUpdateObserver(mExternalScoreUpdateObserverProxy);
+        enterClientModeActiveState();
+        assertInEnabledState();
+        // Ensure we did not propagate the scorer.
+        verify(mClientModeManager, never()).setWifiConnectedNetworkScorer(iBinder, iScorer);
     }
 
     /** Verify that the primary changed callback is triggered when entering client mode. */
@@ -3311,7 +3334,9 @@ public class ActiveModeWardenTest extends WifiBaseTest {
      * Helper method to enter the EnabledState and set ClientModeManager in ScanOnlyMode during
      * emergency scan processing.
      */
-    private void indicateStartOfEmergencyScan(boolean hasAnyOtherStaToggleEnabled)
+    private void indicateStartOfEmergencyScan(
+            boolean hasAnyOtherStaToggleEnabled,
+            @Nullable ActiveModeManager.ClientRole expectedRole)
             throws Exception {
         String fromState = mActiveModeWarden.getCurrentMode();
         mActiveModeWarden.setEmergencyScanRequestInProgress(true);
@@ -3329,15 +3354,16 @@ public class ActiveModeWardenTest extends WifiBaseTest {
             verify(mBatteryStats).reportWifiState(
                     BatteryStatsManager.WIFI_STATE_OFF_SCANNING, null);
         } else {
-            // Nothing changes.
-            verify(mClientModeManager, never()).setRole(any(), any());
+            verify(mClientModeManager).setRole(eq(expectedRole), any());
             verify(mClientModeManager, never()).stop();
             assertEquals(fromState, mActiveModeWarden.getCurrentMode());
         }
         assertInEnabledState();
     }
 
-    private void indicateEndOfEmergencyScan(boolean hasAnyOtherStaToggleEnabled) {
+    private void indicateEndOfEmergencyScan(
+            boolean hasAnyOtherStaToggleEnabled,
+            @Nullable ActiveModeManager.ClientRole expectedRole) {
         String fromState = mActiveModeWarden.getCurrentMode();
         mActiveModeWarden.setEmergencyScanRequestInProgress(false);
         mLooper.dispatchAll();
@@ -3349,7 +3375,7 @@ public class ActiveModeWardenTest extends WifiBaseTest {
             assertInDisabledState();
         } else {
             // Nothing changes.
-            verify(mClientModeManager, never()).setRole(any(), any());
+            verify(mClientModeManager).setRole(eq(expectedRole), any());
             verify(mClientModeManager, never()).stop();
             assertEquals(fromState, mActiveModeWarden.getCurrentMode());
         }
@@ -3363,9 +3389,12 @@ public class ActiveModeWardenTest extends WifiBaseTest {
         when(mSettingsStore.isScanAlwaysAvailable()).thenReturn(false);
         when(mSettingsStore.isWifiToggleEnabled()).thenReturn(false);
 
-        indicateStartOfEmergencyScan(false);
+        indicateStartOfEmergencyScan(false, null);
 
-        indicateEndOfEmergencyScan(false);
+        // To reset setRole invocation above which is checked inside |indicateEndOfEmergencyScan|
+        clearInvocations(mClientModeManager);
+
+        indicateEndOfEmergencyScan(false, null);
     }
 
     @Test
@@ -3375,9 +3404,12 @@ public class ActiveModeWardenTest extends WifiBaseTest {
 
         reset(mBatteryStats, mScanRequestProxy, mModeChangeCallback);
 
-        indicateStartOfEmergencyScan(true);
+        indicateStartOfEmergencyScan(true, ROLE_CLIENT_PRIMARY);
 
-        indicateEndOfEmergencyScan(true);
+        // To reset setRole invocation above which is checked inside |indicateEndOfEmergencyScan|
+        clearInvocations(mClientModeManager);
+
+        indicateEndOfEmergencyScan(true, ROLE_CLIENT_PRIMARY);
     }
 
     @Test
@@ -3387,9 +3419,12 @@ public class ActiveModeWardenTest extends WifiBaseTest {
 
         reset(mBatteryStats, mScanRequestProxy, mModeChangeCallback);
 
-        indicateStartOfEmergencyScan(true);
+        indicateStartOfEmergencyScan(true, ROLE_CLIENT_SCAN_ONLY);
 
-        indicateEndOfEmergencyScan(true);
+        // To reset setRole invocation above which is checked inside |indicateEndOfEmergencyScan|
+        clearInvocations(mClientModeManager);
+
+        indicateEndOfEmergencyScan(true, ROLE_CLIENT_SCAN_ONLY);
     }
 
     @Test
@@ -3412,9 +3447,12 @@ public class ActiveModeWardenTest extends WifiBaseTest {
         });
         reset(mBatteryStats, mScanRequestProxy, mModeChangeCallback);
 
-        indicateStartOfEmergencyScan(false);
+        indicateStartOfEmergencyScan(false, null);
 
-        indicateEndOfEmergencyScan(false);
+        // To reset setRole invocation above which is checked inside |indicateEndOfEmergencyScan|
+        clearInvocations(mClientModeManager);
+
+        indicateEndOfEmergencyScan(false, null);
     }
 
     @Test
@@ -3433,9 +3471,12 @@ public class ActiveModeWardenTest extends WifiBaseTest {
             mLooper.dispatchAll();
         });
 
-        indicateStartOfEmergencyScan(true);
+        indicateStartOfEmergencyScan(true, ROLE_CLIENT_PRIMARY);
 
-        indicateEndOfEmergencyScan(true);
+        // To reset setRole invocation above which is checked inside |indicateEndOfEmergencyScan|
+        clearInvocations(mClientModeManager);
+
+        indicateEndOfEmergencyScan(true, ROLE_CLIENT_PRIMARY);
     }
 
     @Test
@@ -3445,7 +3486,7 @@ public class ActiveModeWardenTest extends WifiBaseTest {
 
         reset(mBatteryStats, mScanRequestProxy, mModeChangeCallback);
 
-        indicateStartOfEmergencyScan(true);
+        indicateStartOfEmergencyScan(true, ROLE_CLIENT_PRIMARY);
 
         // Toggle off wifi
         when(mSettingsStore.isWifiToggleEnabled()).thenReturn(false);
@@ -3460,7 +3501,10 @@ public class ActiveModeWardenTest extends WifiBaseTest {
         verify(mClientModeManager, never()).stop();
         assertInEnabledState();
 
-        indicateEndOfEmergencyScan(false);
+        // To reset setRole invocation above which is checked inside |indicateEndOfEmergencyScan|
+        clearInvocations(mClientModeManager);
+
+        indicateEndOfEmergencyScan(false, null);
     }
 
     @Test
@@ -3470,7 +3514,10 @@ public class ActiveModeWardenTest extends WifiBaseTest {
 
         reset(mBatteryStats, mScanRequestProxy, mModeChangeCallback);
 
-        indicateStartOfEmergencyScan(true);
+        indicateStartOfEmergencyScan(true, ROLE_CLIENT_SCAN_ONLY);
+
+        // To reset setRole invocation above which is checked below.
+        clearInvocations(mClientModeManager);
 
         // Toggle off scan only mode
         when(mWifiPermissionsUtil.isLocationModeEnabled()).thenReturn(false);
@@ -3479,11 +3526,14 @@ public class ActiveModeWardenTest extends WifiBaseTest {
         mLooper.dispatchAll();
 
         // Ensure that we remained in scan only state because of the emergency scan.
-        verify(mClientModeManager, never()).setRole(any(), any());
+        verify(mClientModeManager).setRole(eq(ROLE_CLIENT_SCAN_ONLY), any());
         verify(mClientModeManager, never()).stop();
         assertInEnabledState();
 
-        indicateEndOfEmergencyScan(false);
+        // To reset setRole invocation above which is checked inside |indicateEndOfEmergencyScan|
+        clearInvocations(mClientModeManager);
+
+        indicateEndOfEmergencyScan(false, null);
     }
 
     @Test
@@ -3506,7 +3556,7 @@ public class ActiveModeWardenTest extends WifiBaseTest {
         });
         reset(mBatteryStats, mScanRequestProxy, mModeChangeCallback);
 
-        indicateStartOfEmergencyScan(false);
+        indicateStartOfEmergencyScan(false, null);
 
         // Now turn off ECM
         emergencyCallbackModeChanged(false);
@@ -3522,7 +3572,7 @@ public class ActiveModeWardenTest extends WifiBaseTest {
         // To reset setRole invocation above which is checked inside |indicateEndOfEmergencyScan|
         clearInvocations(mClientModeManager);
 
-        indicateEndOfEmergencyScan(true);
+        indicateEndOfEmergencyScan(true, ROLE_CLIENT_PRIMARY);
     }
 
     @Test
@@ -3546,10 +3596,13 @@ public class ActiveModeWardenTest extends WifiBaseTest {
         mLooper.dispatchAll();
 
         // Ensure that we remained in connected state.
-        verify(mClientModeManager, never()).setRole(any(), any());
+        verify(mClientModeManager).setRole(eq(ROLE_CLIENT_PRIMARY), any());
         verify(mClientModeManager, never()).stop();
         assertInEnabledState();
 
-        indicateEndOfEmergencyScan(true);
+        // To reset setRole invocation above which is checked inside |indicateEndOfEmergencyScan|
+        clearInvocations(mClientModeManager);
+
+        indicateEndOfEmergencyScan(true, ROLE_CLIENT_PRIMARY);
     }
 }

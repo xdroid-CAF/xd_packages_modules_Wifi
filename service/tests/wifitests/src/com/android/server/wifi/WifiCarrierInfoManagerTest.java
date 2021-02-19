@@ -24,7 +24,6 @@ import static com.android.server.wifi.WifiCarrierInfoManager.NOTIFICATION_USER_D
 import static com.android.server.wifi.WifiCarrierInfoManager.NOTIFICATION_USER_DISMISSED_INTENT_ACTION;
 
 import static org.junit.Assert.*;
-import static org.junit.Assume.assumeTrue;
 import static org.mockito.Mockito.*;
 
 import android.app.AlertDialog;
@@ -64,7 +63,6 @@ import androidx.test.filters.SmallTest;
 
 import com.android.dx.mockito.inline.extended.ExtendedMockito;
 import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
-import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.WifiCarrierInfoManager.SimAuthRequestData;
 import com.android.server.wifi.WifiCarrierInfoManager.SimAuthResponseData;
 import com.android.wifi.resources.R;
@@ -114,6 +112,7 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
     private static final String TEST_PACKAGE = "com.test12345";
     private static final String ANONYMOUS_IDENTITY = "anonymous@wlan.mnc456.mcc123.3gppnetwork.org";
     private static final String CARRIER_NAME = "Google";
+    private static final String NOTIFICATION_TAG = "com.android.wifi";
 
     @Mock CarrierConfigManager mCarrierConfigManager;
     @Mock WifiContext mContext;
@@ -130,7 +129,7 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
     @Mock WifiConfigManager mWifiConfigManager;
     @Mock
     WifiCarrierInfoStoreManagerData mWifiCarrierInfoStoreManagerData;
-    @Mock NotificationManager mNotificationManger;
+    @Mock NotificationManager mNotificationManager;
     @Mock Notification.Builder mNotificationBuilder;
     @Mock Notification mNotification;
     @Mock AlertDialog.Builder mAlertDialogBuilder;
@@ -154,8 +153,9 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
                 .thenReturn(mCarrierConfigManager);
         when(mContext.getResources()).thenReturn(mResources);
         when(mContext.getSystemService(Context.NOTIFICATION_SERVICE))
-                .thenReturn(mNotificationManger);
+                .thenReturn(mNotificationManager);
         when(mContext.getWifiOverlayApkPkgName()).thenReturn("test.com.android.wifi.resources");
+        when(mContext.getNotificationTag()).thenReturn(NOTIFICATION_TAG);
         when(mFrameworkFacade.makeAlertDialogBuilder(any()))
                 .thenReturn(mAlertDialogBuilder);
         when(mFrameworkFacade.makeNotificationBuilder(any(), anyString()))
@@ -1551,7 +1551,8 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
         // Simulate user clicking on allow in the notification.
         sendBroadcastForUserActionOnImsi(NOTIFICATION_USER_ALLOWED_CARRIER_INTENT_ACTION,
                 CARRIER_NAME, DATA_CARRIER_ID);
-        verify(mNotificationManger).cancel(SystemMessage.NOTE_NETWORK_SUGGESTION_AVAILABLE);
+        verify(mNotificationManager).cancel(NOTIFICATION_TAG,
+                SystemMessage.NOTE_CARRIER_SUGGESTION_AVAILABLE);
         verify(mWifiMetrics).addUserApprovalCarrierUiReaction(
                 WifiCarrierInfoManager.ACTION_USER_ALLOWED_CARRIER, false);
         verify(mWifiConfigManager).saveToStore(true);
@@ -1581,7 +1582,8 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
         // Simulate user clicking on disallow in the notification.
         sendBroadcastForUserActionOnImsi(NOTIFICATION_USER_DISALLOWED_CARRIER_INTENT_ACTION,
                 CARRIER_NAME, DATA_CARRIER_ID);
-        verify(mNotificationManger).cancel(SystemMessage.NOTE_NETWORK_SUGGESTION_AVAILABLE);
+        verify(mNotificationManager).cancel(NOTIFICATION_TAG,
+                SystemMessage.NOTE_CARRIER_SUGGESTION_AVAILABLE);
         verify(mAlertDialog, never()).show();
 
         verify(mWifiConfigManager).saveToStore(true);
@@ -1613,16 +1615,16 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
                 CARRIER_NAME, DATA_CARRIER_ID);
         verify(mWifiMetrics).addUserApprovalCarrierUiReaction(
                 WifiCarrierInfoManager.ACTION_USER_DISMISS, false);
-        reset(mNotificationManger);
+        reset(mNotificationManager);
         // No Notification is active, should send notification again.
         mWifiCarrierInfoManager.sendImsiProtectionExemptionNotificationIfRequired(DATA_CARRIER_ID);
         validateImsiProtectionNotification(CARRIER_NAME);
-        reset(mNotificationManger);
+        reset(mNotificationManager);
 
         // As there is notification is active, should not send notification again.
         sendBroadcastForUserActionOnImsi(NOTIFICATION_USER_DISMISSED_INTENT_ACTION,
                 CARRIER_NAME, DATA_CARRIER_ID);
-        verifyNoMoreInteractions(mNotificationManger);
+        verifyNoMoreInteractions(mNotificationManager);
         verify(mWifiConfigManager, never()).saveToStore(true);
         assertFalse(mImsiDataSource.hasNewDataToSerialize());
         assertFalse(mWifiCarrierInfoManager
@@ -1648,7 +1650,8 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
         // Simulate user clicking on the notification.
         sendBroadcastForUserActionOnImsi(NOTIFICATION_USER_CLICKED_INTENT_ACTION,
                 CARRIER_NAME, DATA_CARRIER_ID);
-        verify(mNotificationManger).cancel(SystemMessage.NOTE_NETWORK_SUGGESTION_AVAILABLE);
+        verify(mNotificationManager).cancel(NOTIFICATION_TAG,
+                SystemMessage.NOTE_CARRIER_SUGGESTION_AVAILABLE);
         validateUserApprovalDialog(CARRIER_NAME);
 
         // Simulate user clicking on disallow in the dialog.
@@ -1689,7 +1692,8 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
         // Simulate user clicking on the notification.
         sendBroadcastForUserActionOnImsi(NOTIFICATION_USER_CLICKED_INTENT_ACTION,
                 CARRIER_NAME, DATA_CARRIER_ID);
-        verify(mNotificationManger).cancel(SystemMessage.NOTE_NETWORK_SUGGESTION_AVAILABLE);
+        verify(mNotificationManager).cancel(NOTIFICATION_TAG,
+                SystemMessage.NOTE_CARRIER_SUGGESTION_AVAILABLE);
         validateUserApprovalDialog(CARRIER_NAME);
 
         // Simulate user clicking on dismissal in the dialog.
@@ -1735,7 +1739,8 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
         // Simulate user clicking on the notification.
         sendBroadcastForUserActionOnImsi(NOTIFICATION_USER_CLICKED_INTENT_ACTION,
                 CARRIER_NAME, DATA_CARRIER_ID);
-        verify(mNotificationManger).cancel(SystemMessage.NOTE_NETWORK_SUGGESTION_AVAILABLE);
+        verify(mNotificationManager).cancel(NOTIFICATION_TAG,
+                SystemMessage.NOTE_CARRIER_SUGGESTION_AVAILABLE);
         validateUserApprovalDialog(CARRIER_NAME);
 
         // Simulate user clicking on allow in the dialog.
@@ -1772,7 +1777,7 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
         assertFalse(mWifiCarrierInfoManager.requiresImsiEncryption(DATA_SUBID));
 
         mWifiCarrierInfoManager.sendImsiProtectionExemptionNotificationIfRequired(DATA_CARRIER_ID);
-        verifyNoMoreInteractions(mNotificationManger);
+        verifyNoMoreInteractions(mNotificationManager);
 
         // Loaded user data store, notification should be sent
         mImsiDataSource.deserializeComplete();
@@ -1793,8 +1798,8 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
         assertFalse(mWifiCarrierInfoManager.requiresImsiEncryption(DATA_SUBID));
         when(mDataTelephonyManager.getSimCarrierIdName()).thenReturn(null);
         mWifiCarrierInfoManager.sendImsiProtectionExemptionNotificationIfRequired(DATA_CARRIER_ID);
-        verify(mNotificationManger, never()).notify(
-                eq(SystemMessage.NOTE_NETWORK_SUGGESTION_AVAILABLE),
+        verify(mNotificationManager, never()).notify(eq(NOTIFICATION_TAG),
+                eq(SystemMessage.NOTE_CARRIER_SUGGESTION_AVAILABLE),
                 eq(mNotification));
 
     }
@@ -1814,7 +1819,6 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
 
     @Test
     public void testSetAndGetCarrierNetworkOffload() {
-        assumeTrue(SdkLevel.isAtLeastS());
         mWifiCarrierInfoManager.setCarrierNetworkOffloadEnabled(DATA_SUBID, true, false);
         verify(mWifiConfigManager).saveToStore(true);
         assertFalse(mWifiCarrierInfoManager.isCarrierNetworkOffloadEnabled(DATA_SUBID, true));
@@ -1822,8 +1826,8 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
     }
 
     private void validateImsiProtectionNotification(String carrierName) {
-        verify(mNotificationManger, atLeastOnce()).notify(
-                eq(SystemMessage.NOTE_NETWORK_SUGGESTION_AVAILABLE),
+        verify(mNotificationManager, atLeastOnce()).notify(eq(NOTIFICATION_TAG),
+                eq(SystemMessage.NOTE_CARRIER_SUGGESTION_AVAILABLE),
                 eq(mNotification));
         ArgumentCaptor<CharSequence> contentCaptor =
                 ArgumentCaptor.forClass(CharSequence.class);
@@ -1943,5 +1947,36 @@ public class WifiCarrierInfoManagerTest extends WifiBaseTest {
 
         // Verify getConfigForSubId is only called once since the CarrierConfig gets cached.
         verify(mCarrierConfigManager).getConfigForSubId(anyInt());
+    }
+
+    @Test
+    public void testResetNotification() {
+        mWifiCarrierInfoManager.resetNotification();
+        verify(mNotificationManager).cancel(NOTIFICATION_TAG,
+                SystemMessage.NOTE_CARRIER_SUGGESTION_AVAILABLE);
+    }
+
+    @Test
+    public void testClear() {
+        mWifiCarrierInfoManager.setHasUserApprovedImsiPrivacyExemptionForCarrier(
+                true, DATA_CARRIER_ID);
+        mWifiCarrierInfoManager.setCarrierNetworkOffloadEnabled(DATA_SUBID, true, false);
+        mWifiCarrierInfoManager.setCarrierNetworkOffloadEnabled(NON_DATA_SUBID, false, false);
+        // Verify values.
+        assertTrue(mWifiCarrierInfoManager
+                .hasUserApprovedImsiPrivacyExemptionForCarrier(DATA_CARRIER_ID));
+        assertFalse(mWifiCarrierInfoManager.isCarrierNetworkOffloadEnabled(DATA_SUBID, true));
+        assertFalse(mWifiCarrierInfoManager.isCarrierNetworkOffloadEnabled(NON_DATA_SUBID, false));
+        // Now clear everything.
+        mWifiCarrierInfoManager.clear();
+
+        // Verify restore to default value.
+        assertFalse(mWifiCarrierInfoManager
+                .hasUserApprovedImsiPrivacyExemptionForCarrier(DATA_CARRIER_ID));
+        assertTrue(mWifiCarrierInfoManager.isCarrierNetworkOffloadEnabled(DATA_SUBID, true));
+        assertTrue(mWifiCarrierInfoManager.isCarrierNetworkOffloadEnabled(NON_DATA_SUBID, false));
+
+        verify(mNotificationManager).cancel(NOTIFICATION_TAG,
+                SystemMessage.NOTE_CARRIER_SUGGESTION_AVAILABLE);
     }
 }
