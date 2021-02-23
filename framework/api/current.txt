@@ -21,6 +21,8 @@ package android.net.wifi {
   public final class ScanResult implements android.os.Parcelable {
     ctor public ScanResult(@NonNull android.net.wifi.ScanResult);
     ctor public ScanResult();
+    method public static int convertChannelToFrequencyMhz(int, int);
+    method public static int convertFrequencyMhzToChannel(int);
     method public int describeContents();
     method @NonNull public java.util.List<android.net.wifi.ScanResult.InformationElement> getInformationElements();
     method public int getWifiStandard();
@@ -35,6 +37,11 @@ package android.net.wifi {
     field public static final int CHANNEL_WIDTH_80MHZ_PLUS_MHZ = 4; // 0x4
     field @NonNull public static final android.os.Parcelable.Creator<android.net.wifi.ScanResult> CREATOR;
     field public String SSID;
+    field public static final int UNSPECIFIED = -1; // 0xffffffff
+    field public static final int WIFI_BAND_24_GHZ = 1; // 0x1
+    field public static final int WIFI_BAND_5_GHZ = 2; // 0x2
+    field public static final int WIFI_BAND_60_GHZ = 16; // 0x10
+    field public static final int WIFI_BAND_6_GHZ = 8; // 0x8
     field public static final int WIFI_STANDARD_11AC = 5; // 0x5
     field public static final int WIFI_STANDARD_11AD = 7; // 0x7
     field public static final int WIFI_STANDARD_11AX = 6; // 0x6
@@ -339,6 +346,7 @@ package android.net.wifi {
     method @Deprecated @RequiresPermission(anyOf={android.Manifest.permission.NETWORK_SETTINGS, android.Manifest.permission.NETWORK_SETUP_WIZARD}) public java.util.List<android.net.wifi.hotspot2.PasspointConfiguration> getPasspointConfigurations();
     method public java.util.List<android.net.wifi.ScanResult> getScanResults();
     method public int getWifiState();
+    method public boolean is24GHzBandSupported();
     method public boolean is5GHzBandSupported();
     method public boolean is60GHzBandSupported();
     method public boolean is6GHzBandSupported();
@@ -380,7 +388,7 @@ package android.net.wifi {
     method @Deprecated public boolean startScan();
     method @Deprecated public void startWps(android.net.wifi.WpsInfo, android.net.wifi.WifiManager.WpsCallback);
     method @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public void unregisterScanResultsCallback(@NonNull android.net.wifi.WifiManager.ScanResultsCallback);
-    method @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public void unregisterWifiSubsystemRestartTrackingCallback(@NonNull android.net.wifi.WifiManager.SubsystemRestartTrackingCallback);
+    method @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public void unregisterSubsystemRestartTrackingCallback(@NonNull android.net.wifi.WifiManager.SubsystemRestartTrackingCallback);
     method @Deprecated public int updateNetwork(android.net.wifi.WifiConfiguration);
     field public static final String ACTION_PICK_WIFI_NETWORK = "android.net.wifi.PICK_WIFI_NETWORK";
     field public static final String ACTION_REQUEST_SCAN_ALWAYS_AVAILABLE = "android.net.wifi.action.REQUEST_SCAN_ALWAYS_AVAILABLE";

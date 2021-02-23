@@ -26,6 +26,8 @@ import static com.android.server.wifi.WifiShellCommand.SHELL_PACKAGE_NAME;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assume.assumeFalse;
+import static org.junit.Assume.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -44,12 +46,16 @@ import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.wifi.SoftApConfiguration;
 import android.net.wifi.SupplicantState;
+import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiNetworkSuggestion;
 import android.os.Binder;
 import android.os.Process;
 
 import androidx.test.filters.SmallTest;
+
+import com.android.modules.utils.build.SdkLevel;
+import com.android.server.wifi.coex.CoexManager;
 
 import org.junit.After;
 import org.junit.Before;
@@ -75,6 +81,7 @@ public class WifiShellCommandTest extends WifiBaseTest {
     @Mock WifiNetworkSuggestionsManager mWifiNetworkSuggestionsManager;
     @Mock WifiConfigManager mWifiConfigManager;
     @Mock WifiNative mWifiNative;
+    @Mock CoexManager mCoexManager;
     @Mock HostapdHal mHostapdHal;
     @Mock WifiCountryCode mWifiCountryCode;
     @Mock WifiLastResortWatchdog mWifiLastResortWatchdog;
@@ -101,6 +108,7 @@ public class WifiShellCommandTest extends WifiBaseTest {
         when(mWifiInjector.getWifiConfigManager()).thenReturn(mWifiConfigManager);
         when(mWifiInjector.getHostapdHal()).thenReturn(mHostapdHal);
         when(mWifiInjector.getWifiNative()).thenReturn(mWifiNative);
+        when(mWifiInjector.getCoexManager()).thenReturn(mCoexManager);
         when(mWifiInjector.getWifiCountryCode()).thenReturn(mWifiCountryCode);
         when(mWifiInjector.getWifiLastResortWatchdog()).thenReturn(mWifiLastResortWatchdog);
         when(mWifiInjector.getWifiCarrierInfoManager()).thenReturn(mWifiCarrierInfoManager);
@@ -426,6 +434,70 @@ public class WifiShellCommandTest extends WifiBaseTest {
     }
 
     @Test
+    public void testSetCoexCellChannels() {
+        assumeTrue(SdkLevel.isAtLeastS());
+        mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"set-coex-cell-channels"});
+        verify(mCoexManager, never()).setMockCellChannels(any());
+        assertFalse(mWifiShellCommand.getErrPrintWriter().toString().isEmpty());
+
+        BinderUtil.setUid(Process.ROOT_UID);
+
+        // invalid arg
+        mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"set-coex-cell-channel",
+                        "invalid_band", "40", "2300_000", "2000", "2300000", "2000"});
+        verify(mCoexManager, never()).setMockCellChannels(any());
+        assertFalse(mWifiShellCommand.getErrPrintWriter().toString().isEmpty());
+
+        // invalid arg
+        mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"set-coex-cell-channels",
+                        "invalid_band", "40", "-2300000", "2000", "2300000", "2000"});
+        verify(mCoexManager, never()).setMockCellChannels(any());
+        assertFalse(mWifiShellCommand.getErrPrintWriter().toString().isEmpty());
+
+        mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"set-coex-cell-channels",
+                        "lte", "40", "2300000", "2000", "2300000", "2000"});
+        verify(mCoexManager, times(1)).setMockCellChannels(any());
+
+        mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"set-coex-cell-channels",
+                        "lte", "40", "2300000", "2000", "2300000", "2000",
+                        "lte", "46", "5000000", "2000", "5000000", "2000",
+                        "nr", "20", "700000", "2000", "700000", "2000"});
+        verify(mCoexManager, times(2)).setMockCellChannels(any());
+
+        mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"set-coex-cell-channels"});
+        verify(mCoexManager, times(3)).setMockCellChannels(any());
+    }
+
+    @Test
+    public void testResetCoexCellChannel() {
+        assumeTrue(SdkLevel.isAtLeastS());
+        mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"reset-coex-cell-channels"});
+        verify(mCoexManager, never()).resetMockCellChannels();
+        assertFalse(mWifiShellCommand.getErrPrintWriter().toString().isEmpty());
+
+        BinderUtil.setUid(Process.ROOT_UID);
+
+        mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"reset-coex-cell-channels"});
+        verify(mCoexManager).resetMockCellChannels();
+    }
+
+    @Test
     public void testStartSoftAp() {
         mWifiShellCommand.exec(
                 new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
@@ -499,6 +571,8 @@ public class WifiShellCommandTest extends WifiBaseTest {
 
     @Test
     public void testAddSuggestionWithOemPaid() {
+        assumeTrue(SdkLevel.isAtLeastS());
+
         mWifiShellCommand.exec(
                 new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
                 new String[]{"add-suggestion", "ssid1234", "open", "-o"});
@@ -532,6 +606,8 @@ public class WifiShellCommandTest extends WifiBaseTest {
 
     @Test
     public void testAddSuggestionWithOemPrivate() {
+        assumeTrue(SdkLevel.isAtLeastS());
+
         mWifiShellCommand.exec(
                 new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
                 new String[]{"add-suggestion", "ssid1234", "open", "-p"});
@@ -561,6 +637,33 @@ public class WifiShellCommandTest extends WifiBaseTest {
         }), eq(SHELL_PACKAGE_NAME));
         verify(mConnectivityManager).unregisterNetworkCallback(
                 any(ConnectivityManager.NetworkCallback.class));
+    }
+
+    @Test
+    public void testAddSuggestionWithEnhancedMacRandomization() {
+        // default
+        mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"add-suggestion", "ssid1234", "open"});
+        verify(mWifiService).addNetworkSuggestions(argThat(sL -> {
+            return (sL.size() == 1)
+                    && (sL.get(0).getSsid().equals("ssid1234"))
+                    && (sL.get(0).getWifiConfiguration().macRandomizationSetting
+                    == WifiConfiguration.RANDOMIZATION_PERSISTENT);
+        }), eq(SHELL_PACKAGE_NAME), any());
+
+        // using enhanced MAC randomization.
+        if (SdkLevel.isAtLeastS()) {
+            mWifiShellCommand.exec(
+                    new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                    new String[]{"add-suggestion", "ssid1234", "open", "-r"});
+            verify(mWifiService).addNetworkSuggestions(argThat(sL -> {
+                return (sL.size() == 1)
+                        && (sL.get(0).getSsid().equals("ssid1234"))
+                        && (sL.get(0).getWifiConfiguration().macRandomizationSetting
+                        == WifiConfiguration.RANDOMIZATION_ENHANCED);
+            }), eq(SHELL_PACKAGE_NAME), any());
+        }
     }
 
     @Test
@@ -658,5 +761,40 @@ public class WifiShellCommandTest extends WifiBaseTest {
                 new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
                 new String[]{"set-emergency-call-state", "disabled"});
         verify(mActiveModeWarden).emergencyCallStateChanged(false);
+    }
+
+    @Test
+    public void testConnectNetworkWithNoneMacRandomization() {
+        mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"connect-network", "ssid1234", "open", "-r", "none"});
+        verify(mWifiService).connect(argThat(wifiConfiguration -> {
+            return (wifiConfiguration.SSID.equals("\"ssid1234\"")
+                    && wifiConfiguration.macRandomizationSetting
+                    == WifiConfiguration.RANDOMIZATION_NONE);
+        }), eq(-1), any());
+    }
+
+    @Test
+    public void testConnectNetworkWithEnhancedMacRandomizationOnSAndAbove() {
+        assumeTrue(SdkLevel.isAtLeastS());
+
+        mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"connect-network", "ssid1234", "open", "-r", "enhanced"});
+        verify(mWifiService).connect(argThat(wifiConfiguration -> {
+            return (wifiConfiguration.SSID.equals("\"ssid1234\"")
+                    && wifiConfiguration.macRandomizationSetting
+                    == WifiConfiguration.RANDOMIZATION_ENHANCED);
+        }), eq(-1), any());
+    }
+
+    @Test
+    public void testConnectNetworkWithEnhancedMacRandomizationOnR() {
+        assumeFalse(SdkLevel.isAtLeastS());
+
+        assertEquals(-1, mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"connect-network", "ssid1234", "open", "-r", "enhanced"}));
     }
 }
