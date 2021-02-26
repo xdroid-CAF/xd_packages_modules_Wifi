@@ -443,8 +443,7 @@ public class WifiConfigManager {
     }
 
     private boolean shouldEnableEnhancedRandomizationOnOpenNetwork(WifiConfiguration config) {
-        if (!mDeviceConfigFacade.allowEnhancedMacRandomizationOnOpenSsids()
-                && !mContext.getResources().getBoolean(
+        if (!mContext.getResources().getBoolean(
                         R.bool.config_wifiAllowEnhancedMacRandomizationOnOpenSsids)) {
             return false;
         }
@@ -2208,11 +2207,8 @@ public class WifiConfigManager {
      * @param scanDetail ScanDetail instance  to use for looking up the network.
      * @return WifiConfiguration object representing the network corresponding to the scanDetail,
      * null if none exists.
-     *
-     * TODO (b/142035508): This should only return saved networks (and rename to
-     * getSavedNetworkForScanDetail()).
      */
-    public WifiConfiguration getConfiguredNetworkForScanDetail(ScanDetail scanDetail) {
+    public WifiConfiguration getSavedNetworkForScanDetail(ScanDetail scanDetail) {
         ScanResult scanResult = scanDetail.getScanResult();
         if (scanResult == null) {
             Log.e(TAG, "No scan result found in scan detail");
@@ -2238,11 +2234,9 @@ public class WifiConfigManager {
      * {@link #mScanDetailCaches} for the retrieved network.
      *
      * @param scanDetail input a scanDetail from the scan result
-     * TODO (b/142035508): This should only return saved networks (and rename to
-     * updateScanDetailCacheFromScanDetail()).
      */
-    public void updateScanDetailCacheFromScanDetail(ScanDetail scanDetail) {
-        WifiConfiguration network = getConfiguredNetworkForScanDetail(scanDetail);
+    public void updateScanDetailCacheFromScanDetailForSavedNetwork(ScanDetail scanDetail) {
+        WifiConfiguration network = getSavedNetworkForScanDetail(scanDetail);
         if (network == null) {
             return;
         }
@@ -2256,11 +2250,9 @@ public class WifiConfigManager {
      * @param scanDetail input a scanDetail from the scan result
      * @return WifiConfiguration object representing the network corresponding to the scanDetail,
      * null if none exists.
-     * TODO (b/142035508): This should only return saved networks (and rename to
-     * getSavedNetworkForScanDetailAndCache()).
      */
-    public WifiConfiguration getConfiguredNetworkForScanDetailAndCache(ScanDetail scanDetail) {
-        WifiConfiguration network = getConfiguredNetworkForScanDetail(scanDetail);
+    public WifiConfiguration getSavedNetworkForScanDetailAndCache(ScanDetail scanDetail) {
+        WifiConfiguration network = getSavedNetworkForScanDetail(scanDetail);
         if (network == null) {
             return null;
         }
@@ -2771,6 +2763,8 @@ public class WifiConfigManager {
 
         if (mUserManager.isUserUnlockingOrUnlocked(UserHandle.of(mCurrentUserId))) {
             handleUserUnlockOrSwitch(mCurrentUserId);
+            // only handle the switching of unlocked users in {@link WifiCarrierInfoManager}.
+            mWifiCarrierInfoManager.onUnlockedUserSwitching(mCurrentUserId);
         } else {
             // Cannot read data from new user's CE store file before they log-in.
             mPendingUnlockStoreRead = true;

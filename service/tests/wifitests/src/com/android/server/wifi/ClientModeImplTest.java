@@ -25,6 +25,8 @@ import static android.net.wifi.WifiConfiguration.METERED_OVERRIDE_NOT_METERED;
 import static android.net.wifi.WifiConfiguration.NetworkSelectionStatus.DISABLED_NONE;
 import static android.net.wifi.WifiConfiguration.NetworkSelectionStatus.DISABLED_NO_INTERNET_TEMPORARY;
 
+import static com.android.server.wifi.ActiveModeManager.ROLE_CLIENT_PRIMARY;
+import static com.android.server.wifi.ActiveModeManager.ROLE_CLIENT_SECONDARY_TRANSIENT;
 import static com.android.server.wifi.ClientModeImpl.CMD_PRE_DHCP_ACTION;
 
 import static org.junit.Assert.assertArrayEquals;
@@ -64,6 +66,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.hardware.wifi.supplicant.V1_0.ISupplicantStaIfaceCallback;
+import android.net.CaptivePortalData;
 import android.net.ConnectivityManager;
 import android.net.DhcpResultsParcelable;
 import android.net.InetAddresses;
@@ -126,6 +129,7 @@ import com.android.internal.util.IState;
 import com.android.internal.util.StateMachine;
 import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.ClientMode.LinkProbeCallback;
+import com.android.server.wifi.ClientModeManagerBroadcastQueue.QueuedBroadcast;
 import com.android.server.wifi.hotspot2.NetworkDetail;
 import com.android.server.wifi.hotspot2.PasspointManager;
 import com.android.server.wifi.hotspot2.PasspointProvisioningTestUtil;
@@ -158,6 +162,7 @@ import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -213,6 +218,8 @@ public class ClientModeImplTest extends WifiBaseTest {
     private static final int DEFINED_ERROR_CODE = 32764;
     private static final String TEST_TERMS_AND_CONDITIONS_URL =
             "https://policies.google.com/terms?hl=en-US";
+    private static final String VENUE_URL =
+            "https://www.android.com/android-11/";
 
     private long mBinderToken;
     private MockitoSession mSession;
@@ -445,6 +452,7 @@ public class ClientModeImplTest extends WifiBaseTest {
     @Mock WifiGlobals mWifiGlobals;
     @Mock LinkProbeCallback mLinkProbeCallback;
     @Mock ClientModeImplMonitor mCmiMonitor;
+    @Mock ClientModeManagerBroadcastQueue mBroadcastQueue;
 
     final ArgumentCaptor<WifiConfigManager.OnNetworkUpdateListener> mConfigUpdateListenerCaptor =
             ArgumentCaptor.forClass(WifiConfigManager.OnNetworkUpdateListener.class);
@@ -557,6 +565,18 @@ public class ClientModeImplTest extends WifiBaseTest {
                 .thenReturn(WifiHealthMonitor.REASON_NO_FAILURE);
         when(mThroughputPredictor.predictMaxTxThroughput(any())).thenReturn(90);
         when(mThroughputPredictor.predictMaxRxThroughput(any())).thenReturn(80);
+
+        doAnswer(new AnswerWithArguments() {
+            public void answer(boolean shouldReduceNetworkScore) {
+                mCmi.setShouldReduceNetworkScore(shouldReduceNetworkScore);
+            }
+        }).when(mClientModeManager).setShouldReduceNetworkScore(anyBoolean());
+        when(mClientModeManager.getRole()).thenReturn(ROLE_CLIENT_PRIMARY);
+        doAnswer(new AnswerWithArguments() {
+            public void answer(ClientModeManager manager, QueuedBroadcast broadcast) {
+                broadcast.send();
+            }
+        }).when(mBroadcastQueue).queueOrSendBroadcast(any(), any());
     }
 
     private void registerAsyncChannel(Consumer<AsyncChannel> consumer, Messenger messenger,
@@ -613,7 +633,7 @@ public class ClientModeImplTest extends WifiBaseTest {
                 1, mBatteryStatsManager, mSupplicantStateTracker, mMboOceController,
                 mWifiCarrierInfoManager, mEapFailureNotifier, mSimRequiredNotifier,
                 mWifiScoreReport, mWifiP2pConnection, mWifiGlobals,
-                WIFI_IFACE_NAME, mClientModeManager, mCmiMonitor, false);
+                WIFI_IFACE_NAME, mClientModeManager, mCmiMonitor, mBroadcastQueue, false);
 
         mWifiCoreThread = getCmiHandlerThread(mCmi);
 
@@ -840,6 +860,12 @@ public class ClientModeImplTest extends WifiBaseTest {
                 getGoogleGuestScanDetail(TEST_RSSI, sBSSID, sFreq));
         when(mScanDetailCache.getScanResult(sBSSID)).thenReturn(
                 getGoogleGuestScanDetail(TEST_RSSI, sBSSID, sFreq).getScanResult());
+        ScanResult scanResult = new ScanResult(WifiSsid.createFromAsciiEncoded(sFilsSsid),
+                sFilsSsid, sBSSID, 1245, 0, "", -78, 2412, 1025, 22, 33, 20, 0, 0, true);
+        ScanResult.InformationElement ie = createIE(ScanResult.InformationElement.EID_SSID,
+                sFilsSsid.getBytes(StandardCharsets.UTF_8));
+        scanResult.informationElements = new ScanResult.InformationElement[]{ie};
+        when(mScanRequestProxy.getScanResult(eq(sBSSID))).thenReturn(scanResult);
 
         mCmi.sendMessage(WifiMonitor.SUPPLICANT_STATE_CHANGE_EVENT, 0, 0,
                 new StateChangeResult(0, sWifiSsid, sBSSID, SupplicantState.ASSOCIATED));
@@ -886,6 +912,8 @@ public class ClientModeImplTest extends WifiBaseTest {
         assertEquals(sFreq, wifiInfo.getFrequency());
         assertTrue(sWifiSsid.equals(wifiInfo.getWifiSsid()));
         assertNull(wifiInfo.getPasspointProviderFriendlyName());
+        assertEquals(Arrays.asList(scanResult.informationElements),
+                wifiInfo.getInformationElements());
         expectRegisterNetworkAgent((na) -> {
         }, (nc) -> {
                 if (SdkLevel.isAtLeastS()) {
@@ -2028,6 +2056,60 @@ public class ClientModeImplTest extends WifiBaseTest {
         // Set MAC address thrice - once at bootup, once for new connection, once for disconnect.
         verify(mWifiNative, times(3)).setStaMacAddress(eq(WIFI_IFACE_NAME), any());
         verify(mCountryCode, times(2)).setReadyForChange(true);
+        // ClientModeManager should only be stopped when in lingering mode
+        verify(mClientModeManager, never()).stop();
+    }
+
+    @Test
+    public void secondaryRoleCmmDisconnected_stopsClientModeManager() throws Exception {
+        // Owning ClientModeManager has role SECONDARY_TRANSIENT
+        when(mClientModeManager.getRole()).thenReturn(ROLE_CLIENT_SECONDARY_TRANSIENT);
+
+        connect();
+
+        // ClientModeManager never stopped
+        verify(mClientModeManager, never()).stop();
+
+        // Disconnected from network
+        DisconnectEventInfo disconnectEventInfo =
+                new DisconnectEventInfo(mConnectedNetwork.SSID, sBSSID, 0, false);
+        mCmi.sendMessage(WifiMonitor.NETWORK_DISCONNECTION_EVENT, disconnectEventInfo);
+        mLooper.dispatchAll();
+        mCmi.sendMessage(WifiMonitor.SUPPLICANT_STATE_CHANGE_EVENT, 0, 0,
+                new StateChangeResult(0, WifiSsid.createFromAsciiEncoded(mConnectedNetwork.SSID),
+                        sBSSID, SupplicantState.DISCONNECTED));
+        mLooper.dispatchAll();
+
+        assertEquals("DisconnectedState", getCurrentState().getName());
+
+        // Since in lingering mode, disconnect => stop ClientModeManager
+        verify(mClientModeManager).stop();
+    }
+
+    @Test
+    public void primaryCmmDisconnected_doesntStopsClientModeManager() throws Exception {
+        // Owning ClientModeManager is primary
+        when(mClientModeManager.getRole()).thenReturn(ROLE_CLIENT_PRIMARY);
+
+        connect();
+
+        // ClientModeManager never stopped
+        verify(mClientModeManager, never()).stop();
+
+        // Disconnected from network
+        DisconnectEventInfo disconnectEventInfo =
+                new DisconnectEventInfo(mConnectedNetwork.SSID, sBSSID, 0, false);
+        mCmi.sendMessage(WifiMonitor.NETWORK_DISCONNECTION_EVENT, disconnectEventInfo);
+        mLooper.dispatchAll();
+        mCmi.sendMessage(WifiMonitor.SUPPLICANT_STATE_CHANGE_EVENT, 0, 0,
+                new StateChangeResult(0, WifiSsid.createFromAsciiEncoded(mConnectedNetwork.SSID),
+                        sBSSID, SupplicantState.DISCONNECTED));
+        mLooper.dispatchAll();
+
+        assertEquals("DisconnectedState", getCurrentState().getName());
+
+        // Since primary => don't stop ClientModeManager
+        verify(mClientModeManager, never()).stop();
     }
 
     /**
@@ -3226,6 +3308,26 @@ public class ClientModeImplTest extends WifiBaseTest {
         mCmi.sendMessage(WifiMonitor.ASSOCIATION_REJECTION_EVENT,
                 new AssocRejectEventInfo(sSSID, sBSSID,
                         ISupplicantStaIfaceCallback.StatusCode.AP_UNABLE_TO_HANDLE_NEW_STA, false));
+        mLooper.dispatchAll();
+        verify(mWifiLastResortWatchdog, never()).noteConnectionFailureAndTriggerIfNeeded(
+                anyString(), anyString(), anyInt());
+        verify(mWifiBlocklistMonitor).handleBssidConnectionFailure(eq(sBSSID), eq(sSSID),
+                eq(WifiBlocklistMonitor.REASON_AP_UNABLE_TO_HANDLE_NEW_STA), anyInt());
+    }
+
+    /**
+     * Verifies that the WifiBlocklistMonitor is notified, but the WifiLastResortWatchdog is
+     * not notified of association rejections of type DENIED_INSUFFICIENT_BANDWIDTH.
+     * @throws Exception
+     */
+    @Test
+    public void testAssociationRejectionWithReasonDeniedInsufficientBandwidth()
+            throws Exception {
+        initializeAndAddNetworkAndVerifySuccess();
+        mCmi.sendMessage(ClientModeImpl.CMD_START_CONNECT, 0, 0, sBSSID);
+        mCmi.sendMessage(WifiMonitor.ASSOCIATION_REJECTION_EVENT,
+                new AssocRejectEventInfo(sSSID, sBSSID, ISupplicantStaIfaceCallback
+                        .StatusCode.DENIED_INSUFFICIENT_BANDWIDTH, false));
         mLooper.dispatchAll();
         verify(mWifiLastResortWatchdog, never()).noteConnectionFailureAndTriggerIfNeeded(
                 anyString(), anyString(), anyInt());
@@ -5569,6 +5671,7 @@ public class ClientModeImplTest extends WifiBaseTest {
     @Test
     public void testVenueAndTCUrlsUpdateForPasspointNetworks() throws Exception {
         setupPasspointConnection();
+        when(mPasspointManager.getVenueUrl(any(ScanResult.class))).thenReturn(new URL(VENUE_URL));
         DhcpResultsParcelable dhcpResults = new DhcpResultsParcelable();
         dhcpResults.baseConfiguration = new StaticIpConfiguration();
         dhcpResults.baseConfiguration.gateway = InetAddresses.parseNumericAddress("1.2.3.4");
@@ -5577,12 +5680,19 @@ public class ClientModeImplTest extends WifiBaseTest {
         dhcpResults.baseConfiguration.dnsServers.add(InetAddresses.parseNumericAddress("8.8.8.8"));
         dhcpResults.leaseDuration = 3600;
         injectDhcpSuccess(dhcpResults);
-
+        mCmi.mNetworkAgent = null;
         mLooper.dispatchAll();
-        mIpClientCallback.onLinkPropertiesChange(new LinkProperties());
+        LinkProperties linkProperties = mock(LinkProperties.class);
+        mIpClientCallback.onLinkPropertiesChange(linkProperties);
         mLooper.dispatchAll();
         verify(mPasspointManager).clearTermsAndConditionsUrl();
         verify(mPasspointManager, times(2)).getVenueUrl(any(ScanResult.class));
+        final ArgumentCaptor<CaptivePortalData> captivePortalDataCaptor =
+                ArgumentCaptor.forClass(CaptivePortalData.class);
+        verify(linkProperties).setCaptivePortalData(captivePortalDataCaptor.capture());
+        assertEquals(WifiConfigurationTestUtil.TEST_PROVIDER_FRIENDLY_NAME,
+                captivePortalDataCaptor.getValue().getVenueFriendlyName());
+        assertEquals(VENUE_URL, captivePortalDataCaptor.getValue().getVenueInfoUrl().toString());
         verify(mPasspointManager, times(2)).getTermsAndConditionsUrl();
     }
 
