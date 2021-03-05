@@ -17,6 +17,7 @@
 package android.net.wifi.p2p;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import android.os.Parcel;
@@ -78,6 +79,24 @@ public class WifiP2pWfdInfoTest {
         assertEquals(TEST_MAX_TPUT, info.getMaxThroughput());
 
         assertEquals("0110270f0400", info.getDeviceInfoHex());
+    }
+
+    /**
+     * Verify coupled-sink usage APIs.
+     */
+    @Test
+    public void testCoupledSinkUsage() throws Exception {
+        WifiP2pWfdInfo info = new WifiP2pWfdInfo();
+
+        info.setCoupledSinkSupportAtSink(true);
+        assertTrue(info.isCoupledSinkSupportedAtSink());
+        info.setCoupledSinkSupportAtSink(false);
+        assertFalse(info.isCoupledSinkSupportedAtSink());
+
+        info.setCoupledSinkSupportAtSource(true);
+        assertTrue(info.isCoupledSinkSupportedAtSource());
+        info.setCoupledSinkSupportAtSource(false);
+        assertFalse(info.isCoupledSinkSupportedAtSource());
     }
 
     /**
