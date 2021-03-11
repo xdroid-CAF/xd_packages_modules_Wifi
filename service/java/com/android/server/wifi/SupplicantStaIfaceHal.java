@@ -16,11 +16,13 @@
 package com.android.server.wifi;
 
 import static android.net.wifi.WifiManager.WIFI_FEATURE_DPP;
+import static android.net.wifi.WifiManager.WIFI_FEATURE_DPP_ENROLLEE_RESPONDER;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_FILS_SHA256;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_FILS_SHA384;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_MBO;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_OCE;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_OWE;
+import static android.net.wifi.WifiManager.WIFI_FEATURE_PASSPOINT_TERMS_AND_CONDITIONS;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_SAE_PK;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_WAPI;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_WPA3_SAE;
@@ -54,8 +56,6 @@ import android.os.IHwBinder.DeathRecipient;
 import android.os.RemoteException;
 import android.text.TextUtils;
 import android.util.Log;
-import android.util.MutableBoolean;
-import android.util.MutableInt;
 import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -965,7 +965,7 @@ public class SupplicantStaIfaceHal {
                 Log.e(TAG, "Exception while saving config params: " + config, e);
             }
             if (!saveSuccess) {
-                loge("Failed to save variables for: " + config.getProfileKey());
+                loge("Failed to save variables for: " + config.getProfileKeyInternal());
                 if (!removeAllNetworks(ifaceName)) {
                     loge("Failed to remove all networks on failure.");
                 }
@@ -988,7 +988,7 @@ public class SupplicantStaIfaceHal {
      */
     public boolean connectToNetwork(@NonNull String ifaceName, @NonNull WifiConfiguration config) {
         synchronized (mLock) {
-            logd("connectToNetwork " + config.getProfileKey());
+            logd("connectToNetwork " + config.getProfileKeyInternal());
             WifiConfiguration currentConfig = getCurrentNetworkLocalConfig(ifaceName);
             if (WifiConfigurationUtil.isSameNetwork(config, currentConfig)) {
                 String networkSelectionBSSID = config.getNetworkSelectionStatus()
@@ -1017,7 +1017,8 @@ public class SupplicantStaIfaceHal {
                 Pair<SupplicantStaNetworkHal, WifiConfiguration> pair =
                         addNetworkAndSaveConfig(ifaceName, config);
                 if (pair == null) {
-                    loge("Failed to add/save network configuration: " + config.getProfileKey());
+                    loge("Failed to add/save network configuration: " + config
+                            .getProfileKeyInternal());
                     return false;
                 }
                 mCurrentNetworkRemoteHandles.put(ifaceName, pair.first);
@@ -1027,7 +1028,7 @@ public class SupplicantStaIfaceHal {
                     checkSupplicantStaNetworkAndLogFailure(ifaceName, "connectToNetwork");
             if (networkHandle == null) {
                 loge("No valid remote network handle for network configuration: "
-                        + config.getProfileKey());
+                        + config.getProfileKeyInternal());
                 return false;
             }
 
@@ -1042,7 +1043,7 @@ public class SupplicantStaIfaceHal {
             }
 
             if (!networkHandle.select()) {
-                loge("Failed to select network configuration: " + config.getProfileKey());
+                loge("Failed to select network configuration: " + config.getProfileKeyInternal());
                 return false;
             }
             return true;
@@ -1070,12 +1071,12 @@ public class SupplicantStaIfaceHal {
                 return connectToNetwork(ifaceName, config);
             }
             String bssid = config.getNetworkSelectionStatus().getNetworkSelectionBSSID();
-            logd("roamToNetwork" + config.getProfileKey() + " (bssid " + bssid + ")");
+            logd("roamToNetwork" + config.getProfileKeyInternal() + " (bssid " + bssid + ")");
 
             SupplicantStaNetworkHal networkHandle =
                     checkSupplicantStaNetworkAndLogFailure(ifaceName, "roamToNetwork");
             if (networkHandle == null || !networkHandle.setBssid(bssid)) {
-                loge("Failed to set new bssid on network: " + config.getProfileKey());
+                loge("Failed to set new bssid on network: " + config.getProfileKeyInternal());
                 return false;
             }
             if (!reassociate(ifaceName)) {
@@ -1373,7 +1374,7 @@ public class SupplicantStaIfaceHal {
         synchronized (mLock) {
             SupplicantStaNetworkHal network =
                     new SupplicantStaNetworkHal(iSupplicantStaNetwork, ifaceName, mContext,
-                            mWifiMonitor, mWifiGlobals, getAdvancedKeyMgmtCapabilities(ifaceName));
+                            mWifiMonitor, mWifiGlobals, getAdvancedCapabilities(ifaceName));
             if (network != null) {
                 network.enableVerboseLogging(mVerboseLoggingEnabled);
             }
@@ -2891,7 +2892,7 @@ public class SupplicantStaIfaceHal {
     }
 
     /**
-     * Returns a bitmask of advanced key management capabilities: WPA3 SAE/SUITE B and OWE
+     * Returns a bitmask of advanced capabilities: WPA3 SAE/SUITE B and OWE
      * Bitmask used is:
      * - WIFI_FEATURE_WPA3_SAE
      * - WIFI_FEATURE_WPA3_SUITE_B
@@ -2900,8 +2901,8 @@ public class SupplicantStaIfaceHal {
      *  This is a v1.2+ HAL feature.
      *  On error, or if these features are not supported, 0 is returned.
      */
-    public long getAdvancedKeyMgmtCapabilities(@NonNull String ifaceName) {
-        final String methodStr = "getAdvancedKeyMgmtCapabilities";
+    public long getAdvancedCapabilities(@NonNull String ifaceName) {
+        final String methodStr = "getAdvancedCapabilities";
 
         long advancedCapabilities = 0;
         int keyMgmtCapabilities = getKeyMgmtCapabilities(ifaceName);
@@ -2940,6 +2941,19 @@ public class SupplicantStaIfaceHal {
             if (mVerboseLoggingEnabled) {
                 Log.v(TAG, methodStr + ": DPP supported");
             }
+            if (isV1_4()) {
+                advancedCapabilities |= WIFI_FEATURE_DPP_ENROLLEE_RESPONDER;
+                if (mVerboseLoggingEnabled) {
+                    Log.v(TAG, methodStr + ": DPP ENROLLEE RESPONDER supported");
+                }
+            }
+        }
+
+        if (isV1_4()) {
+            advancedCapabilities |= WIFI_FEATURE_PASSPOINT_TERMS_AND_CONDITIONS;
+            if (mVerboseLoggingEnabled) {
+                Log.v(TAG, methodStr + ": Passpoint T&C supported");
+            }
         }
 
         if ((keyMgmtCapabilities & android.hardware.wifi.supplicant.V1_3.ISupplicantStaNetwork
@@ -2977,7 +2991,7 @@ public class SupplicantStaIfaceHal {
 
     private int getKeyMgmtCapabilities_1_3(@NonNull String ifaceName) {
         final String methodStr = "getKeyMgmtCapabilities_1_3";
-        MutableInt keyMgmtMask = new MutableInt(0);
+        Mutable<Integer> keyMgmtMask = new Mutable<>(0);
         ISupplicantStaIface iface = checkSupplicantStaIfaceAndLogFailure(ifaceName, methodStr);
         if (iface == null) {
             return 0;
@@ -3010,8 +3024,8 @@ public class SupplicantStaIfaceHal {
 
     private int getKeyMgmtCapabilities(@NonNull String ifaceName) {
         final String methodStr = "getKeyMgmtCapabilities";
-        MutableBoolean status = new MutableBoolean(false);
-        MutableInt keyMgmtMask = new MutableInt(0);
+        Mutable<Boolean> status = new Mutable<>(false);
+        Mutable<Integer> keyMgmtMask = new Mutable<>(0);
 
         if (isV1_3()) {
             keyMgmtMask.value = getKeyMgmtCapabilities_1_3(ifaceName);
@@ -3053,9 +3067,9 @@ public class SupplicantStaIfaceHal {
         return keyMgmtMask.value;
     }
 
-    private MutableInt getWpaDriverCapabilities_1_4(@NonNull String ifaceName) {
+    private Mutable<Integer> getWpaDriverCapabilities_1_4(@NonNull String ifaceName) {
         final String methodStr = "getWpaDriverCapabilities_1_4";
-        MutableInt drvCapabilitiesMask = new MutableInt(0);
+        Mutable<Integer> drvCapabilitiesMask = new Mutable<>(0);
         ISupplicantStaIface iface = checkSupplicantStaIfaceAndLogFailure(ifaceName, methodStr);
 
         if (null == iface) return drvCapabilitiesMask;
@@ -3085,9 +3099,9 @@ public class SupplicantStaIfaceHal {
         return drvCapabilitiesMask;
     }
 
-    private MutableInt getWpaDriverCapabilities_1_3(@NonNull String ifaceName) {
+    private Mutable<Integer> getWpaDriverCapabilities_1_3(@NonNull String ifaceName) {
         final String methodStr = "getWpaDriverCapabilities_1_3";
-        MutableInt drvCapabilitiesMask = new MutableInt(0);
+        Mutable<Integer> drvCapabilitiesMask = new Mutable<>(0);
         ISupplicantStaIface iface = checkSupplicantStaIfaceAndLogFailure(ifaceName, methodStr);
 
         if (null == iface) return drvCapabilitiesMask;
@@ -3122,7 +3136,7 @@ public class SupplicantStaIfaceHal {
      */
     public long getWpaDriverFeatureSet(@NonNull String ifaceName) {
         final String methodStr = "getWpaDriverFeatureSet";
-        MutableInt drvCapabilitiesMask = new MutableInt(0);
+        Mutable<Integer> drvCapabilitiesMask = new Mutable<>(0);
         long featureSet = 0;
 
         if (isV1_4()) {
@@ -3291,8 +3305,8 @@ public class SupplicantStaIfaceHal {
      */
     public int addDppPeerUri(@NonNull String ifaceName, @NonNull String uri) {
         final String methodStr = "addDppPeerUri";
-        MutableBoolean status = new MutableBoolean(false);
-        MutableInt bootstrapId = new MutableInt(-1);
+        Mutable<Boolean> status = new Mutable<>(false);
+        Mutable<Integer> bootstrapId = new Mutable<>(-1);
 
         if (!isV1_2()) {
             Log.e(TAG, "Method " + methodStr + " is not supported in existing HAL");
@@ -3511,7 +3525,7 @@ public class SupplicantStaIfaceHal {
             @NonNull String ifaceName, String macAddress, @NonNull String deviceInfo,
             int dppCurve) {
         final String methodStr = "generateDppBootstrapInfoForResponder";
-        MutableBoolean status = new MutableBoolean(false);
+        Mutable<Boolean> status = new Mutable<>(false);
         WifiNative.DppBootstrapQrCodeInfo bootstrapInfoOut =
                 new WifiNative.DppBootstrapQrCodeInfo();
 

@@ -282,7 +282,7 @@ public class WifiInjector {
                         mFrameworkFacade, mContext);
         // Modules interacting with Native.
         mHalDeviceManager = new HalDeviceManager(mClock, this, wifiHandler);
-        mWifiVendorHal = new WifiVendorHal(mContext, mHalDeviceManager, wifiHandler);
+        mWifiVendorHal = new WifiVendorHal(mContext, mHalDeviceManager, wifiHandler, mWifiGlobals);
         mSupplicantStaIfaceHal = new SupplicantStaIfaceHal(
                 mContext, mWifiMonitor, mFrameworkFacade, wifiHandler, mClock, mWifiMetrics,
                 mWifiGlobals);
@@ -310,7 +310,7 @@ public class WifiInjector {
             Log.wtf(TAG, "Failed to load keystore", e);
         }
         mKeyStore = keyStore;
-        mWifiKeyStore = new WifiKeyStore(mKeyStore);
+        mWifiKeyStore = new WifiKeyStore(mContext, mKeyStore, mFrameworkFacade);
         // New config store
         mWifiConfigStore = new WifiConfigStore(mContext, wifiHandler, mClock, mWifiMetrics,
                 WifiConfigStore.createSharedFiles(mFrameworkFacade.isNiapModeOn(mContext)));
@@ -409,15 +409,17 @@ public class WifiInjector {
         mDefaultClientModeManager = new DefaultClientModeManager();
         mExternalScoreUpdateObserverProxy =
                 new ExternalScoreUpdateObserverProxy(mWifiThreadRunner);
+        mDppManager = new DppManager(wifiHandler, mWifiNative,
+                mWifiConfigManager, mContext, mDppMetrics, mScanRequestProxy, mWifiPermissionsUtil);
         mActiveModeWarden = new ActiveModeWarden(this, wifiLooper,
                 mWifiNative, mDefaultClientModeManager, mBatteryStats, mWifiDiagnostics,
                 mContext, mSettingsStore, mFrameworkFacade, mWifiPermissionsUtil, mWifiMetrics,
-                mExternalScoreUpdateObserverProxy);
+                mExternalScoreUpdateObserverProxy, mDppManager);
         mWifiP2pConnection = new WifiP2pConnection(mContext, wifiLooper, mActiveModeWarden);
         mConnectHelper = new ConnectHelper(mActiveModeWarden, mWifiConfigManager);
         mBroadcastQueue = new ClientModeManagerBroadcastQueue(mActiveModeWarden, mContext);
         mMakeBeforeBreakManager = new MakeBeforeBreakManager(mActiveModeWarden, mFrameworkFacade,
-                mContext, mCmiMonitor, mBroadcastQueue);
+                mContext, mCmiMonitor, mBroadcastQueue, mWifiMetrics);
         mOpenNetworkNotifier = new OpenNetworkNotifier(mContext,
                 wifiLooper, mFrameworkFacade, mClock, mWifiMetrics,
                 mWifiConfigManager, mWifiConfigStore, mConnectHelper,
@@ -445,7 +447,7 @@ public class WifiInjector {
                 (AppOpsManager) mContext.getSystemService(Context.APP_OPS_SERVICE),
                 mClock, this, mWifiConnectivityManager, mWifiConfigManager,
                 mWifiConfigStore, mWifiPermissionsUtil, mWifiMetrics, mActiveModeWarden,
-                mConnectHelper);
+                mConnectHelper, mCmiMonitor);
         // We can't filter untrusted network in the capabilities filter because a trusted
         // network would still satisfy a request that accepts untrusted ones.
         // We need a second network factory for untrusted network requests because we need a
@@ -486,8 +488,6 @@ public class WifiInjector {
                 mFrameworkFacade, wifiHandler, mClock, mWifiMetrics);
         mSelfRecovery = new SelfRecovery(mContext, mActiveModeWarden, mClock);
         mWifiMulticastLockManager = new WifiMulticastLockManager(mActiveModeWarden, mBatteryStats);
-        mDppManager = new DppManager(wifiHandler, mWifiNative,
-                mWifiConfigManager, mContext, mDppMetrics, mScanRequestProxy, mWifiPermissionsUtil);
 
         // Register the various network Nominators with the network selector.
         mWifiNetworkSelector.registerNetworkNominator(mSavedNetworkNominator);
@@ -545,6 +545,7 @@ public class WifiInjector {
         mWifiNetworkSelector.enableVerboseLogging(verboseBool);
         mMakeBeforeBreakManager.setVerboseLoggingEnabled(verboseBool);
         mBroadcastQueue.setVerboseLoggingEnabled(verboseBool);
+        mCoexManager.enableVerboseLogging(verboseBool);
     }
 
     public UserManager getUserManager() {
@@ -676,7 +677,8 @@ public class WifiInjector {
                 mFrameworkFacade, mWifiNative, mCoexManager, mCountryCode.getCountryCode(),
                 listener, callback, mWifiApConfigStore, config, mWifiMetrics, mWifiDiagnostics,
                 new SoftApNotifier(mContext, mFrameworkFacade, mWifiNotificationManager),
-                mClock.getElapsedSinceBootMillis(), requestorWs, role, verboseLoggingEnabled);
+                mCmiMonitor, mActiveModeWarden, mClock.getElapsedSinceBootMillis(),
+                requestorWs, role, verboseLoggingEnabled);
     }
 
     /**
@@ -791,11 +793,19 @@ public class WifiInjector {
     }
 
     /**
-     *
+     * Construct an instance of {@link WifiCarrierInfoStoreManagerData}
      */
     public WifiCarrierInfoStoreManagerData makeWifiCarrierInfoStoreManagerData(
             WifiCarrierInfoStoreManagerData.DataSource dataSource) {
         return new WifiCarrierInfoStoreManagerData(dataSource);
+    }
+
+    /**
+     * Construct an instance of {@link ImsiPrivacyProtectionExemptionStoreData}
+     */
+    public ImsiPrivacyProtectionExemptionStoreData makeImsiPrivacyProtectionExemptionStoreData(
+            ImsiPrivacyProtectionExemptionStoreData.DataSource dataSource) {
+        return new ImsiPrivacyProtectionExemptionStoreData(dataSource);
     }
 
     /**

@@ -1461,7 +1461,7 @@ public class WifiManager {
         try {
             ParceledListSlice<WifiConfiguration> parceledList =
                     mService.getConfiguredNetworks(mContext.getOpPackageName(),
-                            mContext.getAttributionTag());
+                            mContext.getAttributionTag(), false);
             if (parceledList == null) {
                 return Collections.emptyList();
             }
@@ -1470,6 +1470,35 @@ public class WifiManager {
             throw e.rethrowFromSystemServer();
         }
     }
+
+    /**
+     * Return a list of all the networks previously configured by the calling app. Can
+     * be called by Device Owner (DO), Profile Owner (PO), Callers with Carrier privilege and
+     * system apps.
+     *
+     * @return a list of network configurations in the form of a list
+     * of {@link WifiConfiguration} objects.
+     * @throws {@link java.lang.SecurityException} if the caller is allowed to call this API
+     */
+    @RequiresPermission(ACCESS_WIFI_STATE)
+    @NonNull
+    public List<WifiConfiguration> getCallerConfiguredNetworks() {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            ParceledListSlice<WifiConfiguration> parceledList =
+                    mService.getConfiguredNetworks(mContext.getOpPackageName(),
+                            mContext.getAttributionTag(), true);
+            if (parceledList == null) {
+                return Collections.emptyList();
+            }
+            return parceledList.getList();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
 
     /** @hide */
     @SystemApi
@@ -1519,7 +1548,7 @@ public class WifiManager {
                             new ArrayList<>(results.keySet()));
             for (WifiConfiguration configuration : wifiConfigurations) {
                 Map<Integer, List<ScanResult>> scanResultsPerNetworkType =
-                        results.get(configuration.getProfileKey());
+                        results.get(configuration.getProfileKeyInternal());
                 if (scanResultsPerNetworkType != null) {
                     configs.add(Pair.create(configuration, scanResultsPerNetworkType));
                 }
@@ -2287,6 +2316,24 @@ public class WifiManager {
     }
 
     /**
+     * Remove all configured networks that were not created by the calling app. Can only
+     * be called by a Device Owner (DO) app.
+     *
+     * @return {@code true} if at least one network is removed, {@code false} otherwise
+     * @throws {@link java.lang.SecurityException} if the caller is not a Device Owner app
+     */
+    @RequiresPermission(android.Manifest.permission.CHANGE_WIFI_STATE)
+    public boolean removeNonCallerConfiguredNetworks() {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            return mService.removeNonCallerConfiguredNetworks(mContext.getOpPackageName());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+    /**
      * Allow a previously configured network to be associated with. If
      * <code>attemptConnect</code> is true, an attempt to connect to the selected
      * network is initiated. This may result in the asynchronous delivery
@@ -2465,6 +2512,7 @@ public class WifiManager {
         return isWifiEnabled();
     }
 
+    /** TODO(b/181364583): Convert all of these to 1 << X form. */
     /** @hide */
     public static final long WIFI_FEATURE_INFRA            = 0x0001L;  // Basic infrastructure mode
     /** @hide */
@@ -2486,7 +2534,7 @@ public class WifiManager {
     /** @hide */
     public static final long WIFI_FEATURE_PNO              = 0x0400L;  // Preferred network offload
     /** @hide */
-    public static final long WIFI_FEATURE_ADDITIONAL_STA   = 0x0800L;  // Support for two STAs
+    public static final long WIFI_FEATURE_ADDITIONAL_STA   = 0x0800L;  // (unused)
     /** @hide */
     public static final long WIFI_FEATURE_TDLS             = 0x1000L;  // Tunnel directed link setup
     /** @hide */
@@ -2539,23 +2587,58 @@ public class WifiManager {
     public static final long WIFI_FEATURE_OCE              = 0x1000000000L; // OCE Support
     /** @hide */
     public static final long WIFI_FEATURE_WAPI             = 0x2000000000L; // WAPI
-    /** @hide */
-    public static final long WIFI_FEATURE_INFRA_60G        = 0x4000000000L; // 60 GHz Band Support
 
     /** @hide */
-    public static final long WIFI_FEATURE_FILS_SHA256     = 0x4000000000L; // FILS-SHA256
+    public static final long WIFI_FEATURE_FILS_SHA256      = 0x4000000000L; // FILS-SHA256
 
     /** @hide */
-    public static final long WIFI_FEATURE_FILS_SHA384     = 0x8000000000L; // FILS-SHA384
+    public static final long WIFI_FEATURE_FILS_SHA384      = 0x8000000000L; // FILS-SHA384
 
     /** @hide */
-    public static final long WIFI_FEATURE_SAE_PK          = 0x10000000000L; // SAE-PK
+    public static final long WIFI_FEATURE_SAE_PK           = 0x10000000000L; // SAE-PK
 
     /** @hide */
-    public static final long WIFI_FEATURE_STA_BRIDGED_AP       = 0x20000000000L; // STA + Bridged AP
+    public static final long WIFI_FEATURE_STA_BRIDGED_AP   = 0x20000000000L; // STA + Bridged AP
 
     /** @hide */
-    public static final long WIFI_FEATURE_BRIDGED_AP           = 0x40000000000L; // Bridged AP
+    public static final long WIFI_FEATURE_BRIDGED_AP       = 0x40000000000L; // Bridged AP
+
+    /** @hide */
+    public static final long WIFI_FEATURE_INFRA_60G        = 0x80000000000L; // 60 GHz Band Support
+
+    /**
+     * Support for 2 STA's for the local-only (peer to peer) connection + internet connection
+     * concurrency.
+     * @hide
+     */
+    public static final long WIFI_FEATURE_ADDITIONAL_STA_LOCAL_ONLY = 0x100000000000L;
+
+    /**
+     * Support for 2 STA's for the make before break concurrency.
+     * @hide
+     */
+    public static final long WIFI_FEATURE_ADDITIONAL_STA_MBB = 0x200000000000L;
+
+    /**
+     * Support for 2 STA's for the restricted connection + internet connection concurrency.
+     * @hide
+     */
+    public static final long WIFI_FEATURE_ADDITIONAL_STA_RESTRICTED = 0x400000000000L;
+
+    /**
+     * DPP (Easy-Connect) Enrollee Responder mode support
+     * @hide
+     */
+    public static final long WIFI_FEATURE_DPP_ENROLLEE_RESPONDER = 0x800000000000L;
+
+    /**
+     * Passpoint Terms and Conditions feature support
+     * @hide
+     */
+    public static final long WIFI_FEATURE_PASSPOINT_TERMS_AND_CONDITIONS = 0x1000000000000L;
+
+     /** @hide */
+    public static final long WIFI_FEATURE_SAE_H2E          = 0x2000000000000L; // Hash-to-Element
 
     private long getSupportedFeatures() {
         try {
@@ -2611,7 +2694,7 @@ public class WifiManager {
     }
 
     /**
-     * Query whether the device supports Station (STA) + Access point (AP) concurrency or not.
+     * Query whether or not the device supports Station (STA) + Access point (AP) concurrency.
      *
      * @return true if this device supports STA + AP concurrency, false otherwise.
      */
@@ -2620,15 +2703,41 @@ public class WifiManager {
     }
 
     /**
-     * Query whether the device supports 2 or more concurrent stations (STA) or not.
+     * Query whether or not the device supports concurrent station (STA) connections for local-only
+     * connections using {@link WifiNetworkSpecifier}.
      *
-     * @return true if this device supports multiple STA concurrency, false otherwise.
+     * @return true if this device supports multiple STA concurrency for this use-case, false
+     * otherwise.
      */
-    public boolean isMultiStaConcurrencySupported() {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
-        return isFeatureSupported(WIFI_FEATURE_ADDITIONAL_STA);
+    public boolean isStaConcurrencyForLocalOnlyConnectionsSupported() {
+        return isFeatureSupported(WIFI_FEATURE_ADDITIONAL_STA_LOCAL_ONLY);
+    }
+
+    /**
+     * Query whether or not the device supports concurrent station (STA) connections for
+     * make-before-break wifi to wifi switching.
+     *
+     * Note: This is an internal feature which is not available to apps.
+     *
+     * @return true if this device supports multiple STA concurrency for this use-case, false
+     * otherwise.
+     */
+    public boolean isMakeBeforeBreakWifiSwitchingSupported() {
+        return isFeatureSupported(WIFI_FEATURE_ADDITIONAL_STA_MBB);
+    }
+
+    /**
+     * Query whether or not the device supports concurrent station (STA) connections for restricted
+     * connections using {@link WifiNetworkSuggestion.Builder#setOemPaid(boolean)} /
+     * {@link WifiNetworkSuggestion.Builder#setOemPrivate(boolean)}.
+     *
+     * @return true if this device supports multiple STA concurrency for this use-case, false
+     * otherwise.
+     * @hide
+     */
+    @SystemApi
+    public boolean isStaConcurrencyForRestrictedConnectionsSupported() {
+        return isFeatureSupported(WIFI_FEATURE_ADDITIONAL_STA_RESTRICTED);
     }
 
     /**
@@ -2968,10 +3077,10 @@ public class WifiManager {
      * such as ability to mask out location sensitive data in WifiInfo will not be supported
      * via this API. </li>
      * <li>On devices supporting concurrent connections (indicated via
-     * {@link #isMultiStaConcurrencySupported()}), this API will return the details
-     * of the internet providing connection (if any) to all apps, except for the apps that triggered
-     * the creation of the concurrent connection. For such apps, this API will return the details of
-     * the connection they created. e.g. apps using {@link WifiNetworkSpecifier} will
+     * {@link #isStaConcurrencyForLocalOnlyConnectionsSupported()}, etc) this API will return
+     * the details of the internet providing connection (if any) to all apps, except for the apps
+     * that triggered the creation of the concurrent connection. For such apps, this API will return
+     * the details of the connection they created. e.g. apps using {@link WifiNetworkSpecifier} will
      * trigger a concurrent connection on supported devices and hence this API will provide
      * details of their peer to peer connection (not the internet providing connection). This
      * is to maintain backwards compatibility with behavior on single STA devices.</li>
@@ -3090,9 +3199,20 @@ public class WifiManager {
     }
 
     /**
-     * Get the country code.
-     * @return the country code in ISO 3166 alpha-2 (2-letter) uppercase format, or null if
-     * there is no country code configured.
+     * Get the country code as resolved by the Wi-Fi framework.
+     * The Wi-Fi framework uses multiple sources to resolve a country code
+     * - in order of priority (high to low):
+     * 1. Override country code set by {@link WifiManager#setOverrideCountryCode(String)}
+     * and cleared by {@link WifiManager#clearOverrideCountryCode()}. Typically only used
+     * for testing.
+     * 2. Country code supplied by the telephony module. Typically provided from the
+     * current network or from emergency cell information.
+     * 3. Default country code set either via {@code ro.boot.wificountrycode}
+     * or the {@link WifiManager#setDefaultCountryCode(String)}.
+     *
+     * @return the country code in ISO 3166 alpha-2 (2-letter) upper format,
+     * or null if there is no country code configured.
+     *
      * @hide
      */
     @Nullable
@@ -3101,6 +3221,58 @@ public class WifiManager {
     public String getCountryCode() {
         try {
             return mService.getCountryCode();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Set the override country code - may be used for testing. See the country code resolution
+     * order and format in {@link #getCountryCode()}.
+     * @param country A 2-Character alphanumeric country code.
+     * @see #getCountryCode().
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.MANAGE_WIFI_COUNTRY_CODE)
+    public void setOverrideCountryCode(@NonNull String country) {
+        try {
+            mService.setOverrideCountryCode(country);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * This clears the override country code which was previously set by
+     * {@link WifiManager#setOverrideCountryCode(String)} method.
+     * @see #getCountryCode().
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.MANAGE_WIFI_COUNTRY_CODE)
+    public void clearOverrideCountryCode() {
+        try {
+            mService.clearOverrideCountryCode();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+    /**
+     * Used to configure the default country code. See {@link #getCountryCode()} for resolution
+     * method of the country code.
+     * @param country A 2-character alphanumeric country code.
+     * @see #getCountryCode().
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.MANAGE_WIFI_COUNTRY_CODE)
+    public void setDefaultCountryCode(@NonNull String country) {
+        try {
+            mService.setDefaultCountryCode(country);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -3119,10 +3291,10 @@ public class WifiManager {
      * <p>
      * <b>Compatibility Notes:</b>
      * <li>On devices supporting concurrent connections (indicated via
-     * {@link #isMultiStaConcurrencySupported()}), this API will return the details
-     * of the internet providing connection (if any) to all apps, except for the apps that triggered
-     * the creation of the concurrent connection. For such apps, this API will return the details of
-     * the connection they created. e.g. apps using {@link WifiNetworkSpecifier} will
+     * {@link #isStaConcurrencyForLocalOnlyConnectionsSupported()}, etc), this API will return
+     * the details of the internet providing connection (if any) to all apps, except for the apps
+     * that triggered the creation of the concurrent connection. For such apps, this API will return
+     * the details of the connection they created. e.g. apps using {@link WifiNetworkSpecifier} will
      * trigger a concurrent connection on supported devices and hence this API will provide
      * details of their peer to peer connection (not the internet providing connection). This
      * is to maintain backwards compatibility with behavior on single STA devices.</li>
@@ -3631,6 +3803,9 @@ public class WifiManager {
         private final CoexCallbackProxy mCoexCallbackProxy;
 
         public CoexCallback() {
+            if (!SdkLevel.isAtLeastS()) {
+                throw new UnsupportedOperationException();
+            }
             mCoexCallbackProxy = new CoexCallbackProxy();
         }
 
@@ -4558,7 +4733,11 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.NETWORK_SETTINGS)
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.NETWORK_SETTINGS,
+            NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK,
+            android.Manifest.permission.OVERRIDE_WIFI_CONFIG
+    })
     public void registerSoftApCallback(@NonNull @CallbackExecutor Executor executor,
             @NonNull SoftApCallback callback) {
         if (executor == null) throw new IllegalArgumentException("executor cannot be null");
@@ -4585,7 +4764,11 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.NETWORK_SETTINGS)
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.NETWORK_SETTINGS,
+            NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK,
+            android.Manifest.permission.OVERRIDE_WIFI_CONFIG
+    })
     public void unregisterSoftApCallback(@NonNull SoftApCallback callback) {
         if (callback == null) throw new IllegalArgumentException("callback cannot be null");
         Log.v(TAG, "unregisterSoftApCallback: callback=" + callback);
@@ -6175,6 +6358,13 @@ public class WifiManager {
     }
 
     /**
+     * @return true if this device supports Wi-Fi Easy Connect (DPP) Enrollee Responder mode.
+     */
+    public boolean isEasyConnectEnrolleeResponderModeSupported() {
+        return isFeatureSupported(WIFI_FEATURE_DPP_ENROLLEE_RESPONDER);
+    }
+
+    /**
      * @return true if this device supports WAPI.
      */
     public boolean isWapiSupported() {
@@ -6182,10 +6372,27 @@ public class WifiManager {
     }
 
     /**
-     * @return true if this device supports WPA3 AP validation.
+     * @return true if this device supports WPA3 SAE Public Key.
      */
-    public boolean isWpa3ApValidationSupported() {
-        return isFeatureSupported(WIFI_FEATURE_SAE_PK);
+    public boolean isWpa3SaePublicKeySupported() {
+        // This feature is not fully implemented in the framework yet.
+        // After the feature complete, it returns whether WIFI_FEATURE_SAE_PK
+        // is supported or not directly.
+        return false;
+    }
+
+    /**
+     * @return true if this device supports Wi-Fi Passpoint Terms and Conditions feature.
+     */
+    public boolean isPasspointTermsAndConditionsSupported() {
+        return isFeatureSupported(WIFI_FEATURE_PASSPOINT_TERMS_AND_CONDITIONS);
+    }
+
+    /**
+     * @return true if this device supports WPA3 SAE Hash-to-Element.
+     */
+    public boolean isWpa3SaeH2eSupported() {
+        return isFeatureSupported(WIFI_FEATURE_SAE_H2E);
     }
 
     /**
@@ -7561,6 +7768,31 @@ public class WifiManager {
         }
         try {
             return mService.setWifiScoringEnabled(enabled);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Flush Passpoint ANQP cache, and clear pending ANQP requests. Allows the caller to reset the
+     * Passpoint ANQP state, if required.
+     *
+     * Notes:
+     * 1. Flushing the ANQP cache may cause delays in discovering and connecting to Passpoint
+     * networks.
+     * 2. Intended to be used by Device Owner (DO), Profile Owner (PO), Settings and provisioning
+     * apps.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.NETWORK_SETTINGS,
+            android.Manifest.permission.NETWORK_MANAGED_PROVISIONING,
+            android.Manifest.permission.NETWORK_CARRIER_PROVISIONING
+            })
+    public void flushPasspointAnqpCache() {
+        try {
+            mService.flushPasspointAnqpCache(mContext.getOpPackageName());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

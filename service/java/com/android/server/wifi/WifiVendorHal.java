@@ -63,8 +63,6 @@ import android.os.RemoteException;
 import android.os.WorkSource;
 import android.text.TextUtils;
 import android.util.Log;
-import android.util.MutableBoolean;
-import android.util.MutableLong;
 import android.util.Pair;
 import android.util.SparseArray;
 
@@ -75,6 +73,7 @@ import com.android.server.wifi.WifiLinkLayerStats.ChannelStats;
 import com.android.server.wifi.WifiNative.RxFateReport;
 import com.android.server.wifi.WifiNative.TxFateReport;
 import com.android.server.wifi.util.BitMask;
+import com.android.server.wifi.util.GeneralUtil.Mutable;
 import com.android.server.wifi.util.NativeUtil;
 
 import com.google.errorprone.annotations.CompileTimeConstant;
@@ -263,6 +262,7 @@ public class WifiVendorHal {
     private HashMap<String, IWifiApIface> mIWifiApIfaces = new HashMap<>();
     private final Context mContext;
     private final HalDeviceManager mHalDeviceManager;
+    private final WifiGlobals mWifiGlobals;
     private final HalDeviceManagerStatusListener mHalDeviceManagerStatusCallbacks;
     private final IWifiStaIfaceEventCallback mIWifiStaIfaceEventCallback;
     private final ChipEventCallback mIWifiChipEventCallback;
@@ -276,10 +276,12 @@ public class WifiVendorHal {
     // https://docs.oracle.com/javase/specs/jls/se7/html/jls-17.html#jls-17.5
     private final Handler mHalEventHandler;
 
-    public WifiVendorHal(Context context, HalDeviceManager halDeviceManager, Handler handler) {
+    public WifiVendorHal(Context context, HalDeviceManager halDeviceManager, Handler handler,
+            WifiGlobals wifiGlobals) {
         mContext = context;
         mHalDeviceManager = halDeviceManager;
         mHalEventHandler = handler;
+        mWifiGlobals = wifiGlobals;
         mHalDeviceManagerStatusCallbacks = new HalDeviceManagerStatusListener();
         mIWifiStaIfaceEventCallback = new StaIfaceEventCallback();
         mIWifiChipEventCallback = new ChipEventCallback();
@@ -653,8 +655,9 @@ public class WifiVendorHal {
                     hidlUnsafeChannel.band = WifiBand.BAND_60GHZ;
                     break;
                 default:
-                    mLog.err("Tried to set unsafe channel with unknown band: "
-                            + frameworkUnsafeChannel.getBand()).flush();
+                    mLog.err("Tried to set unsafe channel with unknown band: %")
+                            .c(frameworkUnsafeChannel.getBand())
+                            .flush();
                     continue;
             }
             hidlUnsafeChannel.channel = frameworkUnsafeChannel.getChannel();
@@ -815,7 +818,7 @@ public class WifiVendorHal {
             IWifiStaIface iface = getStaIface(ifaceName);
             if (iface == null) return boolResult(false);
             try {
-                MutableBoolean ans = new MutableBoolean(false);
+                Mutable<Boolean> ans = new Mutable<>(false);
                 WifiNative.ScanCapabilities out = capabilities;
                 iface.getBackgroundScanCapabilities((status, cap) -> {
                             if (!ok(status)) return;
@@ -1238,6 +1241,26 @@ public class WifiVendorHal {
         if (iface == null) return;
         setIfaceStats(stats, iface.V1_0);
         stats.timeSliceDutyCycleInPercent = iface.timeSliceDutyCycleInPercent;
+        // WME Best Effort Access Category
+        stats.contentionTimeMinBeInUsec = iface.wmeBeContentionTimeStats.contentionTimeMinInUsec;
+        stats.contentionTimeMaxBeInUsec = iface.wmeBeContentionTimeStats.contentionTimeMaxInUsec;
+        stats.contentionTimeAvgBeInUsec = iface.wmeBeContentionTimeStats.contentionTimeAvgInUsec;
+        stats.contentionNumSamplesBe = iface.wmeBeContentionTimeStats.contentionNumSamples;
+        // WME Background Access Category
+        stats.contentionTimeMinBkInUsec = iface.wmeBkContentionTimeStats.contentionTimeMinInUsec;
+        stats.contentionTimeMaxBkInUsec = iface.wmeBkContentionTimeStats.contentionTimeMaxInUsec;
+        stats.contentionTimeAvgBkInUsec = iface.wmeBkContentionTimeStats.contentionTimeAvgInUsec;
+        stats.contentionNumSamplesBk = iface.wmeBkContentionTimeStats.contentionNumSamples;
+        // WME Video Access Category
+        stats.contentionTimeMinViInUsec = iface.wmeViContentionTimeStats.contentionTimeMinInUsec;
+        stats.contentionTimeMaxViInUsec = iface.wmeViContentionTimeStats.contentionTimeMaxInUsec;
+        stats.contentionTimeAvgViInUsec = iface.wmeViContentionTimeStats.contentionTimeAvgInUsec;
+        stats.contentionNumSamplesVi = iface.wmeViContentionTimeStats.contentionNumSamples;
+        // WME Voice Access Category
+        stats.contentionTimeMinVoInUsec = iface.wmeVoContentionTimeStats.contentionTimeMinInUsec;
+        stats.contentionTimeMaxVoInUsec = iface.wmeVoContentionTimeStats.contentionTimeMaxInUsec;
+        stats.contentionTimeAvgVoInUsec = iface.wmeVoContentionTimeStats.contentionTimeAvgInUsec;
+        stats.contentionNumSamplesVo = iface.wmeVoContentionTimeStats.contentionNumSamples;
     }
 
     private static void setRadioStats(WifiLinkLayerStats stats,
@@ -1524,7 +1547,7 @@ public class WifiVendorHal {
             return getSupportedFeatureSetFromPackageManager();
         }
         try {
-            final MutableLong feat = new MutableLong(0);
+            final Mutable<Long> feat = new Mutable<>(0L);
             synchronized (sLock) {
                 android.hardware.wifi.V1_3.IWifiChip iWifiChipV13 = getWifiChipForV1_3Mockable();
                 android.hardware.wifi.V1_5.IWifiChip iWifiChipV15 = getWifiChipForV1_5Mockable();
@@ -1541,7 +1564,7 @@ public class WifiVendorHal {
                 } else if (mIWifiChip != null) {
                     mIWifiChip.getCapabilities((status, capabilities) -> {
                         if (!ok(status)) return;
-                        feat.value = wifiFeatureMaskFromChipCapabilities(capabilities);
+                        feat.value = (long) wifiFeatureMaskFromChipCapabilities(capabilities);
                     });
                 }
 
@@ -1557,6 +1580,10 @@ public class WifiVendorHal {
         } catch (RemoteException e) {
             handleRemoteException(e);
             return 0;
+        }
+
+        if (mWifiGlobals.isWpa3SaeH2eSupported()) {
+            featureSet |= WifiManager.WIFI_FEATURE_SAE_H2E;
         }
 
         Set<Integer> supportedIfaceTypes = mHalDeviceManager.getSupportedIfaceTypes();
@@ -2554,7 +2581,7 @@ public class WifiVendorHal {
             IWifiStaIface iface = getStaIface(ifaceName);
             if (iface == null) return nullResult();
             try {
-                MutableBoolean ok = new MutableBoolean(false);
+                Mutable<Boolean> ok = new Mutable<>(false);
                 WifiNative.RoamingCapabilities out = new WifiNative.RoamingCapabilities();
                 iface.getRoamingCapabilities((status, cap) -> {
                     if (!ok(status)) return;
@@ -2582,7 +2609,8 @@ public class WifiVendorHal {
      * @return SET_FIRMWARE_ROAMING_SUCCESS, SET_FIRMWARE_ROAMING_FAILURE,
      *         or SET_FIRMWARE_ROAMING_BUSY
      */
-    public int enableFirmwareRoaming(@NonNull String ifaceName, int state) {
+    public @WifiNative.RoamingEnableStatus int enableFirmwareRoaming(@NonNull String ifaceName,
+            @WifiNative.RoamingEnableState int state) {
         synchronized (sLock) {
             IWifiStaIface iface = getStaIface(ifaceName);
             if (iface == null) return WifiNative.SET_FIRMWARE_ROAMING_FAILURE;

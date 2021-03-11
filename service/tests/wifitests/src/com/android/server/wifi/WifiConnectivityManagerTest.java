@@ -192,6 +192,7 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
                 LOW_RSSI_NETWORK_RETRY_START_DELAY_SEC);
         resources.setInteger(R.integer.config_wifiPnoScanLowRssiNetworkRetryMaxDelaySec,
                 LOW_RSSI_NETWORK_RETRY_MAX_DELAY_SEC);
+        resources.setBoolean(R.bool.config_wifiEnable6ghzPscScanning, true);
     }
 
     /**
@@ -300,7 +301,7 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
     ScanData mockScanData() {
         ScanData scanData = mock(ScanData.class);
 
-        when(scanData.getBandsScannedInternal()).thenReturn(WifiScanner.WIFI_BAND_ALL);
+        when(scanData.getScannedBandsInternal()).thenReturn(WifiScanner.WIFI_BAND_ALL);
 
         return scanData;
     }
@@ -695,7 +696,8 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
                 candidates -> (candidates != null && candidates.size() == 1
                         && (candidates.get(0).isOemPaid() || candidates.get(0).isOemPrivate()))
         ))).thenReturn(mCandidateWifiConfig1);
-        when(mActiveModeWarden.isStaStaConcurrencySupported()).thenReturn(true);
+        when(mActiveModeWarden.isStaStaConcurrencySupportedForRestrictedConnections())
+                .thenReturn(true);
         when(mActiveModeWarden.canRequestMoreClientModeManagersInRole(
                 any(), eq(ROLE_CLIENT_SECONDARY_LONG_LIVED))).thenReturn(true);
         doAnswer(new AnswerWithArguments() {
@@ -795,7 +797,8 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
         mWifiConnectivityManager.setOemPaidConnectionAllowed(true, new WorkSource());
 
         // STA + STA is not supported.
-        when(mActiveModeWarden.isStaStaConcurrencySupported()).thenReturn(false);
+        when(mActiveModeWarden.isStaStaConcurrencySupportedForRestrictedConnections())
+                .thenReturn(false);
 
         // Set WiFi to disconnected state
         mWifiConnectivityManager.handleConnectionStateChanged(
@@ -2325,7 +2328,7 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
         config.networkId = TEST_CONNECTED_NETWORK_ID;
         String networkKey = "NETWORK_KEY";
         when(mWifiConfigManager.getConfiguredNetwork(networkKey)).thenReturn(config);
-        when(mSuggestionConfig.getProfileKey()).thenReturn(networkKey);
+        when(mSuggestionConfig.getProfileKeyInternal()).thenReturn(networkKey);
         when(mWifiNetworkSuggestion.getWifiConfiguration()).thenReturn(mSuggestionConfig);
         Set<WifiNetworkSuggestion> suggestionNetworks = new HashSet<WifiNetworkSuggestion>();
         suggestionNetworks.add(mWifiNetworkSuggestion);
@@ -2376,7 +2379,7 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
         config.networkId = TEST_CONNECTED_NETWORK_ID;
         String networkKey = "NETWORK_KEY";
         when(mWifiConfigManager.getConfiguredNetwork(networkKey)).thenReturn(config);
-        when(mSuggestionConfig.getProfileKey()).thenReturn(networkKey);
+        when(mSuggestionConfig.getProfileKeyInternal()).thenReturn(networkKey);
         when(mWifiNetworkSuggestion.getWifiConfiguration()).thenReturn(mSuggestionConfig);
         Set<WifiNetworkSuggestion> suggestionNetworks = new HashSet<WifiNetworkSuggestion>();
         suggestionNetworks.add(mWifiNetworkSuggestion);
@@ -2706,6 +2709,8 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
                 if (SdkLevel.isAtLeastS()) {
                     assertEquals("Should never force enable RNR for partial scans",
                             WifiScanner.WIFI_RNR_NOT_NEEDED, settings.getRnrSetting());
+                    assertFalse("PSC should be disabled for partial scans",
+                            settings.is6GhzPscOnlyEnabled());
                 }
                 for (int chanIdx = 0; chanIdx < settings.channels.length; chanIdx++) {
                     assertTrue(channelList.contains(settings.channels[chanIdx].frequency));
@@ -2801,11 +2806,15 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
         doAnswer(new AnswerWithArguments() {
             public void answer(ScanSettings settings, Executor executor, ScanListener listener,
                     WorkSource workSource) throws Exception {
-                assertEquals(settings.band, WifiScanner.WIFI_BAND_ALL);
                 assertNull(settings.channels);
                 if (SdkLevel.isAtLeastS()) {
+                    assertEquals(WifiScanner.WIFI_BAND_24_5_WITH_DFS_6_GHZ, settings.band);
                     assertEquals("RNR should be enabled for full scans",
                             WifiScanner.WIFI_RNR_ENABLED, settings.getRnrSetting());
+                    assertTrue("PSC should be enabled for full scans",
+                            settings.is6GhzPscOnlyEnabled());
+                } else {
+                    assertEquals(WifiScanner.WIFI_BAND_ALL, settings.band);
                 }
             }}).when(mWifiScanner).startScan(anyObject(), anyObject(), anyObject(), anyObject());
 
@@ -2948,7 +2957,7 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
         setWifiStateConnected();
 
         // Set up as partial scan results.
-        when(mScanData.getBandsScannedInternal()).thenReturn(WifiScanner.WIFI_BAND_5_GHZ);
+        when(mScanData.getScannedBandsInternal()).thenReturn(WifiScanner.WIFI_BAND_5_GHZ);
 
         // Force a connectivity scan which enables WifiConnectivityManager
         // to wait for full band scan results.
@@ -2959,7 +2968,7 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
                 CANDIDATE_NETWORK_ID, Process.WIFI_UID, CANDIDATE_BSSID);
 
         // Set up as full band scan results.
-        when(mScanData.getBandsScannedInternal()).thenReturn(WifiScanner.WIFI_BAND_ALL);
+        when(mScanData.getScannedBandsInternal()).thenReturn(WifiScanner.WIFI_BAND_ALL);
 
         // Force a connectivity scan which enables WifiConnectivityManager
         // to wait for full band scan results.
@@ -3030,17 +3039,16 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
     }
 
     /**
-     *  Verify that BSSID blocklist gets cleared when exiting Wifi client mode.
+     *  Verify that temporarily disabled networks are re-enabled when exiting Wifi client mode.
      */
     @Test
-    public void clearBssidBlocklistWhenExitingWifiClientMode() {
+    public void clearEnableTemporarilyDisabledNetworksWhenExitingWifiClientMode() {
         when(mWifiConnectivityHelper.isFirmwareRoamingSupported()).thenReturn(true);
 
         // Exit Wifi client mode.
         setWifiEnabled(false);
 
-        // Verify the BSSID blocklist is cleared again.
-        verify(mWifiBlocklistMonitor).clearBssidBlocklist();
+        // Verify the blocklist is cleared again.
         verify(mWifiConfigManager).enableTemporaryDisabledNetworks();
         verify(mWifiConfigManager).stopTemporarilyDisablingAllNonCarrierMergedWifi();
         // Verify WifiNetworkSelector is informed of the disable.

@@ -39,6 +39,7 @@ import android.util.Log;
 import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.util.ScanResultUtil;
 import com.android.server.wifi.util.WifiPermissionsUtil;
 import com.android.wifi.resources.R;
@@ -146,7 +147,7 @@ public class ScanRequestProxy {
                 Log.d(TAG, "Received " + scanResults.length + " scan results");
             }
             // Only process full band scan results.
-            if (WifiScanner.isFullBandScan(scanData.getBandsScannedInternal(), false)) {
+            if (WifiScanner.isFullBandScan(scanData.getScannedBandsInternal(), false)) {
                 // Store the last scan results & send out the scan completion broadcast.
                 mLastScanResultsMap.clear();
                 Arrays.stream(scanResults).forEach(s -> mLastScanResultsMap.put(s.BSSID, s));
@@ -475,8 +476,12 @@ public class ScanRequestProxy {
         // Scan requests from apps with network settings will be of high accuracy type.
         if (fromSettingsOrSetupWizard) {
             settings.type = WifiScanner.SCAN_TYPE_HIGH_ACCURACY;
+        } else {
+            if (SdkLevel.isAtLeastS()) {
+                // since the scan request is from a normal app, do not scan all 6Ghz channels.
+                settings.set6GhzPscOnlyEnabled(true);
+            }
         }
-        // always do full scans
         settings.band = WifiScanner.WIFI_BAND_ALL;
         settings.reportEvents = WifiScanner.REPORT_EVENT_AFTER_EACH_SCAN
                 | WifiScanner.REPORT_EVENT_FULL_SCAN_RESULT;

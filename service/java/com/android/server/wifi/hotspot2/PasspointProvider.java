@@ -572,7 +572,7 @@ public class PasspointProvider {
         wifiConfig.trusted = mIsTrusted;
         if (mConfig.isMacRandomizationEnabled()) {
             if (mConfig.isEnhancedMacRandomizationEnabled()) {
-                wifiConfig.macRandomizationSetting = WifiConfiguration.RANDOMIZATION_ENHANCED;
+                wifiConfig.macRandomizationSetting = WifiConfiguration.RANDOMIZATION_NON_PERSISTENT;
             } else {
                 wifiConfig.macRandomizationSetting = WifiConfiguration.RANDOMIZATION_PERSISTENT;
             }
@@ -1147,7 +1147,8 @@ public class PasspointProvider {
 
     /**
      * Set the user connect choice on the passpoint network.
-     * @param choice The {@link WifiConfiguration#getProfileKey()} of the user conncet network.
+     * @param choice The {@link WifiConfiguration#getProfileKeyInternal()} of the user connect
+     *               network.
      * @param rssi The signal strength of the network.
      */
     public void setUserConnectChoice(String choice, int rssi) {

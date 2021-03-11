@@ -60,7 +60,7 @@ interface IWifiManager
 
     oneway void getWifiActivityEnergyInfoAsync(in IOnWifiActivityEnergyInfoListener listener);
 
-    ParceledListSlice getConfiguredNetworks(String packageName, String featureId);
+    ParceledListSlice getConfiguredNetworks(String packageName, String featureId, boolean callerNetworksOnly);
 
     ParceledListSlice getPrivilegedConfiguredNetworks(String packageName, String featureId);
 
@@ -85,6 +85,8 @@ interface IWifiManager
     int matchProviderWithCurrentNetwork(String fqdn);
 
     boolean removeNetwork(int netId, String packageName);
+
+    boolean removeNonCallerConfiguredNetworks(String packageName);
 
     boolean enableNetwork(int netId, boolean disableOthers, String packageName);
 
@@ -117,6 +119,12 @@ interface IWifiManager
     int getWifiEnabledState();
 
     String getCountryCode();
+
+    void setOverrideCountryCode(String country);
+
+    void clearOverrideCountryCode();
+
+    void setDefaultCountryCode(String country);
 
     boolean is24GHzBandSupported();
 
@@ -322,6 +330,8 @@ interface IWifiManager
     void removeAppState(int targetAppUid, String targetApppackageName);
 
     boolean setWifiScoringEnabled(boolean enabled);
+
+    void flushPasspointAnqpCache(String packageName);
 
     int getSoftApWifiStandard();
 
