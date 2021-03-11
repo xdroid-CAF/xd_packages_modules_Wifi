@@ -1128,7 +1128,9 @@ public class WifiInfo implements TransportInfo, Parcelable {
                 .append(", Frequency: ").append(mFrequency).append(FREQUENCY_UNITS)
                 .append(", Net ID: ").append(mNetworkId)
                 .append(", Metered hint: ").append(mMeteredHint)
-                .append(", score: ").append(Integer.toString(score));
+                .append(", score: ").append(Integer.toString(score))
+                .append(", CarrierMerged: ").append(mCarrierMerged)
+                .append(", SubscriptionId: ").append(mSubscriptionId);
         return sb.toString();
     }
 

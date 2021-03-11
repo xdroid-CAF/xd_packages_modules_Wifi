@@ -261,6 +261,10 @@ package android.net.wifi {
     method public void writeToParcel(@NonNull android.os.Parcel, int);
     field @NonNull public static final android.os.Parcelable.Creator<android.net.wifi.SoftApCapability> CREATOR;
     field public static final long SOFTAP_FEATURE_ACS_OFFLOAD = 1L; // 0x1L
+    field public static final long SOFTAP_FEATURE_BAND_24G_SUPPORTED = 32L; // 0x20L
+    field public static final long SOFTAP_FEATURE_BAND_5G_SUPPORTED = 64L; // 0x40L
+    field public static final long SOFTAP_FEATURE_BAND_60G_SUPPORTED = 256L; // 0x100L
+    field public static final long SOFTAP_FEATURE_BAND_6G_SUPPORTED = 128L; // 0x80L
     field public static final long SOFTAP_FEATURE_CLIENT_FORCE_DISCONNECT = 2L; // 0x2L
     field public static final long SOFTAP_FEATURE_IEEE80211_AX = 16L; // 0x10L
     field public static final long SOFTAP_FEATURE_MAC_ADDRESS_CUSTOMIZATION = 8L; // 0x8L
@@ -269,10 +273,9 @@ package android.net.wifi {
 
   public final class SoftApConfiguration implements android.os.Parcelable {
     method @NonNull public java.util.List<android.net.MacAddress> getAllowedClientList();
-    method public int getBand();
-    method @NonNull public int[] getBands();
+    method @Deprecated public int getBand();
     method @NonNull public java.util.List<android.net.MacAddress> getBlockedClientList();
-    method public int getChannel();
+    method @Deprecated public int getChannel();
     method @NonNull public android.util.SparseIntArray getChannels();
     method public int getMacRandomizationSetting();
     method public int getMaxNumberOfClients();
@@ -281,6 +284,7 @@ package android.net.wifi {
     method public boolean isBridgedModeOpportunisticShutdownEnabled();
     method public boolean isClientControlByUserEnabled();
     method public boolean isIeee80211axEnabled();
+    method public boolean isUserConfiguration();
     method @Nullable public android.net.wifi.WifiConfiguration toWifiConfiguration();
     field public static final int BAND_2GHZ = 1; // 0x1
     field public static final int BAND_5GHZ = 2; // 0x2
@@ -647,16 +651,16 @@ package android.net.wifi {
     method public default void blocklistCurrentBssid(int);
     method public void notifyScoreUpdate(int, int);
     method public default void notifyStatusUpdate(int, boolean);
-    method public default void requestNudOperation(int, boolean);
+    method public default void requestNudOperation(int);
     method public void triggerUpdateOfWifiUsabilityStats(int);
   }
 
   public static interface WifiManager.SoftApCallback {
     method public default void onBlockedClientConnecting(@NonNull android.net.wifi.WifiClient, int);
     method public default void onCapabilityChanged(@NonNull android.net.wifi.SoftApCapability);
-    method public default void onConnectedClientsChanged(@NonNull java.util.List<android.net.wifi.WifiClient>);
+    method @Deprecated public default void onConnectedClientsChanged(@NonNull java.util.List<android.net.wifi.WifiClient>);
     method public default void onConnectedClientsChanged(@NonNull android.net.wifi.SoftApInfo, @NonNull java.util.List<android.net.wifi.WifiClient>);
-    method public default void onInfoChanged(@NonNull android.net.wifi.SoftApInfo);
+    method @Deprecated public default void onInfoChanged(@NonNull android.net.wifi.SoftApInfo);
     method public default void onInfoChanged(@NonNull java.util.List<android.net.wifi.SoftApInfo>);
     method public default void onStateChanged(int, int);
   }
@@ -675,15 +679,15 @@ package android.net.wifi {
     method public void onStop(int);
   }
 
-  public class WifiNetworkConnectionStatistics implements android.os.Parcelable {
-    ctor public WifiNetworkConnectionStatistics(int, int);
-    ctor public WifiNetworkConnectionStatistics();
-    ctor public WifiNetworkConnectionStatistics(android.net.wifi.WifiNetworkConnectionStatistics);
-    method public int describeContents();
-    method public void writeToParcel(android.os.Parcel, int);
-    field @NonNull public static final android.os.Parcelable.Creator<android.net.wifi.WifiNetworkConnectionStatistics> CREATOR;
-    field public int numConnection;
-    field public int numUsage;
+  @Deprecated public class WifiNetworkConnectionStatistics implements android.os.Parcelable {
+    ctor @Deprecated public WifiNetworkConnectionStatistics(int, int);
+    ctor @Deprecated public WifiNetworkConnectionStatistics();
+    ctor @Deprecated public WifiNetworkConnectionStatistics(android.net.wifi.WifiNetworkConnectionStatistics);
+    method @Deprecated public int describeContents();
+    method @Deprecated public void writeToParcel(android.os.Parcel, int);
+    field @Deprecated @NonNull public static final android.os.Parcelable.Creator<android.net.wifi.WifiNetworkConnectionStatistics> CREATOR;
+    field @Deprecated public int numConnection;
+    field @Deprecated public int numUsage;
   }
 
   public final class WifiNetworkSuggestion implements android.os.Parcelable {

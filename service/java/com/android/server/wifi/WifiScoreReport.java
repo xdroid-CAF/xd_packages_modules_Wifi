@@ -16,8 +16,6 @@
 
 package com.android.server.wifi;
 
-import static com.android.server.wifi.WifiDataStall.INVALID_THROUGHPUT;
-
 import android.annotation.Nullable;
 import android.content.Context;
 import android.net.Network;
@@ -31,6 +29,7 @@ import android.os.RemoteException;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.modules.utils.build.SdkLevel;
 import com.android.wifi.resources.R;
 
 import java.io.FileDescriptor;
@@ -81,7 +80,7 @@ public class WifiScoreReport {
     private int mSessionNumber = 0; // not to be confused with sessionid, this just counts resets
     private final String mInterfaceName;
     private final WifiBlocklistMonitor mWifiBlocklistMonitor;
-    private final WifiDataStall mWifiDataStall;
+    private final WifiScoreCard mWifiScoreCard;
     private final Context mContext;
     private long mLastScoreBreachLowTimeMillis = INVALID_WALL_CLOCK_MILLIS;
     private long mLastScoreBreachHighTimeMillis = INVALID_WALL_CLOCK_MILLIS;
@@ -89,15 +88,17 @@ public class WifiScoreReport {
     private final ConnectedScore mAggressiveConnectedScore;
     private VelocityBasedConnectedScore mVelocityBasedConnectedScore;
     private final WifiSettingsStore mWifiSettingsStore;
+    private int mSessionIdNoReset = INVALID_SESSION_ID;
 
     @Nullable
     private NetworkAgent mNetworkAgent;
     private final WifiMetrics mWifiMetrics;
-    private final WifiInfo mWifiInfo;
+    private final ExtendedWifiInfo mWifiInfo;
     private final WifiNative mWifiNative;
     private final WifiThreadRunner mWifiThreadRunner;
     private final DeviceConfigFacade mDeviceConfigFacade;
     private final ExternalScoreUpdateObserverProxy mExternalScoreUpdateObserverProxy;
+    private final WifiInfo mWifiInfoNoReset;
 
     /**
      * Callback from {@link ExternalScoreUpdateObserverProxy}
@@ -114,9 +115,9 @@ public class WifiScoreReport {
                         + " score=" + score);
                 return;
             }
+            long millis = mClock.getWallClockMillis();
             // TODO(b/171571687): Check the Sdk level and score is used for metric collection only
             // in S.
-            long millis = mClock.getWallClockMillis();
             if (score < ConnectedScore.WIFI_TRANSITION_SCORE) {
                 if (mScore >= ConnectedScore.WIFI_TRANSITION_SCORE) {
                     mLastScoreBreachLowTimeMillis = millis;
@@ -203,38 +204,65 @@ public class WifiScoreReport {
                         + " isUsable=" + isUsable);
                 return;
             }
-            // TODO's:  1) Tear down network switch operation based on score value in
-            //  notifyScoreUpdate; 2) Pass isUsable (after converting it to an integer) to
-            //  ConnectivityService for setting default network.
+            if (mNetworkAgent == null) {
+                return;
+            }
+            int score = isUsable ? ConnectedScore.WIFI_TRANSITION_SCORE + 1 :
+                    ConnectedScore.WIFI_TRANSITION_SCORE - 1;
+            // Stay a notch above the transition score if adaptive connectivity is disabled.
+            if (!mAdaptiveConnectivityEnabledSettingObserver.get()
+                    || !mWifiSettingsStore.isWifiScoringEnabled()) {
+                score = ConnectedScore.WIFI_TRANSITION_SCORE + 1;
+                if (mVerboseLoggingEnabled) {
+                    Log.d(TAG, "Wifi scoring disabled - Stay a notch above the transition score");
+                }
+            }
+            mNetworkAgent.sendNetworkScore(score);
         }
 
         @Override
-        public void requestNudOperation(int sessionId, boolean nudTrigger) {
+        public void requestNudOperation(int sessionId) {
             if (mWifiConnectedNetworkScorerHolder == null
                     || sessionId == INVALID_SESSION_ID
                     || sessionId != getCurrentSessionId()) {
                 Log.w(TAG, "Ignoring stale/invalid external input for NUD triggering"
                         + " sessionId=" + sessionId
-                        + " currentSessionId=" + getCurrentSessionId()
-                        + " nudTrigger=" + nudTrigger);
+                        + " currentSessionId=" + getCurrentSessionId());
                 return;
             }
-            // TODO: 1) Tear down NUD triggering based on score value in
-            //  notifyScoreUpdate; 2) Recommend NUD to be triggered in
-            //  shouldCheckIpLayer().
+            if (!mAdaptiveConnectivityEnabledSettingObserver.get()
+                    || !mWifiSettingsStore.isWifiScoringEnabled()) {
+                if (mVerboseLoggingEnabled) {
+                    Log.d(TAG, "Wifi scoring disabled - Cannot request a NUD operation");
+                }
+                return;
+            }
+            mWifiConnectedNetworkScorerHolder.setShouldCheckIpLayerOnce(true);
         }
 
         @Override
         public void blocklistCurrentBssid(int sessionId) {
             if (mWifiConnectedNetworkScorerHolder == null
                     || sessionId == INVALID_SESSION_ID
-                    || sessionId != getCurrentSessionId()) {
+                    || sessionId != mSessionIdNoReset) {
                 Log.w(TAG, "Ignoring stale/invalid external input for blocklisting"
                         + " sessionId=" + sessionId
-                        + " currentSessionId=" + getCurrentSessionId());
+                        + " mSessionIdNoReset=" + mSessionIdNoReset);
                 return;
             }
-            // TODO: Blocklist current BSSID.
+            if (!mAdaptiveConnectivityEnabledSettingObserver.get()
+                    || !mWifiSettingsStore.isWifiScoringEnabled()) {
+                if (mVerboseLoggingEnabled) {
+                    Log.d(TAG, "Wifi scoring disabled - Cannot blocklist current BSSID");
+                }
+                return;
+            }
+            if (mWifiInfoNoReset.getBSSID() != null) {
+                mWifiBlocklistMonitor.handleBssidConnectionFailure(mWifiInfoNoReset.getBSSID(),
+                        mWifiInfoNoReset.getSSID(),
+                        WifiBlocklistMonitor.REASON_FRAMEWORK_DISCONNECT_CONNECTED_SCORE,
+                        mWifiInfoNoReset.getRssi());
+            }
         }
     }
 
@@ -318,6 +346,7 @@ public class WifiScoreReport {
         private final IBinder mBinder;
         private final IWifiConnectedNetworkScorer mScorer;
         private int mSessionId = INVALID_SESSION_ID;
+        private boolean mShouldCheckIpLayerOnce = false;
 
         WifiConnectedNetworkScorerHolder(IBinder binder, IWifiConnectedNetworkScorer scorer) {
             mBinder = binder;
@@ -369,6 +398,7 @@ public class WifiScoreReport {
                 return;
             }
             mSessionId = sessionId;
+            mSessionIdNoReset = sessionId;
             try {
                 mScorer.onStart(sessionId);
             } catch (RemoteException e) {
@@ -380,6 +410,7 @@ public class WifiScoreReport {
             final int sessionId = mSessionId;
             if (sessionId == INVALID_SESSION_ID) return;
             mSessionId = INVALID_SESSION_ID;
+            mShouldCheckIpLayerOnce = false;
             try {
                 mScorer.onStop(sessionId);
             } catch (RemoteException e) {
@@ -390,6 +421,14 @@ public class WifiScoreReport {
 
         public boolean isShellCommandScorer() {
             return mScorer instanceof WifiShellCommand.WifiScorer;
+        }
+
+        private void setShouldCheckIpLayerOnce(boolean shouldCheckIpLayerOnce) {
+            mShouldCheckIpLayerOnce = shouldCheckIpLayerOnce;
+        }
+
+        private boolean getShouldCheckIpLayerOnce() {
+            return mShouldCheckIpLayerOnce;
         }
     }
 
@@ -402,9 +441,9 @@ public class WifiScoreReport {
             mAdaptiveConnectivityEnabledSettingObserver;
 
     WifiScoreReport(ScoringParams scoringParams, Clock clock, WifiMetrics wifiMetrics,
-            WifiInfo wifiInfo, WifiNative wifiNative,
+            ExtendedWifiInfo wifiInfo, WifiNative wifiNative,
             WifiBlocklistMonitor wifiBlocklistMonitor,
-            WifiThreadRunner wifiThreadRunner, WifiDataStall wifiDataStall,
+            WifiThreadRunner wifiThreadRunner, WifiScoreCard wifiScoreCard,
             DeviceConfigFacade deviceConfigFacade, Context context,
             AdaptiveConnectivityEnabledSettingObserver adaptiveConnectivityEnabledSettingObserver,
             String interfaceName,
@@ -420,12 +459,13 @@ public class WifiScoreReport {
         mWifiNative = wifiNative;
         mWifiBlocklistMonitor = wifiBlocklistMonitor;
         mWifiThreadRunner = wifiThreadRunner;
-        mWifiDataStall = wifiDataStall;
+        mWifiScoreCard = wifiScoreCard;
         mDeviceConfigFacade = deviceConfigFacade;
         mContext = context;
         mInterfaceName = interfaceName;
         mExternalScoreUpdateObserverProxy = externalScoreUpdateObserverProxy;
         mWifiSettingsStore = wifiSettingsStore;
+        mWifiInfoNoReset = new WifiInfo(mWifiInfo);
     }
 
     /**
@@ -596,15 +636,19 @@ public class WifiScoreReport {
             }
             return false;
         }
-        int nud = mScoringParams.getNudKnob();
-        if (nud == 0) {
-            return false;
-        }
         long millis = mClock.getWallClockMillis();
         long deltaMillis = millis - mLastKnownNudCheckTimeMillis;
         // Don't ever ask back-to-back - allow at least 5 seconds
         // for the previous one to finish.
         if (deltaMillis < NUD_THROTTLE_MILLIS) {
+            return false;
+        }
+        if (SdkLevel.isAtLeastS() && mWifiConnectedNetworkScorerHolder != null
+                && mWifiConnectedNetworkScorerHolder.getShouldCheckIpLayerOnce()) {
+            return true;
+        }
+        int nud = mScoringParams.getNudKnob();
+        if (nud == 0) {
             return false;
         }
         // nextNudBreach is the bar the score needs to cross before we ask for NUD
@@ -640,6 +684,10 @@ public class WifiScoreReport {
         mLastKnownNudCheckTimeMillis = millis;
         mLastKnownNudCheckScore = mScore;
         mNudCount++;
+        // Make sure that only one NUD operation can be triggered.
+        if (mWifiConnectedNetworkScorerHolder != null) {
+            mWifiConnectedNetworkScorerHolder.setShouldCheckIpLayerOnce(false);
+        }
     }
 
     /**
@@ -664,8 +712,9 @@ public class WifiScoreReport {
         int freq = mWifiInfo.getFrequency();
         int txLinkSpeed = mWifiInfo.getLinkSpeed();
         int rxLinkSpeed = mWifiInfo.getRxLinkSpeedMbps();
-        int txThroughputMbps = convertKbpsToMbps(mWifiDataStall.getTxThroughputKbps());
-        int rxThroughputMbps = convertKbpsToMbps(mWifiDataStall.getRxThroughputKbps());
+        WifiScoreCard.PerNetwork network = mWifiScoreCard.lookupNetwork(mWifiInfo.getSSID());
+        int txThroughputMbps = network.getTxLinkBandwidthKbps() / 1000;
+        int rxThroughputMbps = network.getRxLinkBandwidthKbps() / 1000;
         double txSuccessRate = mWifiInfo.getSuccessfulTxPacketsPerSecond();
         double txRetriesRate = mWifiInfo.getRetriedTxPacketsPerSecond();
         double txBadRate = mWifiInfo.getLostTxPacketsPerSecond();
@@ -693,10 +742,6 @@ public class WifiScoreReport {
                 mLinkMetricsHistory.removeFirst();
             }
         }
-    }
-
-    private int convertKbpsToMbps(int throughputKbps) {
-        return (throughputKbps == INVALID_THROUGHPUT) ? INVALID_THROUGHPUT : throughputKbps / 1000;
     }
 
     /**
@@ -787,6 +832,9 @@ public class WifiScoreReport {
         }
         mWifiInfo.setScore(ConnectedScore.WIFI_MAX_SCORE);
         mWifiConnectedNetworkScorerHolder.startSession(sessionId);
+        mWifiInfoNoReset.setBSSID(mWifiInfo.getBSSID());
+        mWifiInfoNoReset.setSSID(mWifiInfo.getWifiSsid());
+        mWifiInfoNoReset.setRssi(mWifiInfo.getRssi());
         mLastScoreBreachLowTimeMillis = INVALID_WALL_CLOCK_MILLIS;
         mLastScoreBreachHighTimeMillis = INVALID_WALL_CLOCK_MILLIS;
     }

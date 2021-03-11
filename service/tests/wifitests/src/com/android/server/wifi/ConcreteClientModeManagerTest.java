@@ -114,7 +114,6 @@ public class ConcreteClientModeManagerTest extends WifiBaseTest {
     @Mock WifiGlobals mWifiGlobals;
     @Mock ScanOnlyModeImpl mScanOnlyModeImpl;
     @Mock DefaultClientModeManager mDefaultClientModeManager;
-    @Mock WifiCountryCode mWifiCountryCode;
     @Mock ClientModeManagerBroadcastQueue mBroadcastQueue;
 
     private RegistrationManager.RegistrationCallback mImsMmTelManagerRegistrationCallback = null;
@@ -256,7 +255,7 @@ public class ConcreteClientModeManagerTest extends WifiBaseTest {
         return new ConcreteClientModeManager(mContext, mLooper.getLooper(), mClock, mWifiNative,
                 mListener, mWifiMetrics, mWakeupController, mWifiInjector, mSelfRecovery,
                 mWifiGlobals, mDefaultClientModeManager, 0, TEST_WORKSOURCE, role,
-                mBroadcastQueue, false, mWifiCountryCode);
+                mBroadcastQueue, false);
     }
 
     private void startClientInScanOnlyModeAndVerifyEnabled() throws Exception {
@@ -560,6 +559,7 @@ public class ConcreteClientModeManagerTest extends WifiBaseTest {
         reset(mContext);
         setUpSystemServiceForContext();
         when(mWifiGlobals.isConnectedMacRandomizationEnabled()).thenReturn(true);
+        when(mClientModeImpl.isConnecting()).thenReturn(true);
         mInterfaceCallbackCaptor.getValue().onDown(TEST_INTERFACE_NAME);
         mLooper.dispatchAll();
         verify(mSelfRecovery, never()).trigger(SelfRecovery.REASON_STA_IFACE_DOWN);
@@ -1340,12 +1340,15 @@ public class ConcreteClientModeManagerTest extends WifiBaseTest {
         verify(mListener, never()).onRoleChanged(any()); // no callback sent.
 
         // Change the connectivity role.
+        ActiveModeManager.Listener<ConcreteClientModeManager> newListener =
+                mock(ActiveModeManager.Listener.class);
         mClientModeManager.setRole(
-                ActiveModeManager.ROLE_CLIENT_SECONDARY_TRANSIENT, TEST_WORKSOURCE);
+                ActiveModeManager.ROLE_CLIENT_SECONDARY_TRANSIENT, TEST_WORKSOURCE, newListener);
         mLooper.dispatchAll();
         verify(mWifiNative, times(2)).replaceStaIfaceRequestorWs(
                 eq(TEST_INTERFACE_NAME), same(TEST_WORKSOURCE));
-        verify(mListener).onRoleChanged(mClientModeManager); // callback sent.
+        verify(newListener).onRoleChanged(mClientModeManager); // callback sent on new listener.
+        verifyNoMoreInteractions(mListener); // no callback sent on older listener.
     }
 
     @Test
