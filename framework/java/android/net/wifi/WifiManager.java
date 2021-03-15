@@ -1384,6 +1384,14 @@ public class WifiManager {
     @GuardedBy("mLock")
     private LocalOnlyHotspotObserverProxy mLOHSObserverProxy;
 
+    private static final SparseArray<IOnWifiUsabilityStatsListener>
+            sOnWifiUsabilityStatsListenerMap = new SparseArray();
+    private static final SparseArray<ISuggestionConnectionStatusListener>
+            sSuggestionConnectionStatusListenerMap = new SparseArray();
+    private static final SparseArray<ISuggestionUserApprovalStatusListener>
+            sSuggestionUserApprovalStatusListenerMap = new SparseArray();
+    private static final SparseArray<INetworkRequestMatchCallback>
+            sNetworkRequestMatchCallbackMap = new SparseArray();
     /**
      * Create a new WifiManager instance.
      * Applications will almost always want to use
@@ -1945,11 +1953,14 @@ public class WifiManager {
         Log.v(TAG, "registerNetworkRequestMatchCallback: callback=" + callback
                 + ", executor=" + executor);
 
-        Binder binder = new Binder();
         try {
-            mService.registerNetworkRequestMatchCallback(
-                    binder, new NetworkRequestMatchCallbackProxy(executor, callback),
-                    callback.hashCode());
+            synchronized (sNetworkRequestMatchCallbackMap) {
+                INetworkRequestMatchCallback.Stub binderCallback =
+                        new NetworkRequestMatchCallbackProxy(executor, callback);
+                sNetworkRequestMatchCallbackMap.put(System.identityHashCode(callback),
+                        binderCallback);
+                mService.registerNetworkRequestMatchCallback(binderCallback);
+            }
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -1974,7 +1985,16 @@ public class WifiManager {
         Log.v(TAG, "unregisterNetworkRequestMatchCallback: callback=" + callback);
 
         try {
-            mService.unregisterNetworkRequestMatchCallback(callback.hashCode());
+            synchronized (sNetworkRequestMatchCallbackMap) {
+                int callbackIdentifier = System.identityHashCode(callback);
+                if (!sNetworkRequestMatchCallbackMap.contains(callbackIdentifier)) {
+                    Log.w(TAG, "Unknown external callback " + callbackIdentifier);
+                    return;
+                }
+                mService.unregisterNetworkRequestMatchCallback(
+                        sNetworkRequestMatchCallbackMap.get(callbackIdentifier));
+                sNetworkRequestMatchCallbackMap.remove(callbackIdentifier);
+            }
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -2106,26 +2126,6 @@ public class WifiManager {
         return isLowRamDevice
                 ? NETWORK_SUGGESTIONS_MAX_PER_APP_LOW_RAM
                 : NETWORK_SUGGESTIONS_MAX_PER_APP_HIGH_RAM;
-    }
-
-    /**
-     * Get the Suggestion approval status of the calling app. When an app makes suggestions using
-     * the {@link #addNetworkSuggestions(List)} API they may trigger a user approval flow. This API
-     * provides the current approval status.
-     *
-     * @return Status code for the user approval. One of the STATUS_SUGGESTION_APPROVAL_ values.
-     * @throws {@link SecurityException} if the caller is missing required permissions.
-     */
-    @RequiresPermission(ACCESS_WIFI_STATE)
-    public @SuggestionUserApprovalStatus int getNetworkSuggestionUserApprovalStatus() {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
-        try {
-            return mService.getNetworkSuggestionUserApprovalStatus(mContext.getOpPackageName());
-        } catch (RemoteException e) {
-            throw e.rethrowAsRuntimeException();
-        }
     }
 
     /**
@@ -2715,9 +2715,7 @@ public class WifiManager {
      * Check if the chipset supports the 60GHz frequency band.
      *
      * @return {@code true} if supported, {@code false} otherwise.
-     * @hide
      */
-    @SystemApi
     public boolean is60GHzBandSupported() {
         try {
             return mService.is60GHzBandSupported();
@@ -3309,7 +3307,7 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.NETWORK_AIRPLANE_MODE)
+    @RequiresPermission(android.Manifest.permission.RESTART_WIFI_SUBSYSTEM)
     public void restartWifiSubsystem(@Nullable String reason) {
         try {
             mService.restartWifiSubsystem(reason);
@@ -6365,8 +6363,9 @@ public class WifiManager {
             @NonNull EasyConnectStatusCallback callback) {
         Binder binder = new Binder();
         try {
-            mService.startDppAsConfiguratorInitiator(binder, enrolleeUri, selectedNetworkId,
-                    enrolleeNetworkRole, new EasyConnectCallbackProxy(executor, callback));
+            mService.startDppAsConfiguratorInitiator(binder, mContext.getOpPackageName(),
+                    enrolleeUri, selectedNetworkId, enrolleeNetworkRole,
+                    new EasyConnectCallbackProxy(executor, callback));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -6557,7 +6556,8 @@ public class WifiManager {
      * Adds a listener for Wi-Fi usability statistics. See {@link OnWifiUsabilityStatsListener}.
      * Multiple listeners can be added. Callers will be invoked periodically by framework to
      * inform clients about the current Wi-Fi usability statistics. Callers can remove a previously
-     * added listener using {@link removeOnWifiUsabilityStatsListener}.
+     * added listener using
+     * {@link #removeOnWifiUsabilityStatsListener(OnWifiUsabilityStatsListener)}.
      *
      * @param executor The executor on which callback will be invoked.
      * @param listener Listener for Wifi usability statistics.
@@ -6574,22 +6574,25 @@ public class WifiManager {
             Log.v(TAG, "addOnWifiUsabilityStatsListener: listener=" + listener);
         }
         try {
-            mService.addOnWifiUsabilityStatsListener(new Binder(),
-                    new IOnWifiUsabilityStatsListener.Stub() {
-                        @Override
-                        public void onWifiUsabilityStats(int seqNum, boolean isSameBssidAndFreq,
-                                WifiUsabilityStatsEntry stats) {
-                            if (mVerboseLoggingEnabled) {
-                                Log.v(TAG, "OnWifiUsabilityStatsListener: "
-                                        + "onWifiUsabilityStats: seqNum=" + seqNum);
+            synchronized (sOnWifiUsabilityStatsListenerMap) {
+                IOnWifiUsabilityStatsListener.Stub binderCallback =
+                        new IOnWifiUsabilityStatsListener.Stub() {
+                            @Override
+                            public void onWifiUsabilityStats(int seqNum, boolean isSameBssidAndFreq,
+                                    WifiUsabilityStatsEntry stats) {
+                                if (mVerboseLoggingEnabled) {
+                                    Log.v(TAG, "OnWifiUsabilityStatsListener: "
+                                            + "onWifiUsabilityStats: seqNum=" + seqNum);
+                                }
+                                Binder.clearCallingIdentity();
+                                executor.execute(() -> listener.onWifiUsabilityStats(
+                                        seqNum, isSameBssidAndFreq, stats));
                             }
-                            Binder.clearCallingIdentity();
-                            executor.execute(() -> listener.onWifiUsabilityStats(
-                                    seqNum, isSameBssidAndFreq, stats));
-                        }
-                    },
-                    listener.hashCode()
-            );
+                        };
+                sOnWifiUsabilityStatsListenerMap.put(System.identityHashCode(listener),
+                        binderCallback);
+                mService.addOnWifiUsabilityStatsListener(binderCallback);
+            }
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -6611,7 +6614,16 @@ public class WifiManager {
             Log.v(TAG, "removeOnWifiUsabilityStatsListener: listener=" + listener);
         }
         try {
-            mService.removeOnWifiUsabilityStatsListener(listener.hashCode());
+            synchronized (sOnWifiUsabilityStatsListenerMap) {
+                int listenerIdentifier = System.identityHashCode(listener);
+                if (!sOnWifiUsabilityStatsListenerMap.contains(listenerIdentifier)) {
+                    Log.w(TAG, "Unknown external callback " + listenerIdentifier);
+                    return;
+                }
+                mService.removeOnWifiUsabilityStatsListener(
+                        sOnWifiUsabilityStatsListenerMap.get(listenerIdentifier));
+                sOnWifiUsabilityStatsListenerMap.remove(listenerIdentifier);
+            }
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -6826,9 +6838,14 @@ public class WifiManager {
         Log.v(TAG, "addSuggestionConnectionStatusListener listener=" + listener
                 + ", executor=" + executor);
         try {
-            mService.registerSuggestionConnectionStatusListener(new Binder(),
-                    new SuggestionConnectionStatusListenerProxy(executor, listener),
-                    listener.hashCode(), mContext.getOpPackageName(), mContext.getAttributionTag());
+            synchronized (sSuggestionConnectionStatusListenerMap) {
+                ISuggestionConnectionStatusListener.Stub binderCallback =
+                        new SuggestionConnectionStatusListenerProxy(executor, listener);
+                sSuggestionConnectionStatusListenerMap.put(System.identityHashCode(listener),
+                        binderCallback);
+                mService.registerSuggestionConnectionStatusListener(binderCallback,
+                        mContext.getOpPackageName(), mContext.getAttributionTag());
+            }
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -6847,8 +6864,17 @@ public class WifiManager {
         if (listener == null) throw new IllegalArgumentException("Listener cannot be null");
         Log.v(TAG, "removeSuggestionConnectionStatusListener: listener=" + listener);
         try {
-            mService.unregisterSuggestionConnectionStatusListener(listener.hashCode(),
-                    mContext.getOpPackageName());
+            synchronized (sSuggestionConnectionStatusListenerMap) {
+                int listenerIdentifier = System.identityHashCode(listener);
+                if (!sSuggestionConnectionStatusListenerMap.contains(listenerIdentifier)) {
+                    Log.w(TAG, "Unknown external callback " + listenerIdentifier);
+                    return;
+                }
+                mService.unregisterSuggestionConnectionStatusListener(
+                        sSuggestionConnectionStatusListenerMap.get(listenerIdentifier),
+                        mContext.getOpPackageName());
+                sSuggestionConnectionStatusListenerMap.remove(listenerIdentifier);
+            }
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -6936,7 +6962,13 @@ public class WifiManager {
     @SystemApi
     public interface ScoreUpdateObserver {
         /**
-         * Called by applications to indicate network status.
+         * Called by applications to indicate network status. For applications targeting
+         * {@link android.os.Build.VERSION_CODES#S} or above: The score is not used to take action
+         * on network selection but for the purpose of Wifi metric collection only; Network
+         * selection is influenced by inputs from
+         * {@link ScoreUpdateObserver#notifyStatusUpdate(int, boolean)},
+         * {@link ScoreUpdateObserver#requestNudOperation(int, boolean)}, and
+         * {@link ScoreUpdateObserver#blocklistCurrentBssid(int)}.
          *
          * @param sessionId The ID to indicate current Wi-Fi network connection obtained from
          *                  {@link WifiConnectedNetworkScorer#onStart(int)}.
@@ -6954,6 +6986,39 @@ public class WifiManager {
          *                  {@link WifiConnectedNetworkScorer#onStart(int)}.
          */
         void triggerUpdateOfWifiUsabilityStats(int sessionId);
+
+        /**
+         * Called by applications to indicate whether current Wi-Fi network is usable or not.
+         *
+         * @param sessionId The ID to indicate current Wi-Fi network connection obtained from
+         *                  {@link WifiConnectedNetworkScorer#onStart(int)}.
+         * @param isUsable The boolean representing whether current Wi-Fi network is usable, and it
+         *                 may be sent to ConnectivityService and used for setting default network.
+         *                 Populated by connected network scorer in applications.
+         */
+        default void notifyStatusUpdate(int sessionId, boolean isUsable) {}
+
+        /**
+         * Called by applications to start a NUD (Neighbor Unreachability Detection) operation. The
+         * framework throttles NUD operations to no more frequently than every five seconds
+         * (see {@link WifiScoreReport#NUD_THROTTLE_MILLIS}). The framework keeps track of requests
+         * and executes them as soon as possible based on the throttling criteria.
+         *
+         * @param sessionId The ID to indicate current Wi-Fi network connection obtained from
+         *                  {@link WifiConnectedNetworkScorer#onStart(int)}.
+         * @param nudTrigger The boolean indicating whether triggering NUD is recommended.
+         *                   Populated by connected network scorer in applications.
+         */
+        default void requestNudOperation(int sessionId, boolean nudTrigger) {}
+
+        /**
+         * Called by applications to blocklist currently connected BSSID. No blocklisting operation
+         * if called after disconnection.
+         *
+         * @param sessionId The ID to indicate current Wi-Fi network connection obtained from
+         *                  {@link WifiConnectedNetworkScorer#onStart(int)}.
+         */
+        default void blocklistCurrentBssid(int sessionId) {}
     }
 
     /**
@@ -6981,6 +7046,42 @@ public class WifiManager {
         public void triggerUpdateOfWifiUsabilityStats(int sessionId) {
             try {
                 mScoreUpdateObserver.triggerUpdateOfWifiUsabilityStats(sessionId);
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
+        }
+
+        @Override
+        public void notifyStatusUpdate(int sessionId, boolean isUsable) {
+            if (!SdkLevel.isAtLeastS()) {
+                throw new UnsupportedOperationException();
+            }
+            try {
+                mScoreUpdateObserver.notifyStatusUpdate(sessionId, isUsable);
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
+        }
+
+        @Override
+        public void requestNudOperation(int sessionId, boolean nudTrigger) {
+            if (!SdkLevel.isAtLeastS()) {
+                throw new UnsupportedOperationException();
+            }
+            try {
+                mScoreUpdateObserver.requestNudOperation(sessionId, nudTrigger);
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
+        }
+
+        @Override
+        public void blocklistCurrentBssid(int sessionId) {
+            if (!SdkLevel.isAtLeastS()) {
+                throw new UnsupportedOperationException();
+            }
+            try {
+                mScoreUpdateObserver.blocklistCurrentBssid(sessionId);
             } catch (RemoteException e) {
                 throw e.rethrowFromSystemServer();
             }
@@ -7266,10 +7367,11 @@ public class WifiManager {
     public interface SuggestionUserApprovalStatusListener {
 
         /**
-         * Called when the user approval status of the App has changed. The current status can be
-         * queried by {@link #getNetworkSuggestionUserApprovalStatus()}
+         * Called when the user approval status of the App has changed.
+         * @param status The current status code for the user approval. One of the
+         *               {@code STATUS_SUGGESTION_APPROVAL_} values.
          */
-        void onUserApprovalStatusChange();
+        void onUserApprovalStatusChange(@SuggestionUserApprovalStatus int status);
     }
 
     private class SuggestionUserApprovalStatusListenerProxy extends
@@ -7284,8 +7386,8 @@ public class WifiManager {
         }
 
         @Override
-        public void onUserApprovalStatusChange() {
-            mExecutor.execute(() -> mListener.onUserApprovalStatusChange());
+        public void onUserApprovalStatusChange(int status) {
+            mExecutor.execute(() -> mListener.onUserApprovalStatusChange(status));
         }
 
     }
@@ -7293,30 +7395,35 @@ public class WifiManager {
     /**
      * Add a listener for Wi-Fi network suggestion user approval status.
      * See {@link SuggestionUserApprovalStatusListener}.
-     * Caller will receive a callback when the user approval status of the caller has changed.
+     * Caller will receive a callback immediately after adding a listener and when the user approval
+     * status of the caller has changed.
      * Caller can remove a previously registered listener using
      * {@link WifiManager#removeSuggestionUserApprovalStatusListener(
      * SuggestionUserApprovalStatusListener)}
      * A caller can add multiple listeners to monitor the event.
      * @param executor The executor to execute the listener of the {@code listener} object.
      * @param listener listener for suggestion user approval status changes.
-     * @return true if succeed otherwise false.
      */
     @RequiresPermission(ACCESS_WIFI_STATE)
-    public boolean addSuggestionUserApprovalStatusListener(
+    public void addSuggestionUserApprovalStatusListener(
             @NonNull @CallbackExecutor Executor executor,
             @NonNull SuggestionUserApprovalStatusListener listener) {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();
         }
-        if (listener == null) throw new IllegalArgumentException("Listener cannot be null");
-        if (executor == null) throw new IllegalArgumentException("Executor cannot be null");
+        if (listener == null) throw new NullPointerException("Listener cannot be null");
+        if (executor == null) throw new NullPointerException("Executor cannot be null");
         Log.v(TAG, "addSuggestionUserApprovalStatusListener listener=" + listener
                 + ", executor=" + executor);
         try {
-            return mService.addSuggestionUserApprovalStatusListener(new Binder(),
-                    new SuggestionUserApprovalStatusListenerProxy(executor, listener),
-                    listener.hashCode(), mContext.getOpPackageName(), mContext.getAttributionTag());
+            synchronized (sSuggestionUserApprovalStatusListenerMap) {
+                ISuggestionUserApprovalStatusListener.Stub binderCallback =
+                        new SuggestionUserApprovalStatusListenerProxy(executor, listener);
+                sSuggestionUserApprovalStatusListenerMap.put(System.identityHashCode(listener),
+                        binderCallback);
+                mService.addSuggestionUserApprovalStatusListener(binderCallback,
+                        mContext.getOpPackageName());
+            }
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -7329,8 +7436,6 @@ public class WifiManager {
      * SuggestionUserApprovalStatusListener)}. After calling this method,
      * applications will no longer receive network suggestion user approval status change through
      * that listener.
-     *
-     * @param listener listener to remove.
      */
     @RequiresPermission(ACCESS_WIFI_STATE)
     public void removeSuggestionUserApprovalStatusListener(
@@ -7341,8 +7446,17 @@ public class WifiManager {
         if (listener == null) throw new IllegalArgumentException("Listener cannot be null");
         Log.v(TAG, "removeSuggestionUserApprovalStatusListener: listener=" + listener);
         try {
-            mService.removeSuggestionUserApprovalStatusListener(listener.hashCode(),
-                    mContext.getOpPackageName());
+            synchronized (sSuggestionUserApprovalStatusListenerMap) {
+                int listenerIdentifier = System.identityHashCode(listener);
+                if (!sSuggestionUserApprovalStatusListenerMap.contains(listenerIdentifier)) {
+                    Log.w(TAG, "Unknown external callback " + listenerIdentifier);
+                    return;
+                }
+                mService.removeSuggestionUserApprovalStatusListener(
+                        sSuggestionUserApprovalStatusListenerMap.get(listenerIdentifier),
+                        mContext.getOpPackageName());
+                sSuggestionUserApprovalStatusListenerMap.remove(listenerIdentifier);
+            }
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -7381,6 +7495,31 @@ public class WifiManager {
     public boolean isVht8ssCapableDevice() {
         try {
             return mService.isVht8ssCapableDevice();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Enable or disable Wi-Fi scoring.  Wi-Fi network status is evaluated by Wi-Fi scoring
+     * {@link WifiScoreReport}. This API enables/disables Wi-Fi scoring to take action on network
+     * selection.
+     *
+     * @param enabled {@code true} to enable, {@code false} to disable.
+     * @return true The status of Wifi scoring is set successfully.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.NETWORK_SETTINGS)
+    public boolean setWifiScoringEnabled(boolean enabled) {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
+        if (mVerboseLoggingEnabled) {
+            Log.v(TAG, "setWifiScoringEnabled: " + enabled);
+        }
+        try {
+            return mService.setWifiScoringEnabled(enabled);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

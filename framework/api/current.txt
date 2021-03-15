@@ -7,6 +7,7 @@ package android.net.wifi {
     field public static final int EASY_CONNECT_EVENT_FAILURE_CANNOT_FIND_NETWORK = -10; // 0xfffffff6
     field public static final int EASY_CONNECT_EVENT_FAILURE_CONFIGURATION = -4; // 0xfffffffc
     field public static final int EASY_CONNECT_EVENT_FAILURE_ENROLLEE_AUTHENTICATION = -11; // 0xfffffff5
+    field public static final int EASY_CONNECT_EVENT_FAILURE_ENROLLEE_FAILED_TO_SCAN_NETWORK_CHANNEL = -14; // 0xfffffff2
     field public static final int EASY_CONNECT_EVENT_FAILURE_ENROLLEE_REJECTED_CONFIGURATION = -12; // 0xfffffff4
     field public static final int EASY_CONNECT_EVENT_FAILURE_GENERIC = -7; // 0xfffffff9
     field public static final int EASY_CONNECT_EVENT_FAILURE_INVALID_NETWORK = -9; // 0xfffffff7
@@ -284,7 +285,7 @@ package android.net.wifi {
     method @Nullable public java.util.List<android.net.wifi.ScanResult.InformationElement> getInformationElements();
     method @Deprecated public int getIpAddress();
     method public int getLinkSpeed();
-    method public String getMacAddress();
+    method @RequiresPermission(android.Manifest.permission.LOCAL_MAC_ADDRESS) public String getMacAddress();
     method public int getMaxSupportedRxLinkSpeedMbps();
     method public int getMaxSupportedTxLinkSpeedMbps();
     method public int getNetworkId();
@@ -318,7 +319,7 @@ package android.net.wifi {
     method @RequiresPermission(android.Manifest.permission.CHANGE_WIFI_STATE) public int addNetworkSuggestions(@NonNull java.util.List<android.net.wifi.WifiNetworkSuggestion>);
     method public void addOrUpdatePasspointConfiguration(android.net.wifi.hotspot2.PasspointConfiguration);
     method @RequiresPermission(allOf={android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_WIFI_STATE}) public void addSuggestionConnectionStatusListener(@NonNull java.util.concurrent.Executor, @NonNull android.net.wifi.WifiManager.SuggestionConnectionStatusListener);
-    method @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public boolean addSuggestionUserApprovalStatusListener(@NonNull java.util.concurrent.Executor, @NonNull android.net.wifi.WifiManager.SuggestionUserApprovalStatusListener);
+    method @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public void addSuggestionUserApprovalStatusListener(@NonNull java.util.concurrent.Executor, @NonNull android.net.wifi.WifiManager.SuggestionUserApprovalStatusListener);
     method @Deprecated public static int calculateSignalLevel(int, int);
     method @IntRange(from=0) public int calculateSignalLevel(int);
     method @Deprecated public void cancelWps(android.net.wifi.WifiManager.WpsCallback);
@@ -334,12 +335,12 @@ package android.net.wifi {
     method @Deprecated public android.net.DhcpInfo getDhcpInfo();
     method public int getMaxNumberOfNetworkSuggestionsPerApp();
     method @IntRange(from=0) public int getMaxSignalLevel();
-    method @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public int getNetworkSuggestionUserApprovalStatus();
     method @NonNull @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public java.util.List<android.net.wifi.WifiNetworkSuggestion> getNetworkSuggestions();
     method @Deprecated @RequiresPermission(anyOf={android.Manifest.permission.NETWORK_SETTINGS, android.Manifest.permission.NETWORK_SETUP_WIZARD}) public java.util.List<android.net.wifi.hotspot2.PasspointConfiguration> getPasspointConfigurations();
     method public java.util.List<android.net.wifi.ScanResult> getScanResults();
     method public int getWifiState();
     method public boolean is5GHzBandSupported();
+    method public boolean is60GHzBandSupported();
     method public boolean is6GHzBandSupported();
     method @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public boolean isAutoWakeupEnabled();
     method public boolean isBridgedApConcurrencySupported();
@@ -479,7 +480,7 @@ package android.net.wifi {
   }
 
   public static interface WifiManager.SuggestionUserApprovalStatusListener {
-    method public void onUserApprovalStatusChange();
+    method public void onUserApprovalStatusChange(int);
   }
 
   public class WifiManager.WifiLock {

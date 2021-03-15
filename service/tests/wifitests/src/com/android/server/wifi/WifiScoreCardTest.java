@@ -33,6 +33,10 @@ import static com.android.server.wifi.WifiScoreCard.CNT_CONSECUTIVE_CONNECTION_F
 import static com.android.server.wifi.WifiScoreCard.CNT_DISCONNECTION_NONLOCAL;
 import static com.android.server.wifi.WifiScoreCard.CNT_DISCONNECTION_NONLOCAL_CONNECTING;
 import static com.android.server.wifi.WifiScoreCard.CNT_SHORT_CONNECTION_NONLOCAL;
+import static com.android.server.wifi.WifiScoreCard.LINK_BANDWIDTH_INIT_KBPS;
+import static com.android.server.wifi.WifiScoreCard.LINK_BANDWIDTH_STATS_COUNT_THR;
+import static com.android.server.wifi.WifiScoreCard.LINK_RX;
+import static com.android.server.wifi.WifiScoreCard.LINK_TX;
 import static com.android.server.wifi.util.NativeUtil.hexStringFromByteArray;
 
 import static org.junit.Assert.*;
@@ -51,6 +55,7 @@ import com.android.server.wifi.WifiHealthMonitor.FailureStats;
 import com.android.server.wifi.WifiScoreCard.NetworkConnectionStats;
 import com.android.server.wifi.WifiScoreCard.PerNetwork;
 import com.android.server.wifi.proto.WifiScoreCardProto.AccessPoint;
+import com.android.server.wifi.proto.WifiScoreCardProto.BandwidthStatsAll;
 import com.android.server.wifi.proto.WifiScoreCardProto.ConnectionStats;
 import com.android.server.wifi.proto.WifiScoreCardProto.Event;
 import com.android.server.wifi.proto.WifiScoreCardProto.Network;
@@ -93,6 +98,12 @@ public class WifiScoreCardTest extends WifiBaseTest {
     @Mock Clock mClock;
     @Mock WifiScoreCard.MemoryStore mMemoryStore;
     @Mock DeviceConfigFacade mDeviceConfigFacade;
+    @Mock FrameworkFacade mFrameworkFacade;
+
+    private WifiLinkLayerStats mOldLlStats;
+    private WifiLinkLayerStats mNewLlStats;
+    private long mTotalTxBytes;
+    private long mTotalRxBytes;
 
     final ArrayList<String> mKeys = new ArrayList<>();
     final ArrayList<WifiScoreCard.BlobListener> mBlobListeners = new ArrayList<>();
@@ -125,7 +136,8 @@ public class WifiScoreCardTest extends WifiBaseTest {
         mWifiInfo.setBSSID(TEST_BSSID_1.toString());
         mWifiInfo.setNetworkId(TEST_NETWORK_CONFIG_ID);
         millisecondsPass(0);
-        mWifiScoreCard = new WifiScoreCard(mClock, "some seed", mDeviceConfigFacade);
+        mWifiScoreCard = new WifiScoreCard(mClock, "some seed", mDeviceConfigFacade,
+                mFrameworkFacade);
         mWifiScoreCard.mPersistentHistograms = true; // TODO - remove when ready
         when(mDeviceConfigFacade.getConnectionFailureHighThrPercent()).thenReturn(
                 DeviceConfigFacade.DEFAULT_CONNECTION_FAILURE_HIGH_THR_PERCENT);
@@ -170,6 +182,14 @@ public class WifiScoreCardTest extends WifiBaseTest {
         when(mDeviceConfigFacade.getHealthMonitorFwAlertValidTimeMs()).thenReturn(-1);
         when(mDeviceConfigFacade.getBugReportThresholdExtraRatio()).thenReturn(1);
         mWifiScoreCard.enableVerboseLogging(true);
+        when(mFrameworkFacade.getMobileRxBytes()).thenReturn(0L);
+        when(mFrameworkFacade.getMobileTxBytes()).thenReturn(0L);
+        when(mFrameworkFacade.getTotalRxBytes()).thenReturn(0L);
+        when(mFrameworkFacade.getTotalTxBytes()).thenReturn(0L);
+        mOldLlStats = new WifiLinkLayerStats();
+        mNewLlStats = new WifiLinkLayerStats();
+        mTotalTxBytes = 0;
+        mTotalRxBytes = 0;
     }
 
     /**
@@ -502,6 +522,7 @@ public class WifiScoreCardTest extends WifiBaseTest {
                 }
             }
         }
+        makeUpdateLinkBandwidthExample();
         mWifiScoreCard.resetConnectionState();
 
         WifiScoreCard.PerBssid perBssid = mWifiScoreCard.fetchByBssid(TEST_BSSID_1);
@@ -608,6 +629,7 @@ public class WifiScoreCardTest extends WifiBaseTest {
                     fail(signal.getEvent().toString());
             }
         }
+        checkSerializationUpdateLinkBandwidthExample(ap.getBandwidthStatsAll());
     }
 
     /**
@@ -1184,12 +1206,52 @@ public class WifiScoreCardTest extends WifiBaseTest {
         mWifiScoreCard.resetConnectionState();
     }
 
+    private void makeUpdateLinkBandwidthExample() {
+        int signalLevel = 1;
+        mWifiInfo.setFrequency(2437);
+        mNewLlStats.on_time = 100;
+        mNewLlStats.timeStampInMs = 5_000;
+        long txBytes = 2_000_000L;
+        long rxBytes = 4_000_000L;
+        PerNetwork perNetwork = mWifiScoreCard.lookupNetwork(mWifiInfo.getSSID());
+        for (int i = 0; i < LINK_BANDWIDTH_STATS_COUNT_THR; i++) {
+            addTotalBytes(txBytes, rxBytes);
+            perNetwork.updateLinkBandwidth(mOldLlStats, mNewLlStats, mWifiInfo, signalLevel);
+        }
+        mWifiInfo.setFrequency(5210);
+        txBytes = 5_000_000L;
+        rxBytes = 1000L;
+        for (int i = 0; i < LINK_BANDWIDTH_STATS_COUNT_THR + 2; i++) {
+            addTotalBytes(txBytes, rxBytes);
+            perNetwork.updateLinkBandwidth(mOldLlStats, mNewLlStats, mWifiInfo, signalLevel);
+        }
+    }
+
+    private void checkSerializationUpdateLinkBandwidthExample(BandwidthStatsAll stats) {
+        assertEquals(2_000_000L * 8 / 100 * LINK_BANDWIDTH_STATS_COUNT_THR,
+                stats.getStats2G().getTx().getLevel(1).getValue());
+        assertEquals(4_000_000L * 8 / 100 * LINK_BANDWIDTH_STATS_COUNT_THR,
+                stats.getStats2G().getRx().getLevel(1).getValue());
+        assertEquals(LINK_BANDWIDTH_STATS_COUNT_THR,
+                stats.getStats2G().getTx().getLevel(1).getCount());
+        assertEquals(LINK_BANDWIDTH_STATS_COUNT_THR,
+                stats.getStats2G().getRx().getLevel(1).getCount());
+
+        assertEquals(5_000_000L * 8 / 100 * (LINK_BANDWIDTH_STATS_COUNT_THR + 2),
+                stats.getStatsAbove2G().getTx().getLevel(1).getValue());
+        assertEquals(0, stats.getStatsAbove2G().getRx().getLevel(1).getValue());
+        assertEquals(LINK_BANDWIDTH_STATS_COUNT_THR + 2,
+                stats.getStatsAbove2G().getTx().getLevel(1).getCount());
+        assertEquals(0, stats.getStatsAbove2G().getRx().getLevel(1).getCount());
+    }
+
     /**
      * Constructs a protobuf form of Network example.
      */
     private byte[] makeSerializedNetworkExample() {
         makeDisconnectionConnectingExample(true);
         makeShortConnectionExample(true);
+        makeUpdateLinkBandwidthExample();
         PerNetwork perNetwork = mWifiScoreCard.fetchByNetwork(mWifiInfo.getSSID());
         checkSerializationNetworkExample("before serialization", perNetwork);
         // Now convert to protobuf form
@@ -1233,6 +1295,8 @@ public class WifiScoreCardTest extends WifiBaseTest {
         assertEquals(0, dailyStats.getNumAssociationRejection());
         assertEquals(0, dailyStats.getNumAssociationTimeout());
         assertEquals(0, dailyStats.getNumAuthenticationFailure());
+
+        checkSerializationUpdateLinkBandwidthExample(ns.getBandwidthStatsAll());
     }
 
     /**
@@ -1502,5 +1566,157 @@ public class WifiScoreCardTest extends WifiBaseTest {
         // Check over aged channel will not return.
         assertEquals(1, perNetwork.getFrequencies(900L).size());
         assertEquals(2432, (int) perNetwork.getFrequencies(Long.MAX_VALUE).get(0));
+    }
+
+    private void addTotalBytes(long txBytes, long rxBytes) {
+        mTotalTxBytes += txBytes;
+        mTotalRxBytes += rxBytes;
+        when(mFrameworkFacade.getTotalTxBytes()).thenReturn(mTotalTxBytes);
+        when(mFrameworkFacade.getTotalRxBytes()).thenReturn(mTotalRxBytes);
+    }
+
+    @Test
+    public void testLinkBandwidthOneBssidOneSignalLevelOneBand() {
+        int signalLevel = 2;
+        mWifiInfo.setFrequency(2437);
+        mWifiScoreCard.noteConnectionAttempt(mWifiInfo, -53, mWifiInfo.getSSID());
+        PerNetwork perNetwork = mWifiScoreCard.lookupNetwork(mWifiInfo.getSSID());
+        mNewLlStats.on_time = 100;
+        mOldLlStats.timeStampInMs = 7_000;
+        mNewLlStats.timeStampInMs = 10_000;
+        long txBytes = 2_000_000L;
+        long rxBytes = 4_000_000L;
+        // Add LINK_BANDWIDTH_STATS_COUNT_THR - 1 polls
+        for (int i = 0; i < LINK_BANDWIDTH_STATS_COUNT_THR - 1; i++) {
+            addTotalBytes(txBytes, rxBytes);
+            perNetwork.updateLinkBandwidth(mOldLlStats, mNewLlStats, mWifiInfo, signalLevel);
+        }
+        // Expect cold-start values
+        assertEquals(LINK_BANDWIDTH_INIT_KBPS[0][LINK_TX][signalLevel],
+                perNetwork.getTxLinkBandwidthKbps(mWifiInfo, signalLevel));
+        assertEquals(LINK_BANDWIDTH_INIT_KBPS[0][LINK_RX][signalLevel],
+                perNetwork.getRxLinkBandwidthKbps(mWifiInfo, signalLevel));
+
+        // Add one more poll
+        addTotalBytes(txBytes, rxBytes);
+        perNetwork.updateLinkBandwidth(mOldLlStats, mNewLlStats, mWifiInfo, signalLevel);
+
+        // Expect non-cold-start values
+        assertEquals(txBytes * 8 / 100,
+                perNetwork.getTxLinkBandwidthKbps(mWifiInfo, signalLevel));
+        assertEquals(rxBytes * 8 / 100,
+                perNetwork.getRxLinkBandwidthKbps(mWifiInfo, signalLevel));
+    }
+
+    @Test
+    public void testLinkBandwidthTwoBssidTwoSignalLevelOneBand() {
+        int signalLevel = 2;
+        mWifiInfo.setFrequency(2437);
+        mWifiScoreCard.noteConnectionAttempt(mWifiInfo, -53, mWifiInfo.getSSID());
+        PerNetwork perNetwork = mWifiScoreCard.lookupNetwork(mWifiInfo.getSSID());
+        mNewLlStats.on_time = 100;
+        mOldLlStats.timeStampInMs = 7_000;
+        mNewLlStats.timeStampInMs = 10_000;
+        long txBytes = 2_000_000L;
+        long rxBytes = 4_000_000L;
+        // Add LINK_BANDWIDTH_STATS_COUNT_THR /2 polls at BSSID 1 at 1st level
+        for (int i = 0; i < LINK_BANDWIDTH_STATS_COUNT_THR / 2; i++) {
+            addTotalBytes(txBytes, rxBytes);
+            perNetwork.updateLinkBandwidth(mOldLlStats, mNewLlStats, mWifiInfo, signalLevel);
+        }
+        // Add LINK_BANDWIDTH_STATS_COUNT_THR / 2 polls at BSSID 2 at 2nd level
+        mWifiInfo.setBSSID(TEST_BSSID_2.toString());
+        mNewLlStats.on_time = 200;
+        signalLevel = 3;
+        txBytes = 6_000_000L;
+        rxBytes = 100_000L;
+        for (int i = 0; i < LINK_BANDWIDTH_STATS_COUNT_THR / 2; i++) {
+            addTotalBytes(txBytes, rxBytes);
+            perNetwork.updateLinkBandwidth(mOldLlStats, mNewLlStats, mWifiInfo, signalLevel);
+        }
+
+        // Expect cold start value of 2nd level
+        assertEquals(LINK_BANDWIDTH_INIT_KBPS[0][LINK_TX][signalLevel],
+                perNetwork.getTxLinkBandwidthKbps(mWifiInfo, signalLevel));
+        assertEquals(LINK_BANDWIDTH_INIT_KBPS[0][LINK_RX][signalLevel],
+                perNetwork.getRxLinkBandwidthKbps(mWifiInfo, signalLevel));
+
+        // Add LINK_BANDWIDTH_STATS_COUNT_THR / 2 polls at BSSID 2 at 1st level
+        signalLevel = 2;
+        for (int i = 0; i < LINK_BANDWIDTH_STATS_COUNT_THR / 2; i++) {
+            addTotalBytes(txBytes, rxBytes);
+            perNetwork.updateLinkBandwidth(mOldLlStats, mNewLlStats, mWifiInfo, signalLevel);
+        }
+
+        int expectedTxKbps = (int) ((2_000_000L / 100 + 6_000_000L / 200) * 8 / 2);
+        assertEquals(expectedTxKbps, perNetwork.getTxLinkBandwidthKbps(mWifiInfo, signalLevel));
+        assertEquals(LINK_BANDWIDTH_INIT_KBPS[0][LINK_RX][signalLevel],
+                perNetwork.getRxLinkBandwidthKbps(mWifiInfo, signalLevel));
+    }
+
+    @Test
+    public void testLinkBandwidthOneBssidTwoSignalLevelTwoBand() {
+        int signalLevel = 2;
+        mWifiScoreCard.noteConnectionAttempt(mWifiInfo, -53, mWifiInfo.getSSID());
+        PerNetwork perNetwork = mWifiScoreCard.lookupNetwork(mWifiInfo.getSSID());
+        mWifiInfo.setFrequency(5210);
+        mNewLlStats.on_time = 100;
+        mOldLlStats.timeStampInMs = 7_000;
+        mNewLlStats.timeStampInMs = 10_000;
+        long txBytes = 2_000_000L;
+        long rxBytes = 100_000L;
+        // Add LINK_BANDWIDTH_STATS_COUNT_THR polls at 1st level and 1st band
+        for (int i = 0; i < LINK_BANDWIDTH_STATS_COUNT_THR; i++) {
+            addTotalBytes(txBytes, rxBytes);
+            perNetwork.updateLinkBandwidth(mOldLlStats, mNewLlStats, mWifiInfo, signalLevel);
+        }
+        // Add LINK_BANDWIDTH_STATS_COUNT_THR polls at 2nd level and 1st band
+        signalLevel = 3;
+        rxBytes = 2_000_000L;
+        for (int i = 0; i < LINK_BANDWIDTH_STATS_COUNT_THR; i++) {
+            addTotalBytes(txBytes, rxBytes);
+            perNetwork.updateLinkBandwidth(mOldLlStats, mNewLlStats, mWifiInfo, signalLevel);
+        }
+
+        // Add LINK_BANDWIDTH_STATS_COUNT_THR polls at 1st level and 2nd band
+        signalLevel = 2;
+        mWifiInfo.setFrequency(2437);
+        txBytes = 3_000_000L;
+        mNewLlStats.on_time = 50;
+        for (int i = 0; i < LINK_BANDWIDTH_STATS_COUNT_THR; i++) {
+            addTotalBytes(txBytes, rxBytes);
+            perNetwork.updateLinkBandwidth(mOldLlStats, mNewLlStats, mWifiInfo, signalLevel);
+        }
+
+        // Expect stats of 1st level and 2nd band are used
+        assertEquals(3_000_000L * 8 / 50,
+                perNetwork.getTxLinkBandwidthKbps(mWifiInfo, signalLevel));
+        assertEquals(2_000_000L * 8 / 50,
+                perNetwork.getRxLinkBandwidthKbps(mWifiInfo, signalLevel));
+    }
+
+    @Test
+    public void testLinkBandwidthLowOnTimeHighSignalLevel() {
+        // Add polls with zero on_time and high signal level
+        int signalLevel = 5;
+        mWifiInfo.setFrequency(5210);
+        mWifiScoreCard.noteConnectionAttempt(mWifiInfo, -53, mWifiInfo.getSSID());
+        PerNetwork perNetwork = mWifiScoreCard.lookupNetwork(mWifiInfo.getSSID());
+        mWifiInfo.setFrequency(5210);
+        mNewLlStats.on_time = 5;
+        mOldLlStats.timeStampInMs = 7_000;
+        mNewLlStats.timeStampInMs = 10_000;
+        long txBytes = 2_000_000L;
+        long rxBytes = 100_000L;
+        for (int i = 0; i < LINK_BANDWIDTH_STATS_COUNT_THR; i++) {
+            addTotalBytes(txBytes, rxBytes);
+            perNetwork.updateLinkBandwidth(mOldLlStats, mNewLlStats, mWifiInfo, signalLevel);
+        }
+
+        // Expect cold-start value
+        assertEquals(LINK_BANDWIDTH_INIT_KBPS[1][LINK_TX][WifiScoreCard.NUM_SIGNAL_LEVEL - 1],
+                perNetwork.getTxLinkBandwidthKbps(mWifiInfo, signalLevel));
+        assertEquals(LINK_BANDWIDTH_INIT_KBPS[1][LINK_RX][WifiScoreCard.NUM_SIGNAL_LEVEL - 1],
+                perNetwork.getRxLinkBandwidthKbps(mWifiInfo, signalLevel));
     }
 }

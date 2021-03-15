@@ -57,7 +57,8 @@ import android.util.SparseBooleanArray;
 import android.view.WindowManager;
 
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.messages.nano.SystemMessageProto;
+import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
+import com.android.modules.utils.build.SdkLevel;
 import com.android.wifi.resources.R;
 
 import java.io.FileDescriptor;
@@ -295,8 +296,8 @@ public class WifiCarrierInfoManager {
                             return;
                     }
                     // Clear notification once the user interacts with it.
-                    mNotificationManager.cancel(SystemMessageProto
-                            .SystemMessage.NOTE_NETWORK_SUGGESTION_AVAILABLE);
+                    mNotificationManager.cancel(mContext.getNotificationTag(),
+                            SystemMessage.NOTE_CARRIER_SUGGESTION_AVAILABLE);
                 }
             };
     private void handleUserDismissAction() {
@@ -433,6 +434,9 @@ public class WifiCarrierInfoManager {
      * @param subId the best match subscriptionId for this network suggestion.
      */
     public boolean shouldDisableMacRandomization(String ssid, int carrierId, int subId) {
+        if (!SdkLevel.isAtLeastS()) {
+            return false;
+        }
         if (carrierId == TelephonyManager.UNKNOWN_CARRIER_ID) {
             // only carrier networks are allowed to disable MAC randomization through this path.
             return false;
@@ -445,6 +449,9 @@ public class WifiCarrierInfoManager {
         String sanitizedSsid = WifiInfo.sanitizeSsid(ssid);
         String[] macRandDisabledSsids = carrierConfig.getStringArray(CarrierConfigManager.Wifi
                 .KEY_SUGGESTION_SSID_LIST_WITH_MAC_RANDOMIZATION_DISABLED);
+        if (macRandDisabledSsids == null) {
+            return false;
+        }
         for (String curSsid : macRandDisabledSsids) {
             if (sanitizedSsid.equals(curSsid)) {
                 return true;
@@ -1594,8 +1601,8 @@ public class WifiCarrierInfoManager {
                 .build();
 
         // Post the notification.
-        mNotificationManager.notify(
-                SystemMessageProto.SystemMessage.NOTE_NETWORK_SUGGESTION_AVAILABLE, notification);
+        mNotificationManager.notify(mContext.getNotificationTag(),
+                SystemMessage.NOTE_CARRIER_SUGGESTION_AVAILABLE, notification);
         mUserApprovalUiActive = true;
         mIsLastUserApprovalUiDialog = false;
     }
@@ -1734,6 +1741,13 @@ public class WifiCarrierInfoManager {
         mImsiPrivacyProtectionExemptionMap.clear();
         mMergedCarrierNetworkOffloadMap.clear();
         mUnmergedCarrierNetworkOffloadMap.clear();
+        resetNotification();
         saveToStore();
+    }
+
+    public void resetNotification() {
+        mNotificationManager.cancel(mContext.getNotificationTag(),
+                SystemMessage.NOTE_CARRIER_SUGGESTION_AVAILABLE);
+        mUserApprovalUiActive = false;
     }
 }

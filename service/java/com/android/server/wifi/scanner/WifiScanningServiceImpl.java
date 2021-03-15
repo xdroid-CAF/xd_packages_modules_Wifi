@@ -55,6 +55,7 @@ import com.android.internal.util.AsyncChannel;
 import com.android.internal.util.Protocol;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
+import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.ClientModeImpl;
 import com.android.server.wifi.Clock;
 import com.android.server.wifi.FrameworkFacade;
@@ -1161,6 +1162,23 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
             }
         }
 
+        private boolean mergeRnrSetting(boolean enable6GhzRnr, ScanSettings scanSettings) {
+            if (!SdkLevel.isAtLeastS()) {
+                return false;
+            }
+            if (enable6GhzRnr) {
+                return true;
+            }
+            int rnrSetting = scanSettings.getRnrSetting();
+            if (rnrSetting == WifiScanner.WIFI_RNR_ENABLED) {
+                return true;
+            }
+            if (rnrSetting == WifiScanner.WIFI_RNR_ENABLED_IF_WIFI_BAND_6_GHZ_SCANNED) {
+                return ChannelHelper.is6GhzBandIncluded(scanSettings.band);
+            }
+            return false;
+        }
+
         boolean activeScanSatisfies(ScanSettings settings) {
             if (mActiveScanSettings == null) {
                 return false;
@@ -1240,6 +1258,7 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
             List<WifiNative.HiddenNetwork> hiddenNetworkList = new ArrayList<>();
             for (RequestInfo<ScanSettings> entry : mPendingScans) {
                 settings.scanType = mergeScanTypes(settings.scanType, entry.settings.type);
+                settings.enable6GhzRnr = mergeRnrSetting(settings.enable6GhzRnr, entry.settings);
                 channels.addChannels(entry.settings);
                 for (ScanSettings.HiddenNetwork srcNetwork : entry.settings.hiddenNetworks) {
                     WifiNative.HiddenNetwork hiddenNetwork = new WifiNative.HiddenNetwork();
@@ -2740,22 +2759,22 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
 
     static String describeTo(StringBuilder sb, ScanSettings scanSettings) {
         sb.append("ScanSettings { ")
-          .append(" type:").append(getScanTypeString(scanSettings.type))
-          .append(" band:").append(ChannelHelper.bandToString(scanSettings.band))
-          .append(" ignoreLocationSettings:").append(scanSettings.ignoreLocationSettings)
-          .append(" period:").append(scanSettings.periodInMs)
-          .append(" reportEvents:").append(scanSettings.reportEvents)
-          .append(" numBssidsPerScan:").append(scanSettings.numBssidsPerScan)
-          .append(" maxScansToCache:").append(scanSettings.maxScansToCache)
-          .append(" channels:[ ");
+                .append(" type:").append(getScanTypeString(scanSettings.type))
+                .append(" band:").append(ChannelHelper.bandToString(scanSettings.band))
+                .append(" ignoreLocationSettings:").append(scanSettings.ignoreLocationSettings)
+                .append(" period:").append(scanSettings.periodInMs)
+                .append(" reportEvents:").append(scanSettings.reportEvents)
+                .append(" numBssidsPerScan:").append(scanSettings.numBssidsPerScan)
+                .append(" maxScansToCache:").append(scanSettings.maxScansToCache)
+                .append(" rnrSetting:").append(
+                        SdkLevel.isAtLeastS() ? scanSettings.getRnrSetting() : "Not supported")
+                .append(" channels:[ ");
         if (scanSettings.channels != null) {
             for (int i = 0; i < scanSettings.channels.length; i++) {
-                sb.append(scanSettings.channels[i].frequency)
-                  .append(" ");
+                sb.append(scanSettings.channels[i].frequency).append(" ");
             }
         }
-        sb.append(" ] ")
-          .append(" } ");
+        sb.append(" ] ").append(" } ");
         return sb.toString();
     }
 

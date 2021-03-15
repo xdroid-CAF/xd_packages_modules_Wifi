@@ -45,6 +45,7 @@ import static org.mockito.Mockito.anyObject;
 import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.argThat;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.eq;
@@ -130,6 +131,7 @@ import com.android.internal.util.StateMachine;
 import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.ClientMode.LinkProbeCallback;
 import com.android.server.wifi.ClientModeManagerBroadcastQueue.QueuedBroadcast;
+import com.android.server.wifi.WifiScoreCard.PerNetwork;
 import com.android.server.wifi.hotspot2.NetworkDetail;
 import com.android.server.wifi.hotspot2.PasspointManager;
 import com.android.server.wifi.hotspot2.PasspointProvisioningTestUtil;
@@ -166,7 +168,6 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.BitSet;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -408,6 +409,7 @@ public class ClientModeImplTest extends WifiBaseTest {
     @Mock WifiConfigManager mWifiConfigManager;
     @Mock WifiNative mWifiNative;
     @Mock WifiScoreCard mWifiScoreCard;
+    @Mock PerNetwork mPerNetwork;
     @Mock WifiHealthMonitor mWifiHealthMonitor;
     @Mock WifiTrafficPoller mWifiTrafficPoller;
     @Mock WifiConnectivityManager mWifiConnectivityManager;
@@ -453,6 +455,9 @@ public class ClientModeImplTest extends WifiBaseTest {
     @Mock LinkProbeCallback mLinkProbeCallback;
     @Mock ClientModeImplMonitor mCmiMonitor;
     @Mock ClientModeManagerBroadcastQueue mBroadcastQueue;
+    @Mock WifiNetworkSelector mWifiNetworkSelector;
+    @Mock ActiveModeWarden mActiveModeWarden;
+    @Mock ClientModeManager mPrimaryClientModeManager;
 
     final ArgumentCaptor<WifiConfigManager.OnNetworkUpdateListener> mConfigUpdateListenerCaptor =
             ArgumentCaptor.forClass(WifiConfigManager.OnNetworkUpdateListener.class);
@@ -546,8 +551,19 @@ public class ClientModeImplTest extends WifiBaseTest {
         mWifiCarrierInfoManager = spy(tu);
         // static mocking
         mSession = ExtendedMockito.mockitoSession().strictness(Strictness.LENIENT)
+                .mockStatic(WifiInjector.class, withSettings().lenient())
                 .spyStatic(MacAddress.class)
                 .startMocking();
+        when(WifiInjector.getInstance()).thenReturn(mWifiInjector);
+
+        when(mWifiInjector.getActiveModeWarden()).thenReturn(mActiveModeWarden);
+        when(mActiveModeWarden.getPrimaryClientModeManager()).thenReturn(mPrimaryClientModeManager);
+        when(mPrimaryClientModeManager.getSupportedFeatures()).thenReturn(
+                WifiManager.WIFI_FEATURE_WPA3_SAE | WifiManager.WIFI_FEATURE_OWE);
+        when(mWifiInjector.getWifiGlobals()).thenReturn(mWifiGlobals);
+        when(mWifiGlobals.isWpa3SaeUpgradeEnabled()).thenReturn(true);
+        when(mWifiGlobals.isOweUpgradeEnabled()).thenReturn(true);
+
         initializeCmi();
 
         mOsuProvider = PasspointProvisioningTestUtil.generateOsuProvider(true);
@@ -563,6 +579,7 @@ public class ClientModeImplTest extends WifiBaseTest {
                 .thenReturn(WifiHealthMonitor.REASON_NO_FAILURE);
         when(mWifiScoreCard.detectAbnormalDisconnection())
                 .thenReturn(WifiHealthMonitor.REASON_NO_FAILURE);
+        when(mWifiScoreCard.lookupNetwork(any())).thenReturn(mPerNetwork);
         when(mThroughputPredictor.predictMaxTxThroughput(any())).thenReturn(90);
         when(mThroughputPredictor.predictMaxRxThroughput(any())).thenReturn(80);
 
@@ -633,7 +650,8 @@ public class ClientModeImplTest extends WifiBaseTest {
                 1, mBatteryStatsManager, mSupplicantStateTracker, mMboOceController,
                 mWifiCarrierInfoManager, mEapFailureNotifier, mSimRequiredNotifier,
                 mWifiScoreReport, mWifiP2pConnection, mWifiGlobals,
-                WIFI_IFACE_NAME, mClientModeManager, mCmiMonitor, mBroadcastQueue, false);
+                WIFI_IFACE_NAME, mClientModeManager, mCmiMonitor, mBroadcastQueue,
+                mWifiNetworkSelector, mTelephonyManager, false);
 
         mWifiCoreThread = getCmiHandlerThread(mCmi);
 
@@ -911,15 +929,20 @@ public class ClientModeImplTest extends WifiBaseTest {
         assertEquals(sBSSID, wifiInfo.getBSSID());
         assertEquals(sFreq, wifiInfo.getFrequency());
         assertTrue(sWifiSsid.equals(wifiInfo.getWifiSsid()));
+        assertNotEquals(WifiInfo.DEFAULT_MAC_ADDRESS, wifiInfo.getMacAddress());
         assertNull(wifiInfo.getPasspointProviderFriendlyName());
         assertEquals(Arrays.asList(scanResult.informationElements),
                 wifiInfo.getInformationElements());
         expectRegisterNetworkAgent((na) -> {
+            if (!mConnectedNetwork.carrierMerged) {
+                assertNull(na.subscriberId);
+            }
         }, (nc) -> {
                 if (SdkLevel.isAtLeastS()) {
                     WifiInfo wifiInfoFromTi = (WifiInfo) nc.getTransportInfo();
                     assertEquals(sBSSID, wifiInfoFromTi.getBSSID());
                     assertEquals(sFreq, wifiInfoFromTi.getFrequency());
+                    assertEquals(WifiInfo.DEFAULT_MAC_ADDRESS, wifiInfoFromTi.getMacAddress());
                     assertTrue(sWifiSsid.equals(wifiInfoFromTi.getWifiSsid()));
                     assertNull(wifiInfoFromTi.getPasspointProviderFriendlyName());
                 }
@@ -2772,8 +2795,8 @@ public class ClientModeImplTest extends WifiBaseTest {
         assertEquals(signalPollResult.txBitrateMbps, wifiInfo.getTxLinkSpeedMbps());
         assertEquals(signalPollResult.rxBitrateMbps, wifiInfo.getRxLinkSpeedMbps());
         assertEquals(sFreq, wifiInfo.getFrequency());
-        verify(mWifiDataStall, atLeastOnce()).getTxThroughputKbps();
-        verify(mWifiDataStall, atLeastOnce()).getRxThroughputKbps();
+        verify(mPerNetwork, atLeastOnce()).getTxLinkBandwidthKbps(any(), anyInt());
+        verify(mPerNetwork, atLeastOnce()).getRxLinkBandwidthKbps(any(), anyInt());
         verify(mWifiScoreCard).noteSignalPoll(any());
     }
 
@@ -3111,6 +3134,18 @@ public class ClientModeImplTest extends WifiBaseTest {
         verify(mWifiMetrics, never())
                 .incrementNumBssidDifferentSelectionBetweenFrameworkAndFirmware();
         verifyConnectionEventTimeoutDoesNotOccur();
+
+        clearInvocations(mWifiDiagnostics, mWifiConfigManager, mWifiNetworkFactory,
+                mWifiNetworkSuggestionsManager);
+
+        // Now trigger a disconnect event from supplicant, this should be ignored since the
+        // connection tracking should have already ended.
+        mCmi.sendMessage(WifiMonitor.NETWORK_DISCONNECTION_EVENT,
+                new DisconnectEventInfo(sSSID, sBSSID, 0, false));
+        mLooper.dispatchAll();
+
+        verifyNoMoreInteractions(mWifiDiagnostics, mWifiConfigManager, mWifiNetworkFactory,
+                mWifiNetworkSuggestionsManager);
     }
 
     /**
@@ -3128,8 +3163,6 @@ public class ClientModeImplTest extends WifiBaseTest {
         mCmi.sendMessage(ClientModeImpl.CMD_START_CONNECT, 0, 0, sBSSID);
         mCmi.sendMessage(WifiMonitor.AUTHENTICATION_FAILURE_EVENT,
                 WifiManager.ERROR_AUTH_FAILURE_WRONG_PSWD);
-        verify(mWifiDiagnostics, never()).reportConnectionEvent(
-                eq(WifiDiagnostics.CONNECTION_EVENT_FAILED));
         mLooper.dispatchAll();
         verify(mWifiDiagnostics).reportConnectionEvent(
                 eq(WifiDiagnostics.CONNECTION_EVENT_FAILED));
@@ -3145,6 +3178,18 @@ public class ClientModeImplTest extends WifiBaseTest {
         verify(mWifiMetrics, never())
                 .incrementNumBssidDifferentSelectionBetweenFrameworkAndFirmware();
         verifyConnectionEventTimeoutDoesNotOccur();
+
+        clearInvocations(mWifiDiagnostics, mWifiConfigManager, mWifiNetworkFactory,
+                mWifiNetworkSuggestionsManager);
+
+        // Now trigger a disconnect event from supplicant, this should be ignored since the
+        // connection tracking should have already ended.
+        mCmi.sendMessage(WifiMonitor.NETWORK_DISCONNECTION_EVENT,
+                new DisconnectEventInfo(sSSID, sBSSID, 0, false));
+        mLooper.dispatchAll();
+
+        verifyNoMoreInteractions(mWifiDiagnostics, mWifiConfigManager, mWifiNetworkFactory,
+                mWifiNetworkSuggestionsManager);
     }
 
     /**
@@ -3833,8 +3878,8 @@ public class ClientModeImplTest extends WifiBaseTest {
      */
     @Test
     public void verifyNetworkCapabilities() throws Exception {
-        when(mWifiDataStall.getTxThroughputKbps()).thenReturn(70_000);
-        when(mWifiDataStall.getRxThroughputKbps()).thenReturn(-1);
+        when(mPerNetwork.getTxLinkBandwidthKbps(any(), anyInt())).thenReturn(40_000);
+        when(mPerNetwork.getRxLinkBandwidthKbps(any(), anyInt())).thenReturn(50_000);
         when(mWifiNetworkFactory.getSpecificNetworkRequestUidAndPackageName(any()))
                 .thenReturn(Pair.create(Process.INVALID_UID, ""));
         // Simulate the first connection.
@@ -3861,8 +3906,8 @@ public class ClientModeImplTest extends WifiBaseTest {
 
         // Should set bandwidth correctly
         assertEquals(-42, mWifiInfo.getRssi());
-        assertEquals(70_000, networkCapabilities.getLinkUpstreamBandwidthKbps());
-        assertEquals(70_000, networkCapabilities.getLinkDownstreamBandwidthKbps());
+        assertEquals(40_000, networkCapabilities.getLinkUpstreamBandwidthKbps());
+        assertEquals(50_000, networkCapabilities.getLinkDownstreamBandwidthKbps());
     }
 
     /**
@@ -3872,8 +3917,8 @@ public class ClientModeImplTest extends WifiBaseTest {
      */
     @Test
     public void verifyNetworkCapabilitiesForSpecificRequest() throws Exception {
-        when(mWifiDataStall.getTxThroughputKbps()).thenReturn(-1);
-        when(mWifiDataStall.getRxThroughputKbps()).thenReturn(-1);
+        when(mPerNetwork.getTxLinkBandwidthKbps(any(), anyInt())).thenReturn(30_000);
+        when(mPerNetwork.getRxLinkBandwidthKbps(any(), anyInt())).thenReturn(40_000);
         when(mWifiNetworkFactory.getSpecificNetworkRequestUidAndPackageName(any()))
                 .thenReturn(Pair.create(TEST_UID, OP_PACKAGE_NAME));
         // Simulate the first connection.
@@ -3900,8 +3945,8 @@ public class ClientModeImplTest extends WifiBaseTest {
         assertEquals(expectedWifiNetworkAgentSpecifier, wifiNetworkAgentSpecifier);
         assertEquals(TEST_UID, networkCapabilities.getRequestorUid());
         assertEquals(OP_PACKAGE_NAME, networkCapabilities.getRequestorPackageName());
-        assertEquals(90_000, networkCapabilities.getLinkUpstreamBandwidthKbps());
-        assertEquals(80_000, networkCapabilities.getLinkDownstreamBandwidthKbps());
+        assertEquals(30_000, networkCapabilities.getLinkUpstreamBandwidthKbps());
+        assertEquals(40_000, networkCapabilities.getLinkDownstreamBandwidthKbps());
     }
 
     /**
@@ -4498,242 +4543,6 @@ public class ClientModeImplTest extends WifiBaseTest {
                 .forceConnectivityScan(ClientModeImpl.WIFI_WORK_SOURCE);
     }
 
-    /**
-     * Verifies that the logic does not modify PSK key management when WPA3 auto upgrade feature is
-     * disabled.
-     *
-     * @throws Exception
-     */
-    @Test
-    public void testNoWpa3UpgradeWhenOverlaysAreOff() throws Exception {
-        initializeAndAddNetworkAndVerifySuccess();
-
-        WifiConfiguration config = mock(WifiConfiguration.class);
-        config.SSID = sSSID;
-        BitSet allowedKeyManagement = mock(BitSet.class);
-        config.allowedKeyManagement = allowedKeyManagement;
-        when(config.allowedKeyManagement.get(eq(WifiConfiguration.KeyMgmt.WPA_PSK))).thenReturn(
-                true);
-        when(config.getNetworkSelectionStatus())
-                .thenReturn(new WifiConfiguration.NetworkSelectionStatus());
-        when(mWifiConfigManager.getConfiguredNetworkWithoutMasking(0)).thenReturn(config);
-        mResources.setBoolean(R.bool.config_wifiSaeUpgradeEnabled, false);
-        mResources.setBoolean(R.bool.config_wifiSaeUpgradeOffloadEnabled, false);
-
-        mCmi.sendMessage(ClientModeImpl.CMD_START_CONNECT, 0, 0, sBSSID);
-        mLooper.dispatchAll();
-
-        verify(config, never()).setSecurityParams(eq(WifiConfiguration.SECURITY_TYPE_SAE));
-    }
-
-    /**
-     * Verifies that the logic always enables SAE key management when WPA3 auto upgrade offload
-     * feature is enabled.
-     *
-     * @throws Exception
-     */
-    @Test
-    public void testWpa3UpgradeOffload() throws Exception {
-        initializeAndAddNetworkAndVerifySuccess();
-
-        WifiConfiguration config = new WifiConfiguration();
-        config.SSID = sSSID;
-        config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_PSK);
-        when(mWifiConfigManager.getConfiguredNetworkWithoutMasking(0)).thenReturn(config);
-        mResources.setBoolean(R.bool.config_wifiSaeUpgradeEnabled, true);
-        mResources.setBoolean(R.bool.config_wifiSaeUpgradeOffloadEnabled, true);
-
-        mCmi.sendMessage(ClientModeImpl.CMD_START_CONNECT, 0, 0, sBSSID);
-        mLooper.dispatchAll();
-
-        assertTrue(config.isSecurityType(WifiConfiguration.SECURITY_TYPE_SAE));
-    }
-
-    /**
-     * Verifies that the logic does not enable SAE key management when WPA3 auto upgrade feature is
-     * enabled but no SAE candidate is available.
-     *
-     * @throws Exception
-     */
-    @Test
-    public void testNoWpa3UpgradeWithPskCandidate() throws Exception {
-        initializeAndAddNetworkAndVerifySuccess();
-
-        WifiConfiguration config = mock(WifiConfiguration.class);
-        config.SSID = sSSID;
-        BitSet allowedKeyManagement = mock(BitSet.class);
-        config.allowedKeyManagement = allowedKeyManagement;
-        when(config.allowedKeyManagement.get(eq(WifiConfiguration.KeyMgmt.WPA_PSK)))
-                .thenReturn(true);
-        WifiConfiguration.NetworkSelectionStatus networkSelectionStatus =
-                mock(WifiConfiguration.NetworkSelectionStatus.class);
-        when(config.getNetworkSelectionStatus()).thenReturn(networkSelectionStatus);
-        when(mWifiConfigManager.getConfiguredNetworkWithoutMasking(0)).thenReturn(config);
-        mResources.setBoolean(R.bool.config_wifiSaeUpgradeEnabled, true);
-        mResources.setBoolean(R.bool.config_wifiSaeUpgradeOffloadEnabled, false);
-
-        String ssid = "WPA2-Network";
-        String caps = "[WPA2-FT/PSK+PSK][ESS][WPS]";
-        ScanResult scanResult = new ScanResult(WifiSsid.createFromAsciiEncoded(ssid), ssid,
-                "ab:cd:01:ef:45:89", 1245, 0, caps, -78, 2450, 1025, 22, 33, 20, 0,
-                0, true);
-        scanResult.informationElements = new ScanResult.InformationElement[]{
-                createIE(ScanResult.InformationElement.EID_SSID,
-                        ssid.getBytes(StandardCharsets.UTF_8))
-        };
-        when(networkSelectionStatus.getCandidate()).thenReturn(scanResult);
-
-        mCmi.sendMessage(ClientModeImpl.CMD_START_CONNECT, 0, 0, sBSSID);
-        mLooper.dispatchAll();
-
-        verify(config, never()).setSecurityParams(eq(WifiConfiguration.SECURITY_TYPE_SAE));
-    }
-
-    /**
-     * Verifies that the logic enables SAE key management when WPA3 auto upgrade feature is
-     * enabled and an SAE candidate is available.
-     *
-     * @throws Exception
-     */
-    @Test
-    public void testWpa3UpgradeWithSaeCandidate() throws Exception {
-        initializeAndAddNetworkAndVerifySuccess();
-
-        WifiConfiguration config = spy(new WifiConfiguration());
-        config.SSID = sSSID;
-        config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_PSK);
-        WifiConfiguration.NetworkSelectionStatus networkSelectionStatus =
-                mock(WifiConfiguration.NetworkSelectionStatus.class);
-        when(config.getNetworkSelectionStatus()).thenReturn(networkSelectionStatus);
-        when(mWifiConfigManager.getConfiguredNetworkWithoutMasking(anyInt())).thenReturn(config);
-        when(mWifiConfigManager.getScanDetailCacheForNetwork(anyInt())).thenReturn(null);
-        mResources.setBoolean(R.bool.config_wifiSaeUpgradeEnabled, true);
-        mResources.setBoolean(R.bool.config_wifiSaeUpgradeOffloadEnabled, false);
-
-        final String ssid = "WPA3-Network";
-        String caps = "[WPA2-FT/SAE+SAE][ESS][WPS]";
-        ScanResult scanResult = new ScanResult(WifiSsid.createFromAsciiEncoded(ssid), ssid,
-                "ab:cd:01:ef:45:89", 1245, 0, caps, -78, 2450, 1025, 22, 33, 20, 0,
-                0, true);
-        scanResult.informationElements = new ScanResult.InformationElement[]{
-                createIE(ScanResult.InformationElement.EID_SSID,
-                        ssid.getBytes(StandardCharsets.UTF_8))
-        };
-        when(networkSelectionStatus.getCandidate()).thenReturn(scanResult);
-
-        mCmi.sendMessage(ClientModeImpl.CMD_START_CONNECT, 0, 0, sBSSID);
-        mLooper.dispatchAll();
-
-        assertTrue(config.isSecurityType(WifiConfiguration.SECURITY_TYPE_SAE));
-    }
-
-    /**
-     * Verifies that the logic does not enable SAE key management when WPA3 auto upgrade feature is
-     * enabled and an SAE candidate is available, while another WPA2 AP is in range.
-     *
-     * @throws Exception
-     */
-    @Test
-    public void testWpa3UpgradeWithSaeCandidateAndPskApInRange() throws Exception {
-        initializeAndAddNetworkAndVerifySuccess();
-
-        WifiConfiguration config = spy(new WifiConfiguration());
-        config.SSID = sSSID;
-        config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_PSK);
-        WifiConfiguration.NetworkSelectionStatus networkSelectionStatus =
-                mock(WifiConfiguration.NetworkSelectionStatus.class);
-        when(config.getNetworkSelectionStatus()).thenReturn(networkSelectionStatus);
-        when(mWifiConfigManager.getConfiguredNetworkWithoutMasking(anyInt())).thenReturn(config);
-        when(mWifiConfigManager.getScanDetailCacheForNetwork(anyInt())).thenReturn(null);
-        mResources.setBoolean(R.bool.config_wifiSaeUpgradeEnabled, true);
-        mResources.setBoolean(R.bool.config_wifiSaeUpgradeOffloadEnabled, false);
-
-        final String saeBssid = "ab:cd:01:ef:45:89";
-        final String pskBssid = "ab:cd:01:ef:45:9a";
-
-        final String ssidSae = "Mixed-Network";
-        config.SSID = ScanResultUtil.createQuotedSSID(ssidSae);
-        config.networkId = 1;
-
-        String capsSae = "[WPA2-FT/SAE+SAE][ESS][WPS]";
-        ScanResult scanResultSae = new ScanResult(WifiSsid.createFromAsciiEncoded(ssidSae), ssidSae,
-                saeBssid, 1245, 0, capsSae, -78, 2412, 1025, 22, 33, 20, 0,
-                0, true);
-        ScanResult.InformationElement ieSae = createIE(ScanResult.InformationElement.EID_SSID,
-                ssidSae.getBytes(StandardCharsets.UTF_8));
-        scanResultSae.informationElements = new ScanResult.InformationElement[]{ieSae};
-        when(networkSelectionStatus.getCandidate()).thenReturn(scanResultSae);
-        ScanResult.InformationElement[] ieArr = new ScanResult.InformationElement[1];
-        ieArr[0] = ieSae;
-
-        final String ssidPsk = "Mixed-Network";
-        String capsPsk = "[WPA2-FT/PSK+PSK][ESS][WPS]";
-        ScanResult scanResultPsk = new ScanResult(WifiSsid.createFromAsciiEncoded(ssidPsk), ssidPsk,
-                pskBssid, 1245, 0, capsPsk, -48, 2462, 1025, 22, 33, 20, 0,
-                0, true);
-        ScanResult.InformationElement iePsk = createIE(ScanResult.InformationElement.EID_SSID,
-                ssidPsk.getBytes(StandardCharsets.UTF_8));
-        scanResultPsk.informationElements = new ScanResult.InformationElement[]{iePsk};
-        ScanResult.InformationElement[] ieArrPsk = new ScanResult.InformationElement[1];
-        ieArrPsk[0] = iePsk;
-        List<ScanResult> scanResults = new ArrayList<>();
-        scanResults.add(scanResultPsk);
-        scanResults.add(scanResultSae);
-
-        when(mScanRequestProxy.getScanResults()).thenReturn(scanResults);
-
-        mCmi.sendMessage(ClientModeImpl.CMD_START_CONNECT, 0, 0, sBSSID);
-        mLooper.dispatchAll();
-
-        assertFalse(config.isSecurityType(WifiConfiguration.SECURITY_TYPE_SAE));
-    }
-
-    /**
-     * Verifies that the logic enables SAE key management when WPA3 auto upgrade feature is
-     * enabled and no candidate is available (i.e. user selected a WPA2 saved network and the
-     * network is actually WPA3.
-     *
-     * @throws Exception
-     */
-    @Test
-    public void testWpa3UpgradeWithNoCandidate() throws Exception {
-        initializeAndAddNetworkAndVerifySuccess();
-
-        WifiConfiguration config = spy(new WifiConfiguration());
-        config.SSID = sSSID;
-        config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_PSK);
-        WifiConfiguration.NetworkSelectionStatus networkSelectionStatus =
-                mock(WifiConfiguration.NetworkSelectionStatus.class);
-        when(config.getNetworkSelectionStatus()).thenReturn(networkSelectionStatus);
-        when(mWifiConfigManager.getConfiguredNetworkWithoutMasking(anyInt())).thenReturn(config);
-
-        mResources.setBoolean(R.bool.config_wifiSaeUpgradeEnabled, true);
-        mResources.setBoolean(R.bool.config_wifiSaeUpgradeOffloadEnabled, false);
-
-        final String saeBssid = "ab:cd:01:ef:45:89";
-        final String ssidSae = "WPA3-Network";
-        config.SSID = ScanResultUtil.createQuotedSSID(ssidSae);
-        config.networkId = 1;
-
-        String capsSae = "[WPA2-FT/SAE+SAE][ESS][WPS]";
-        ScanResult scanResultSae = new ScanResult(WifiSsid.createFromAsciiEncoded(ssidSae), ssidSae,
-                saeBssid, 1245, 0, capsSae, -78, 2412, 1025, 22, 33, 20, 0,
-                0, true);
-        ScanResult.InformationElement ieSae = createIE(ScanResult.InformationElement.EID_SSID,
-                ssidSae.getBytes(StandardCharsets.UTF_8));
-        scanResultSae.informationElements = new ScanResult.InformationElement[]{ieSae};
-        when(networkSelectionStatus.getCandidate()).thenReturn(null);
-        List<ScanResult> scanResults = new ArrayList<>();
-        scanResults.add(scanResultSae);
-
-        when(mScanRequestProxy.getScanResults()).thenReturn(scanResults);
-
-        mCmi.sendMessage(ClientModeImpl.CMD_START_CONNECT, 0, 0, sBSSID);
-        mLooper.dispatchAll();
-
-        assertTrue(config.isSecurityType(WifiConfiguration.SECURITY_TYPE_SAE));
-    }
-
     private static ScanResult.InformationElement createIE(int id, byte[] bytes) {
         ScanResult.InformationElement ie = new ScanResult.InformationElement();
         ie.id = id;
@@ -4773,8 +4582,8 @@ public class ClientModeImplTest extends WifiBaseTest {
      *
      */
     private void setupFilsEnabledApInScanResult() {
-        String caps = "[WPA2-EAP+EAP-SHA256+EAP-FILS-SHA256-CCMP]"
-                + "[RSN-EAP+EAP-SHA256+EAP-FILS-SHA256-CCMP][ESS]";
+        String caps = "[WPA2-EAP/SHA1+EAP/SHA256+EAP-FILS-SHA256-CCMP]"
+                + "[RSN-EAP/SHA1+EAP/SHA256+EAP-FILS-SHA256-CCMP][ESS]";
         ScanResult scanResult = new ScanResult(WifiSsid.createFromAsciiEncoded(sFilsSsid),
                 sFilsSsid, sBSSID, 1245, 0, caps, -78, 2412, 1025, 22, 33, 20, 0, 0, true);
         ScanResult.InformationElement ie = createIE(ScanResult.InformationElement.EID_SSID,
@@ -5732,5 +5541,86 @@ public class ClientModeImplTest extends WifiBaseTest {
         verify(mPasspointManager).handleTermsAndConditionsEvent(eq(wnmData),
                 any(WifiConfiguration.class));
         verify(mWifiNative).disconnect(eq(WIFI_IFACE_NAME));
+    }
+
+    /**
+     * Verify that the Transition Disable event is routed correctly.
+     */
+    @Test
+    public void testTransitionDisableEvent() throws Exception {
+        final int networkId = FRAMEWORK_NETWORK_ID;
+        final int indication = WifiMonitor.TDI_USE_WPA3_PERSONAL
+                | WifiMonitor.TDI_USE_WPA3_ENTERPRISE;
+
+        initializeAndAddNetworkAndVerifySuccess();
+
+        startConnectSuccess();
+
+        mCmi.sendMessage(WifiMonitor.TRANSITION_DISABLE_INDICATION,
+                networkId, indication);
+        mLooper.dispatchAll();
+
+        verify(mWifiConfigManager).updateNetworkTransitionDisable(
+                eq(networkId), eq(indication));
+    }
+
+    /**
+     * Verify that the network selection status will be updated with DISABLED_NETWORK_NOT_FOUND
+     * when number of NETWORK_NOT_FOUND_EVENT event reaches the threshold.
+     */
+    @Test
+    public void testNetworkNotFoundEventUpdatesAssociationFailureStatus()
+            throws Exception {
+        initializeAndAddNetworkAndVerifySuccess();
+        mCmi.sendMessage(ClientModeImpl.CMD_START_CONNECT, 0, 0, sBSSID);
+        for (int i = 0; i < ClientModeImpl.NETWORK_NOT_FOUND_EVENT_THRESHOLD; i++) {
+            mCmi.sendMessage(WifiMonitor.NETWORK_NOT_FOUND_EVENT, DEFAULT_TEST_SSID);
+        }
+        mLooper.dispatchAll();
+        verify(mWifiConfigManager).updateNetworkSelectionStatus(anyInt(),
+                eq(WifiConfiguration.NetworkSelectionStatus.DISABLED_NETWORK_NOT_FOUND));
+
+        verify(mWifiDiagnostics).reportConnectionEvent(
+                eq(WifiDiagnostics.CONNECTION_EVENT_FAILED));
+        verify(mWifiConnectivityManager).handleConnectionAttemptEnded(
+                mClientModeManager,
+                WifiMetrics.ConnectionEvent.FAILURE_NETWORK_NOT_FOUND, sBSSID, sSSID);
+        verify(mWifiNetworkFactory).handleConnectionAttemptEnded(
+                eq(WifiMetrics.ConnectionEvent.FAILURE_NETWORK_NOT_FOUND),
+                any(WifiConfiguration.class));
+        verify(mWifiNetworkSuggestionsManager).handleConnectionAttemptEnded(
+                eq(WifiMetrics.ConnectionEvent.FAILURE_NETWORK_NOT_FOUND),
+                any(WifiConfiguration.class), eq(null));
+        verify(mWifiMetrics, never())
+                .incrementNumBssidDifferentSelectionBetweenFrameworkAndFirmware();
+        verifyConnectionEventTimeoutDoesNotOccur();
+
+        clearInvocations(mWifiDiagnostics, mWifiConfigManager, mWifiNetworkFactory,
+                mWifiNetworkSuggestionsManager);
+
+        // Now trigger a disconnect event from supplicant, this should be ignored since the
+        // connection tracking should have already ended.
+        mCmi.sendMessage(WifiMonitor.NETWORK_DISCONNECTION_EVENT,
+                new DisconnectEventInfo(sSSID, sBSSID, 0, false));
+        mLooper.dispatchAll();
+
+        verifyNoMoreInteractions(mWifiDiagnostics, mWifiConfigManager, mWifiNetworkFactory,
+                mWifiNetworkSuggestionsManager);
+    }
+
+    /*
+     * Verify that the subscriberId will be filled in NetworkAgentConfig
+     * after connecting to a merged network.
+     */
+    @Test
+    public void triggerConnectToMergedNetwork() throws Exception {
+        String testSubscriberId = "TestSubscriberId";
+        when(mTelephonyManager.createForSubscriptionId(anyInt())).thenReturn(mDataTelephonyManager);
+        when(mDataTelephonyManager.getSubscriberId()).thenReturn(testSubscriberId);
+        mConnectedNetwork.carrierMerged = true;
+        connect();
+        expectRegisterNetworkAgent((agentConfig) -> {
+            assertEquals(testSubscriberId, agentConfig.subscriberId);
+        }, (cap) -> { });
     }
 }
