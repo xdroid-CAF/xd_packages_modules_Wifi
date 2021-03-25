@@ -16,8 +16,7 @@
 
 package com.android.server.wifi;
 
-import static android.net.wifi.WifiConfiguration.NetworkSelectionStatus
-        .NETWORK_SELECTION_TEMPORARY_DISABLED;
+import static android.net.wifi.WifiConfiguration.NetworkSelectionStatus.NETWORK_SELECTION_TEMPORARY_DISABLED;
 
 import static com.android.server.wifi.WifiConfigurationTestUtil.SECURITY_EAP;
 import static com.android.server.wifi.WifiConfigurationTestUtil.SECURITY_PSK;
@@ -483,7 +482,7 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
         assertTrue(connectableNetworks.isEmpty());
 
         verify(mWifiConfigManager).getConfiguredNetwork(eq(suggestions[0]
-                .createInternalWifiConfiguration(mWifiCarrierInfoManager).getProfileKey()));
+                .createInternalWifiConfiguration(mWifiCarrierInfoManager).getProfileKeyInternal()));
         // Verify we did not try to add any new networks or other interactions with
         // WifiConfigManager.
         verifyNoMoreInteractions(mWifiConfigManager);
@@ -526,7 +525,7 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
         setupAddToWifiConfigManager(suggestions[0]);
         // Existing saved network matching the credentials.
         when(mWifiConfigManager.getConfiguredNetwork(suggestions[0]
-                .createInternalWifiConfiguration(mWifiCarrierInfoManager).getProfileKey()))
+                .createInternalWifiConfiguration(mWifiCarrierInfoManager).getProfileKeyInternal()))
                 .thenReturn(suggestions[0].wns.wifiConfiguration);
 
         List<Pair<ScanDetail, WifiConfiguration>> connectableNetworks = new ArrayList<>();
@@ -543,7 +542,8 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 .isNetworkTemporarilyDisabledByUser(anyString());
         verify(mWifiConfigManager)
                 .getConfiguredNetwork(suggestions[0]
-                        .createInternalWifiConfiguration(mWifiCarrierInfoManager).getProfileKey());
+                        .createInternalWifiConfiguration(mWifiCarrierInfoManager)
+                        .getProfileKeyInternal());
         verify(mWifiConfigManager).isNonCarrierMergedNetworkTemporarilyDisabled(any());
         // Verify we did not try to add any new networks or other interactions with
         // WifiConfigManager.
@@ -639,7 +639,7 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
 
         // Existing network matching the credentials.
         when(mWifiConfigManager.getConfiguredNetwork(suggestions[0]
-                .createInternalWifiConfiguration(mWifiCarrierInfoManager).getProfileKey()))
+                .createInternalWifiConfiguration(mWifiCarrierInfoManager).getProfileKeyInternal()))
                 .thenReturn(suggestions[0].wns.wifiConfiguration);
 
         List<Pair<ScanDetail, WifiConfiguration>> connectableNetworks = new ArrayList<>();
@@ -651,7 +651,7 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
 
         assertTrue(connectableNetworks.isEmpty());
         verify(mWifiConfigManager).getConfiguredNetwork(eq(
-                suggestions[0].wns.wifiConfiguration.getProfileKey()));
+                suggestions[0].wns.wifiConfiguration.getProfileKeyInternal()));
         verify(mWifiConfigManager).tryEnableNetwork(eq(
                 suggestions[0].wns.wifiConfiguration.networkId));
         // Verify we did not try to add any new networks or other interactions with
@@ -700,7 +700,7 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 NETWORK_SELECTION_TEMPORARY_DISABLED);
         // Existing network matching the credentials.
         when(mWifiConfigManager.getConfiguredNetwork(suggestions[0]
-                .createInternalWifiConfiguration(mWifiCarrierInfoManager).getProfileKey()))
+                .createInternalWifiConfiguration(mWifiCarrierInfoManager).getProfileKeyInternal()))
                 .thenReturn(suggestions[0].wns.wifiConfiguration);
         when(mWifiConfigManager.tryEnableNetwork(suggestions[0].wns.wifiConfiguration.networkId))
                 .thenReturn(true);
@@ -717,7 +717,7 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
         verify(mWifiConfigManager, times(suggestionSsids.length))
                 .isNetworkTemporarilyDisabledByUser(anyString());
         verify(mWifiConfigManager).getConfiguredNetwork(eq(suggestions[0]
-                .createInternalWifiConfiguration(mWifiCarrierInfoManager).getProfileKey()));
+                .createInternalWifiConfiguration(mWifiCarrierInfoManager).getProfileKeyInternal()));
         verify(mWifiConfigManager).tryEnableNetwork(eq(
                 suggestions[0].wns.wifiConfiguration.networkId));
         verify(mWifiConfigManager).isNonCarrierMergedNetworkTemporarilyDisabled(any());
@@ -774,6 +774,57 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
         assertEquals(1, connectableNetworks.size());
         validateConnectableNetworks(connectableNetworks, new String[] {scanSsids[0]});
+    }
+
+    /**
+     * Ensure that we don't nominate the only matching passponit network suggestion when it's not
+     * approved.
+     * Expected connectable Networks: {}
+     */
+    @Test
+    public void testSuggestionPasspointNetworkCandidatesNoApprovedMatches() {
+        String[] scanSsids = {"test1", "test2"};
+        String[] bssids = {"6c:f3:7f:ae:8c:f3", "6c:f3:7f:ae:8c:f4"};
+        int[] freqs = {2470, 2437};
+        String[] caps = {"[WPA2-EAP/SHA1-CCMP][ESS]", "[WPA2-EAP/SHA1-CCMP][ESS]"};
+        int[] levels = {-67, -76};
+        String[] suggestionSsids = {"\"" + scanSsids[0] + "\""};
+        int[] securities = {SECURITY_PSK};
+        boolean[] appInteractions = {true};
+        boolean[] meteredness = {true};
+        int[] priorities = {-1};
+        int[] uids = {TEST_UID};
+        String[] packageNames = {TEST_PACKAGE};
+        boolean[] autojoin = {true};
+        boolean[] shareWithUser = {true};
+        int[] priorityGroup = {0};
+
+        ScanDetail[] scanDetails =
+                buildScanDetails(scanSsids, bssids, freqs, caps, levels, mClock);
+        ExtendedWifiNetworkSuggestion[] suggestions = buildNetworkSuggestions(suggestionSsids,
+                securities, appInteractions, meteredness, priorities, uids, packageNames,
+                autojoin, shareWithUser, priorityGroup);
+        HashSet<ExtendedWifiNetworkSuggestion> matchedExtSuggestions = new HashSet<>();
+        matchedExtSuggestions.add(suggestions[0]);
+        List<Pair<ScanDetail, WifiConfiguration>> passpointCandidates = new ArrayList<>();
+        suggestions[0].wns.wifiConfiguration.FQDN = TEST_FQDN;
+        suggestions[0].wns.wifiConfiguration.setPasspointUniqueId(PASSPOINT_UNIQUE_ID);
+
+        passpointCandidates.add(Pair.create(scanDetails[0],
+                suggestions[0].createInternalWifiConfiguration(mWifiCarrierInfoManager)));
+        when(mPasspointNetworkNominateHelper
+                .getPasspointNetworkCandidates(Arrays.asList(scanDetails), true))
+                .thenReturn(passpointCandidates);
+        // As user haven't approved this suggestion, return null
+        when(mWifiNetworkSuggestionsManager.getNetworkSuggestionsForFqdn(TEST_FQDN))
+                .thenReturn(Set.of());
+        List<Pair<ScanDetail, WifiConfiguration>> connectableNetworks = new ArrayList<>();
+        mNetworkSuggestionNominator.nominateNetworks(
+                Arrays.asList(scanDetails), false, false, false,
+                (ScanDetail scanDetail, WifiConfiguration configuration) -> {
+                    connectableNetworks.add(Pair.create(scanDetail, configuration));
+                });
+        assertTrue(connectableNetworks.isEmpty());
     }
 
     /**
@@ -1372,7 +1423,7 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
 
     /**
      * Ensure that we nominate the no matching network suggestion.
-     * Because the only matched suggestion is untrusted and untrusted is not allowed
+     * Because the only matched suggestion is metered carrier network from Non data SIM
      * Expected connectable Networks: {}
      */
     @Test
@@ -1398,10 +1449,57 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
         ExtendedWifiNetworkSuggestion[] suggestions = buildNetworkSuggestions(suggestionSsids,
                 securities, appInteractions, meteredness, priorities, uids,
                 packageNames, autojoin, shareWithUser, priorityGroup);
+        suggestions[0].wns.wifiConfiguration.carrierId = TEST_CARRIER_ID;
         suggestions[0].wns.wifiConfiguration.meteredHint = true;
         when(mWifiCarrierInfoManager.isCarrierNetworkFromNonDefaultDataSim(any())).thenReturn(true);
         // Link the scan result with suggestions.
         linkScanDetailsWithNetworkSuggestions(scanDetails, suggestions);
+        setupAddToWifiConfigManager(suggestions[0]);
+
+        List<Pair<ScanDetail, WifiConfiguration>> connectableNetworks = new ArrayList<>();
+        mNetworkSuggestionNominator.nominateNetworks(
+                Arrays.asList(scanDetails), false, false, false,
+                (ScanDetail scanDetail, WifiConfiguration configuration) -> {
+                    connectableNetworks.add(Pair.create(scanDetail, configuration));
+                });
+
+        assertTrue(connectableNetworks.isEmpty());
+    }
+
+    /**
+     * Ensure that we nominate the no matching network suggestion.
+     * Because the only matched suggestion is carrier network which offloading is disabled.
+     * Expected connectable Networks: {}
+     */
+    @Test
+    public void testSelectNetworkSuggestionForOneMatchCarrierOffloadDisabled() {
+        String[] scanSsids = {"test1", "test2"};
+        String[] bssids = {"6c:f3:7f:ae:8c:f3", "6c:f3:7f:ae:8c:f4"};
+        int[] freqs = {2470, 2437};
+        String[] caps = {"[WPA2-EAP/SHA1-CCMP][ESS]", "[WPA2-EAP/SHA1-CCMP][ESS]"};
+        int[] levels = {-67, -76};
+        String[] suggestionSsids = {"\"" + scanSsids[0] + "\""};
+        int[] securities = {SECURITY_PSK};
+        boolean[] appInteractions = {true};
+        boolean[] meteredness = {true};
+        int[] priorities = {-1};
+        int[] uids = {TEST_UID};
+        String[] packageNames = {TEST_PACKAGE};
+        boolean[] autojoin = {true};
+        boolean[] shareWithUser = {true};
+        int[] priorityGroup = {0};
+
+        ScanDetail[] scanDetails =
+                buildScanDetails(scanSsids, bssids, freqs, caps, levels, mClock);
+        ExtendedWifiNetworkSuggestion[] suggestions = buildNetworkSuggestions(suggestionSsids,
+                securities, appInteractions, meteredness, priorities, uids,
+                packageNames, autojoin, shareWithUser, priorityGroup);
+        suggestions[0].wns.wifiConfiguration.carrierId = TEST_CARRIER_ID;
+        when(mWifiCarrierInfoManager.isCarrierNetworkOffloadEnabled(anyInt(), anyBoolean()))
+                .thenReturn(false);
+        // Link the scan result with suggestions.
+        linkScanDetailsWithNetworkSuggestions(scanDetails, suggestions);
+        setupAddToWifiConfigManager(suggestions[0]);
 
         List<Pair<ScanDetail, WifiConfiguration>> connectableNetworks = new ArrayList<>();
         mNetworkSuggestionNominator.nominateNetworks(
@@ -1421,7 +1519,7 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                     mock(WifiConfiguration.NetworkSelectionStatus.class);
             when(status.isNetworkEnabled()).thenReturn(true);
             candidate.setNetworkSelectionStatus(status);
-            when(mWifiConfigManager.getConfiguredNetwork(candidate.getProfileKey()))
+            when(mWifiConfigManager.getConfiguredNetwork(candidate.getProfileKeyInternal()))
                     .thenReturn(candidate);
         }
     }
@@ -1548,7 +1646,7 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
             for (int i = minLength; i < scanDetails.length; i++) {
                 ScanDetail scanDetail = scanDetails[i];
                 when(mWifiNetworkSuggestionsManager.getNetworkSuggestionsForScanDetail(
-                        eq(scanDetail))).thenReturn(null);
+                        eq(scanDetail))).thenReturn(Set.of());
             }
         } else if (suggestions.length > scanDetails.length) {
             // All the additional suggestions match the last scan detail.

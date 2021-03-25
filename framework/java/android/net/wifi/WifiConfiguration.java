@@ -43,6 +43,7 @@ import android.util.Log;
 import android.util.SparseArray;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.modules.utils.build.SdkLevel;
 import com.android.net.module.util.MacAddressUtils;
 
 import java.lang.annotation.Retention;
@@ -914,6 +915,8 @@ public class WifiConfiguration implements Parcelable {
 
     /**
      * Set SAE Hash-toElement only mode enabled.
+     * Before calling this API, call {@link WifiManager#isWpa3SaeH2eSupported()
+     * to know whether WPA3 SAE Hash-toElement is supported or not.
      *
      * @param enable true if enabled; false otherwise.
      * @hide
@@ -927,6 +930,8 @@ public class WifiConfiguration implements Parcelable {
 
     /**
      * Set SAE Public-Key only mode enabled.
+     * Before calling this API, call {@link WifiManager#isWpa3SaePkSupported()
+     * to know whether WPA3 SAE Public-Key is supported or not.
      *
      * @param enable true if enabled; false otherwise.
      * @hide
@@ -1576,7 +1581,7 @@ public class WifiConfiguration implements Parcelable {
     @IntDef(prefix = {"RANDOMIZATION_"}, value = {
             RANDOMIZATION_NONE,
             RANDOMIZATION_PERSISTENT,
-            RANDOMIZATION_ENHANCED,
+            RANDOMIZATION_NON_PERSISTENT,
             RANDOMIZATION_AUTO})
     public @interface MacRandomizationSetting {}
 
@@ -1599,7 +1604,7 @@ public class WifiConfiguration implements Parcelable {
      * @hide
      */
     @SystemApi
-    public static final int RANDOMIZATION_ENHANCED = 2;
+    public static final int RANDOMIZATION_NON_PERSISTENT = 2;
 
     /**
      * Let the wifi framework automatically decide the MAC randomization strategy.
@@ -1611,7 +1616,7 @@ public class WifiConfiguration implements Parcelable {
     /**
      * Level of MAC randomization for this network.
      * One of {@link #RANDOMIZATION_NONE}, {@link #RANDOMIZATION_AUTO},
-     * {@link #RANDOMIZATION_PERSISTENT} or {@link #RANDOMIZATION_ENHANCED}.
+     * {@link #RANDOMIZATION_PERSISTENT} or {@link #RANDOMIZATION_NON_PERSISTENT}.
      * By default this field is set to {@link #RANDOMIZATION_AUTO}.
      * @hide
      */
@@ -1743,7 +1748,8 @@ public class WifiConfiguration implements Parcelable {
                 DISABLED_AUTHENTICATION_NO_SUBSCRIPTION,
                 DISABLED_AUTHENTICATION_FAILURE_GENERIC,
                 DISABLED_AUTHENTICATION_FAILURE_CARRIER_SPECIFIC,
-                DISABLED_NETWORK_NOT_FOUND})
+                DISABLED_NETWORK_NOT_FOUND,
+                DISABLED_CONSECUTIVE_FAILURES})
         public @interface NetworkSelectionDisableReason {}
 
         // Quality Network disabled reasons
@@ -1792,10 +1798,16 @@ public class WifiConfiguration implements Parcelable {
          */
         public static final int DISABLED_NETWORK_NOT_FOUND = 11;
         /**
+         * This code is used to disable a network when a high number of consecutive connection
+         * failures are detected. The exact reasons of why these consecutive failures occurred is
+         * included but not limited to the reasons described by failure codes above.
+         */
+        public static final int DISABLED_CONSECUTIVE_FAILURES = 12;
+        /**
          * All other disable reasons should be strictly less than this value.
          * @hide
          */
-        public static final int NETWORK_SELECTION_DISABLED_MAX = 12;
+        public static final int NETWORK_SELECTION_DISABLED_MAX = 13;
 
         /**
          * Get an integer that is equal to the maximum integer value of all the
@@ -1962,6 +1974,11 @@ public class WifiConfiguration implements Parcelable {
                     new DisableReasonInfo(
                             "NETWORK_SELECTION_DISABLED_NETWORK_NOT_FOUND",
                             2,
+                            5 * 60 * 1000));
+
+            reasons.append(DISABLED_CONSECUTIVE_FAILURES,
+                    new DisableReasonInfo("NETWORK_SELECTION_DISABLED_CONSECUTIVE_FAILURES",
+                            1,
                             5 * 60 * 1000));
 
             return reasons;
@@ -3706,6 +3723,21 @@ public class WifiConfiguration implements Parcelable {
      */
     @SystemApi
     @NonNull public String getProfileKey() {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
+        return getProfileKeyInternal();
+    }
+
+    /**
+     * Get profile key for internal usage, if target level is less than S, will use the legacy
+     * {@link #getKey()} to generate the result.
+     * @hide
+     */
+    @NonNull public String getProfileKeyInternal() {
+        if (!SdkLevel.isAtLeastS()) {
+            return getKey();
+        }
         if (mPasspointUniqueId != null) {
             return mPasspointUniqueId;
         }

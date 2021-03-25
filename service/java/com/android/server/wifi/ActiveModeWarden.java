@@ -116,6 +116,7 @@ public class ActiveModeWarden {
     private final Graveyard mGraveyard;
     private final WifiMetrics mWifiMetrics;
     private final ExternalScoreUpdateObserverProxy mExternalScoreUpdateObserverProxy;
+    private final DppManager mDppManager;
 
     private WifiServiceImpl.SoftApCallbackInternal mSoftApCallback;
     private WifiServiceImpl.SoftApCallbackInternal mLohsCallback;
@@ -130,6 +131,11 @@ public class ActiveModeWarden {
 
     @Nullable
     private ConcreteClientModeManager mLastPrimaryClientModeManager = null;
+
+    @Nullable
+    private WorkSource mLastPrimaryClientModeManagerRequestorWs = null;
+    @Nullable
+    private WorkSource mLastScanOnlyClientModeManagerRequestorWs = null;
 
     @Nullable
     private ConnectivityManager.NetworkCallback mNetworkCallback = null;
@@ -255,7 +261,8 @@ public class ActiveModeWarden {
             FrameworkFacade facade,
             WifiPermissionsUtil wifiPermissionsUtil,
             WifiMetrics wifiMetrics,
-            ExternalScoreUpdateObserverProxy externalScoreUpdateObserverProxy) {
+            ExternalScoreUpdateObserverProxy externalScoreUpdateObserverProxy,
+            DppManager dppManager) {
         mWifiInjector = wifiInjector;
         mLooper = looper;
         mHandler = new Handler(looper);
@@ -270,8 +277,9 @@ public class ActiveModeWarden {
         mWifiNative = wifiNative;
         mWifiMetrics = wifiMetrics;
         mWifiController = new WifiController();
-        mGraveyard = new Graveyard();
         mExternalScoreUpdateObserverProxy = externalScoreUpdateObserverProxy;
+        mDppManager = dppManager;
+        mGraveyard = new Graveyard();
 
         wifiNative.registerStatusListener(isReady -> {
             if (!isReady && !mIsShuttingdown) {
@@ -292,6 +300,10 @@ public class ActiveModeWarden {
 
         registerPrimaryClientModeManagerChangedCallback(
                 (prevPrimaryClientModeManager, newPrimaryClientModeManager) -> {
+                    // TODO (b/181363901): We can always propagate the external scorer to all
+                    // ClientModeImpl instances. WifiScoreReport already handles skipping external
+                    // scorer notification for local only & restricted STA + STA use-cases. For MBB
+                    // use-case, we may want the external scorer to be notified.
                     if (prevPrimaryClientModeManager != null) {
                         prevPrimaryClientModeManager.clearWifiConnectedNetworkScorer();
                     }
@@ -299,6 +311,7 @@ public class ActiveModeWarden {
                         newPrimaryClientModeManager.setWifiConnectedNetworkScorer(
                                 mClientModeManagerScorer.first,
                                 mClientModeManagerScorer.second);
+                        newPrimaryClientModeManager.applyCachedPacketFilter();
                     }
                 });
     }
@@ -427,7 +440,8 @@ public class ActiveModeWarden {
                     R.bool.config_wifiMultiStaLocalOnlyConcurrencyEnabled);
         }
         if (clientRole == ROLE_CLIENT_SECONDARY_TRANSIENT) {
-            return isMakeBeforeBreakEnabled();
+            return mContext.getResources().getBoolean(
+                    R.bool.config_wifiMultiStaNetworkSwitchingMakeBeforeBreakEnabled);
         }
         if (clientRole == ROLE_CLIENT_SECONDARY_LONG_LIVED) {
             return mContext.getResources().getBoolean(
@@ -453,10 +467,33 @@ public class ActiveModeWarden {
     }
 
     /**
-     * @return Returns whether the device can support at least two concurrent client mode managers.
+     * @return Returns whether the device can support at least two concurrent client mode managers
+     * and the local only use-case is enabled.
      */
-    public boolean isStaStaConcurrencySupported() {
-        return mWifiNative.isStaStaConcurrencySupported();
+    public boolean isStaStaConcurrencySupportedForLocalOnlyConnections() {
+        return mWifiNative.isStaStaConcurrencySupported()
+                && mContext.getResources().getBoolean(
+                        R.bool.config_wifiMultiStaLocalOnlyConcurrencyEnabled);
+    }
+
+    /**
+     * @return Returns whether the device can support at least two concurrent client mode managers
+     * and the mbb wifi switching is enabled.
+     */
+    public boolean isStaStaConcurrencySupportedForMbb() {
+        return mWifiNative.isStaStaConcurrencySupported()
+                && mContext.getResources().getBoolean(
+                        R.bool.config_wifiMultiStaNetworkSwitchingMakeBeforeBreakEnabled);
+    }
+
+    /**
+     * @return Returns whether the device can support at least two concurrent client mode managers
+     * and the restricted use-case is enabled.
+     */
+    public boolean isStaStaConcurrencySupportedForRestrictedConnections() {
+        return mWifiNative.isStaStaConcurrencySupported()
+                && mContext.getResources().getBoolean(
+                        R.bool.config_wifiMultiStaRestrictedConcurrencyEnabled);
     }
 
     /** Begin listening to broadcasts and start the internal state machine. */
@@ -924,6 +961,19 @@ public class ActiveModeWarden {
         ConcreteClientModeManager manager = mWifiInjector.makeClientModeManager(
                 new ClientListener(), requestorWs, ROLE_CLIENT_SCAN_ONLY, mVerboseLoggingEnabled);
         mClientModeManagers.add(manager);
+        mLastScanOnlyClientModeManagerRequestorWs = requestorWs;
+        return true;
+    }
+
+    /**
+     * Method to enable a new primary client mode manager in connect mode.
+     */
+    private boolean startPrimaryClientModeManager(WorkSource requestorWs) {
+        Log.d(TAG, "Starting primary ClientModeManager in connect mode");
+        ConcreteClientModeManager manager = mWifiInjector.makeClientModeManager(
+                new ClientListener(), requestorWs, ROLE_CLIENT_PRIMARY, mVerboseLoggingEnabled);
+        mClientModeManagers.add(manager);
+        mLastPrimaryClientModeManagerRequestorWs = requestorWs;
         return true;
     }
 
@@ -931,14 +981,14 @@ public class ActiveModeWarden {
      * Method to enable a new primary client mode manager.
      */
     private boolean startPrimaryOrScanOnlyClientModeManager(WorkSource requestorWs) {
-        Log.d(TAG, "Starting primary ClientModeManager");
         ActiveModeManager.ClientRole role = getRoleForPrimaryOrScanOnlyClientModeManager();
-        if (role == null) return false;
-
-        ConcreteClientModeManager manager = mWifiInjector.makeClientModeManager(
-                new ClientListener(), requestorWs, role, mVerboseLoggingEnabled);
-        mClientModeManagers.add(manager);
-        return true;
+        if (role == ROLE_CLIENT_PRIMARY) {
+            return startPrimaryClientModeManager(requestorWs);
+        } else if (role == ROLE_CLIENT_SCAN_ONLY) {
+            return startScanOnlyClientModeManager(requestorWs);
+        } else {
+            return false;
+        }
     }
 
     /**
@@ -978,14 +1028,14 @@ public class ActiveModeWarden {
      * Method to switch all client mode manager mode of operation (from ScanOnly To Connect &
      * vice-versa) based on the toggle state.
      */
-    private boolean switchAllPrimaryOrScanOnlyClientModeManagers(@NonNull WorkSource requestorWs) {
+    private boolean switchAllPrimaryOrScanOnlyClientModeManagers() {
         Log.d(TAG, "Switching all client mode managers");
         for (ConcreteClientModeManager clientModeManager : mClientModeManagers) {
             if (clientModeManager.getRole() != ROLE_CLIENT_PRIMARY
                     && clientModeManager.getRole() != ROLE_CLIENT_SCAN_ONLY) {
                 continue;
             }
-            if (!switchPrimaryOrScanOnlyClientModeManagerRole(clientModeManager, requestorWs)) {
+            if (!switchPrimaryOrScanOnlyClientModeManagerRole(clientModeManager)) {
                 return false;
             }
         }
@@ -1008,10 +1058,17 @@ public class ActiveModeWarden {
      * vice-versa) based on the toggle state.
      */
     private boolean switchPrimaryOrScanOnlyClientModeManagerRole(
-            @NonNull ConcreteClientModeManager modeManager, @NonNull WorkSource requestorWs) {
+            @NonNull ConcreteClientModeManager modeManager) {
         ActiveModeManager.ClientRole role = getRoleForPrimaryOrScanOnlyClientModeManager();
-        if (role == null) return false;
-        modeManager.setRole(role, requestorWs);
+        final WorkSource lastRequestorWs;
+        if (role == ROLE_CLIENT_PRIMARY) {
+            lastRequestorWs = mLastPrimaryClientModeManagerRequestorWs;
+        } else if (role == ROLE_CLIENT_SCAN_ONLY) {
+            lastRequestorWs = mLastScanOnlyClientModeManagerRequestorWs;
+        } else {
+            return false;
+        }
+        modeManager.setRole(role, lastRequestorWs);
         return true;
     }
 
@@ -1078,10 +1135,12 @@ public class ActiveModeWarden {
             manager.dump(fd, pw, args);
         }
         mGraveyard.dump(fd, pw, args);
-        boolean isStaStaConcurrencySupported = isStaStaConcurrencySupported();
+        boolean isStaStaConcurrencySupported = mWifiNative.isStaStaConcurrencySupported();
         pw.println("STA + STA Concurrency Supported: " + isStaStaConcurrencySupported);
         if (isStaStaConcurrencySupported) {
-            pw.println("   MBB use-case enabled: " + isMakeBeforeBreakEnabled());
+            pw.println("   MBB use-case enabled: "
+                    + mContext.getResources().getBoolean(
+                            R.bool.config_wifiMultiStaNetworkSwitchingMakeBeforeBreakEnabled));
             pw.println("   Local only use-case enabled: "
                     + mContext.getResources().getBoolean(
                             R.bool.config_wifiMultiStaLocalOnlyConcurrencyEnabled));
@@ -1188,8 +1247,13 @@ public class ActiveModeWarden {
             } else if (clientRole == ROLE_CLIENT_SECONDARY_TRANSIENT) {
                 mWifiNative.setMultiStaUseCase(WifiNative.DUAL_STA_TRANSIENT_PREFER_PRIMARY);
             }
-            mWifiNative.setMultiStaPrimaryConnection(
-                    getPrimaryClientModeManager().getInterfaceName());
+            String primaryIfaceName = getPrimaryClientModeManager().getInterfaceName();
+            // if no primary exists (occurs briefly during Make Before Break), don't update the
+            // primary and keep the previous primary. Only update WifiNative when the new primary is
+            // activated.
+            if (primaryIfaceName != null) {
+                mWifiNative.setMultiStaPrimaryConnection(primaryIfaceName);
+            }
         }
 
         private void onStartedOrRoleChanged(ConcreteClientModeManager clientModeManager) {
@@ -1309,9 +1373,13 @@ public class ActiveModeWarden {
         mBatteryStatsManager.reportWifiState(BatteryStatsManager.WIFI_STATE_OFF_SCANNING, null);
     }
 
-    public boolean isMakeBeforeBreakEnabled() {
-        return mContext.getResources().getBoolean(
-                R.bool.config_wifiMultiStaNetworkSwitchingMakeBeforeBreakEnabled);
+    /**
+     * Called to pull metrics from ActiveModeWarden to WifiMetrics when a dump is triggered, as
+     * opposed to the more common push metrics which are reported to WifiMetrics as soon as they
+     * occur.
+     */
+    public void updateMetrics() {
+        mWifiMetrics.setIsMakeBeforeBreakSupported(isStaStaConcurrencySupportedForMbb());
     }
 
     /**
@@ -1429,9 +1497,16 @@ public class ActiveModeWarden {
                     + ", isScanningAvailable = " + isScanningAlwaysAvailable
                     + ", isLocationModeActive = " + isLocationModeActive);
 
-            if (shouldEnableSta()) {
-                // Assumes user toggled it on from settings before.
-                startPrimaryOrScanOnlyClientModeManager(mFacade.getSettingsWorkSource(mContext));
+            // Initialize these values at bootup to defaults, will be overridden by API calls
+            // for further toggles.
+            mLastPrimaryClientModeManagerRequestorWs = mFacade.getSettingsWorkSource(mContext);
+            mLastScanOnlyClientModeManagerRequestorWs = INTERNAL_REQUESTOR_WS;
+            ActiveModeManager.ClientRole role = getRoleForPrimaryOrScanOnlyClientModeManager();
+            if (role == ROLE_CLIENT_PRIMARY) {
+                startPrimaryClientModeManager(mLastPrimaryClientModeManagerRequestorWs);
+                setInitialState(mEnabledState);
+            } else if (role == ROLE_CLIENT_SCAN_ONLY) {
+                startScanOnlyClientModeManager(mLastScanOnlyClientModeManagerRequestorWs);
                 setInitialState(mEnabledState);
             } else {
                 setInitialState(mDisabledState);
@@ -1674,7 +1749,7 @@ public class ActiveModeWarden {
         private void handleStaToggleChangeInEnabledState(WorkSource requestorWs) {
             if (shouldEnableSta()) {
                 if (hasAnyClientModeManager()) {
-                    switchAllPrimaryOrScanOnlyClientModeManagers(requestorWs);
+                    switchAllPrimaryOrScanOnlyClientModeManagers();
                 } else {
                     startPrimaryOrScanOnlyClientModeManager(requestorWs);
                 }
@@ -1824,6 +1899,17 @@ public class ActiveModeWarden {
 
             private void handleAdditionalClientModeManagerRequest(
                     @NonNull AdditionalClientModeManagerRequestInfo requestInfo) {
+                ClientModeManager primaryManager = getPrimaryClientModeManager();
+                if (requestInfo.clientRole == ROLE_CLIENT_SECONDARY_TRANSIENT
+                        && mDppManager.isSessionInProgress()) {
+                    // When MBB is triggered, we could end up switching the primary interface
+                    // after completion. So if we have any DPP session in progress, they will fail
+                    // when the previous primary iface is removed after MBB completion.
+                    Log.v(TAG, "DPP session in progress, fallback to single STA behavior "
+                            + "using primary ClientModeManager=" + primaryManager);
+                    requestInfo.listener.onAnswer(primaryManager);
+                    return;
+                }
                 ConcreteClientModeManager cmmForSameBssid =
                         findAnyClientModeManagerConnectingOrConnectedToBssid(
                                 requestInfo.ssid, requestInfo.bssid);
@@ -1898,7 +1984,6 @@ public class ActiveModeWarden {
                     return;
                 }
                 // Fall back to single STA behavior.
-                ClientModeManager primaryManager = getPrimaryClientModeManager();
                 Log.v(TAG, "Falling back to single STA behavior using primary ClientModeManager="
                         + primaryManager);
                 requestInfo.listener.onAnswer(primaryManager);

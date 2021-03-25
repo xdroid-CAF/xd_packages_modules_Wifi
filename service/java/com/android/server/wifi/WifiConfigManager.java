@@ -62,7 +62,6 @@ import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -140,8 +139,8 @@ public class WifiConfigManager {
         /**
          * Invoked when user connect choice is set.
          * @param networks List of network profiles to set user connect choice.
-         * @param choiceKey Network key {@link WifiConfiguration#getProfileKey()} corresponding to
-         *                  the network which the user chose.
+         * @param choiceKey Network key {@link WifiConfiguration#getProfileKeyInternal()}
+         *                  corresponding to the network which the user chose.
          * @param rssi the signal strength of the user selected network
          */
         default void onConnectChoiceSet(@NonNull List<WifiConfiguration> networks,
@@ -425,7 +424,7 @@ public class WifiConfigManager {
         }
 
         // use enhanced or persistent randomization if configured to do so.
-        if (config.macRandomizationSetting == WifiConfiguration.RANDOMIZATION_ENHANCED) {
+        if (config.macRandomizationSetting == WifiConfiguration.RANDOMIZATION_NON_PERSISTENT) {
             return true;
         }
         if (config.macRandomizationSetting == WifiConfiguration.RANDOMIZATION_PERSISTENT) {
@@ -809,24 +808,34 @@ public class WifiConfigManager {
             WifiConfiguration config) {
         WifiConfiguration internalConfig = null;
         int securityType = config.getDefaultSecurityParams().getSecurityType();
-        internalConfig = mConfiguredNetworks.getBySsidSecurityTypeForCurrentUser(
-                config.SSID, securityType, config.shared);
-        if (internalConfig != null) {
-            return internalConfig;
-        }
+        WifiConfiguration possibleExistingConfig = new WifiConfiguration(config);
         switch (securityType) {
             case WifiConfiguration.SECURITY_TYPE_PSK:
-                return mConfiguredNetworks.getBySsidSecurityTypeForCurrentUser(
-                        config.SSID, WifiConfiguration.SECURITY_TYPE_SAE, config.shared);
+                possibleExistingConfig.setSecurityParams(WifiConfiguration.SECURITY_TYPE_SAE);
+                break;
+            case WifiConfiguration.SECURITY_TYPE_SAE:
+                possibleExistingConfig.setSecurityParams(WifiConfiguration.SECURITY_TYPE_PSK);
+                break;
             case WifiConfiguration.SECURITY_TYPE_EAP:
-                return mConfiguredNetworks.getBySsidSecurityTypeForCurrentUser(
-                        config.SSID, WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE,
-                        config.shared);
+                possibleExistingConfig.setSecurityParams(
+                        WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE);
+                break;
+            case WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE:
+                possibleExistingConfig.setSecurityParams(
+                        WifiConfiguration.SECURITY_TYPE_EAP);
+                break;
             case WifiConfiguration.SECURITY_TYPE_OPEN:
-                return mConfiguredNetworks.getBySsidSecurityTypeForCurrentUser(
-                        config.SSID, WifiConfiguration.SECURITY_TYPE_OWE, config.shared);
+                possibleExistingConfig.setSecurityParams(WifiConfiguration.SECURITY_TYPE_OWE);
+                break;
+            case WifiConfiguration.SECURITY_TYPE_OWE:
+                possibleExistingConfig.setSecurityParams(WifiConfiguration.SECURITY_TYPE_OPEN);
+                break;
+            default:
+                return null;
         }
-        return null;
+        internalConfig = mConfiguredNetworks.getByConfigKeyForCurrentUser(
+                possibleExistingConfig.getProfileKeyInternal());
+        return internalConfig;
     }
 
     /**
@@ -840,14 +849,15 @@ public class WifiConfigManager {
         if (internalConfig != null) {
             return internalConfig;
         }
-        internalConfig = mConfiguredNetworks.getByConfigKeyForCurrentUser(config.getProfileKey());
+        internalConfig = mConfiguredNetworks.getByConfigKeyForCurrentUser(
+                config.getProfileKeyInternal());
         if (internalConfig != null) {
             return internalConfig;
         }
         internalConfig = getInternalConfiguredNetworkByUpgradableType(config);
         if (internalConfig == null) {
             Log.e(TAG, "Cannot find network with networkId " + config.networkId
-                    + " or configKey " + config.getProfileKey()
+                    + " or configKey " + config.getProfileKeyInternal()
                     + " or upgradable security type check");
         }
         return internalConfig;
@@ -1062,38 +1072,6 @@ public class WifiConfigManager {
 
         mergeSecurityParamsListWithInternalWifiConfiguration(internalConfig, externalConfig);
 
-        // Copy over all the auth/protocol/key mgmt parameters if set.
-        if (externalConfig.allowedAuthAlgorithms != null
-                && !externalConfig.allowedAuthAlgorithms.isEmpty()) {
-            internalConfig.allowedAuthAlgorithms =
-                    (BitSet) externalConfig.allowedAuthAlgorithms.clone();
-        }
-        if (externalConfig.allowedProtocols != null
-                && !externalConfig.allowedProtocols.isEmpty()) {
-            internalConfig.allowedProtocols = (BitSet) externalConfig.allowedProtocols.clone();
-        }
-        if (externalConfig.allowedKeyManagement != null
-                && !externalConfig.allowedKeyManagement.isEmpty()) {
-            internalConfig.allowedKeyManagement =
-                    (BitSet) externalConfig.allowedKeyManagement.clone();
-        }
-        if (externalConfig.allowedPairwiseCiphers != null
-                && !externalConfig.allowedPairwiseCiphers.isEmpty()) {
-            internalConfig.allowedPairwiseCiphers =
-                    (BitSet) externalConfig.allowedPairwiseCiphers.clone();
-        }
-        if (externalConfig.allowedGroupCiphers != null
-                && !externalConfig.allowedGroupCiphers.isEmpty()) {
-            internalConfig.allowedGroupCiphers =
-                    (BitSet) externalConfig.allowedGroupCiphers.clone();
-        }
-        if (externalConfig.allowedGroupManagementCiphers != null
-                && !externalConfig.allowedGroupManagementCiphers.isEmpty()) {
-            internalConfig.allowedGroupManagementCiphers =
-                    (BitSet) externalConfig.allowedGroupManagementCiphers.clone();
-        }
-        // allowedSuiteBCiphers is set internally according to the certificate type
-
         // Copy over the |IpConfiguration| parameters if set.
         if (externalConfig.getIpConfiguration() != null) {
             IpConfiguration.IpAssignment ipAssignment = externalConfig.getIpAssignment();
@@ -1279,7 +1257,7 @@ public class WifiConfigManager {
             // {@link WifiConfiguration#allowedKeyMgmt} field, check again if we already have a
             // network with the the same configkey.
             existingInternalConfig =
-                    getInternalConfiguredNetwork(newInternalConfig.getProfileKey());
+                    getInternalConfiguredNetwork(newInternalConfig.getProfileKeyInternal());
         }
         // Existing network found. So, a network update.
         if (existingInternalConfig != null) {
@@ -1291,7 +1269,7 @@ public class WifiConfigManager {
             // Check for the app's permission before we let it update this network.
             if (!canModifyNetwork(existingInternalConfig, uid, packageName)) {
                 Log.e(TAG, "UID " + uid + " does not have permission to update configuration "
-                        + config.getProfileKey());
+                        + config.getProfileKeyInternal());
                 return new NetworkUpdateResult(WifiConfiguration.INVALID_NETWORK_ID);
             }
             if (mWifiPermissionsUtil.checkNetworkSettingsPermission(uid)
@@ -1309,7 +1287,7 @@ public class WifiConfigManager {
         if (WifiConfigurationUtil.hasProxyChanged(existingInternalConfig, newInternalConfig)
                 && !canModifyProxySettings(uid, packageName)) {
             Log.e(TAG, "UID " + uid + " does not have permission to modify proxy Settings "
-                    + config.getProfileKey() + ". Must have NETWORK_SETTINGS,"
+                    + config.getProfileKeyInternal() + ". Must have NETWORK_SETTINGS,"
                     + " or be device or profile owner.");
             return new NetworkUpdateResult(WifiConfiguration.INVALID_NETWORK_ID);
         }
@@ -1320,7 +1298,7 @@ public class WifiConfigManager {
                 && !(newInternalConfig.isPasspoint() && uid == newInternalConfig.creatorUid)
                 && !config.fromWifiNetworkSuggestion) {
             Log.e(TAG, "UID " + uid + " does not have permission to modify MAC randomization "
-                    + "Settings " + config.getProfileKey() + ". Must have "
+                    + "Settings " + config.getProfileKeyInternal() + ". Must have "
                     + "NETWORK_SETTINGS or NETWORK_SETUP_WIZARD or be the creator adding or "
                     + "updating a passpoint network.");
             return new NetworkUpdateResult(WifiConfiguration.INVALID_NETWORK_ID);
@@ -1381,7 +1359,7 @@ public class WifiConfigManager {
 
         localLog("addOrUpdateNetworkInternal: added/updated config."
                 + " netId=" + newInternalConfig.networkId
-                + " configKey=" + newInternalConfig.getProfileKey()
+                + " configKey=" + newInternalConfig.getProfileKeyInternal()
                 + " uid=" + Integer.toString(newInternalConfig.creatorUid)
                 + " name=" + newInternalConfig.creatorName);
         return result;
@@ -1487,7 +1465,7 @@ public class WifiConfigManager {
         // WifiConfigManager. Will remove that when profile is deleted from PassointManager or
         // WifiNetworkSuggestionsManager.
         if (!config.isPasspoint() && !config.fromWifiNetworkSuggestion) {
-            removeConnectChoiceFromAllNetworks(config.getProfileKey());
+            removeConnectChoiceFromAllNetworks(config.getProfileKeyInternal());
         }
         mConfiguredNetworks.remove(config.networkId);
         mScanDetailCaches.remove(config.networkId);
@@ -1497,7 +1475,7 @@ public class WifiConfigManager {
 
         localLog("removeNetworkInternal: removed config."
                 + " netId=" + config.networkId
-                + " configKey=" + config.getProfileKey()
+                + " configKey=" + config.getProfileKeyInternal()
                 + " uid=" + Integer.toString(uid)
                 + " name=" + mContext.getPackageManager().getNameForUid(uid));
         return true;
@@ -1521,7 +1499,7 @@ public class WifiConfigManager {
         }
         if (!canModifyNetwork(config, uid, packageName)) {
             Log.e(TAG, "UID " + uid + " does not have permission to delete configuration "
-                    + config.getProfileKey());
+                    + config.getProfileKeyInternal());
             return false;
         }
         if (!removeNetworkInternal(config, uid)) {
@@ -1626,11 +1604,11 @@ public class WifiConfigManager {
                 mConfiguredNetworks.valuesForAllUsers().toArray(new WifiConfiguration[0]);
         for (WifiConfiguration config : copiedConfigs) {
             if (config.isPasspoint()) {
-                Log.d(TAG, "Removing passpoint network config " + config.getProfileKey());
+                Log.d(TAG, "Removing passpoint network config " + config.getProfileKeyInternal());
                 removeNetwork(config.networkId, config.creatorUid, config.creatorName);
                 didRemove = true;
             } else if (config.ephemeral) {
-                Log.d(TAG, "Removing ephemeral network config " + config.getProfileKey());
+                Log.d(TAG, "Removing ephemeral network config " + config.getProfileKeyInternal());
                 removeNetwork(config.networkId, config.creatorUid, config.creatorName);
                 didRemove = true;
             }
@@ -1647,7 +1625,7 @@ public class WifiConfigManager {
     public boolean removeSuggestionConfiguredNetwork(@NonNull String configKey) {
         WifiConfiguration config = getInternalConfiguredNetwork(configKey);
         if (config != null && config.ephemeral && config.fromWifiNetworkSuggestion) {
-            Log.d(TAG, "Removing suggestion network config " + config.getProfileKey());
+            Log.d(TAG, "Removing suggestion network config " + config.getProfileKeyInternal());
             return removeNetwork(config.networkId, config.creatorUid, config.creatorName);
         }
         return false;
@@ -1662,10 +1640,33 @@ public class WifiConfigManager {
     public boolean removePasspointConfiguredNetwork(@NonNull String configKey) {
         WifiConfiguration config = getInternalConfiguredNetwork(configKey);
         if (config != null && config.isPasspoint()) {
-            Log.d(TAG, "Removing passpoint network config " + config.getProfileKey());
+            Log.d(TAG, "Removing passpoint network config " + config.getProfileKeyInternal());
             return removeNetwork(config.networkId, config.creatorUid, config.creatorName);
         }
         return false;
+    }
+
+    /**
+     * Removes all save networks configurations not created by the caller.
+     *
+     * @param callerUid the uid of the caller
+     * @return {@code true} if at least one network is removed.
+     */
+    public boolean removeNonCallerConfiguredNetwork(int callerUid) {
+        if (mVerboseLoggingEnabled) {
+            Log.v(TAG, "removeNonCallerConfiguredNetwork caller = " + callerUid);
+        }
+        boolean didRemove = false;
+        WifiConfiguration[] copiedConfigs =
+                mConfiguredNetworks.valuesForAllUsers().toArray(new WifiConfiguration[0]);
+        for (WifiConfiguration config : copiedConfigs) {
+            if (config.creatorUid != callerUid) {
+                Log.d(TAG, "Removing non-caller network config " + config.getProfileKeyInternal());
+                removeNetwork(config.networkId, config.creatorUid, config.creatorName);
+                didRemove = true;
+            }
+        }
+        return didRemove;
     }
 
     /**
@@ -1762,6 +1763,7 @@ public class WifiConfigManager {
      * Re-enable all temporary disabled configured networks.
      */
     public void enableTemporaryDisabledNetworks() {
+        mWifiBlocklistMonitor.clearBssidBlocklist();
         for (WifiConfiguration config : getInternalConfiguredNetworks()) {
             if (config.getNetworkSelectionStatus().isNetworkTemporaryDisabled()) {
                 updateNetworkSelectionStatus(config,
@@ -1821,7 +1823,7 @@ public class WifiConfigManager {
         }
         if (!canModifyNetwork(config, uid, packageName)) {
             Log.e(TAG, "UID " + uid + " does not have permission to update configuration "
-                    + config.getProfileKey());
+                    + config.getProfileKeyInternal());
             return false;
         }
         if (!updateNetworkSelectionStatus(
@@ -1858,7 +1860,7 @@ public class WifiConfigManager {
         }
         if (!canModifyNetwork(config, uid, packageName)) {
             Log.e(TAG, "UID " + uid + " does not have permission to update configuration "
-                    + config.getProfileKey());
+                    + config.getProfileKeyInternal());
             return false;
         }
         if (!updateNetworkSelectionStatus(
@@ -1890,7 +1892,7 @@ public class WifiConfigManager {
 
         config.allowAutojoin = choice;
         if (!choice) {
-            removeConnectChoiceFromAllNetworks(config.getProfileKey());
+            removeConnectChoiceFromAllNetworks(config.getProfileKeyInternal());
             clearConnectChoiceInternal(config);
         }
         sendConfiguredNetworkChangedBroadcast(WifiManager.CHANGE_REASON_CONFIG_CHANGE);
@@ -2207,7 +2209,7 @@ public class WifiConfigManager {
         if (config == null) {
             return "";
         }
-        return config.getProfileKey();
+        return config.getProfileKeyInternal();
     }
 
     /**
@@ -2304,7 +2306,7 @@ public class WifiConfigManager {
         }
         if (config != null) {
             if (mVerboseLoggingEnabled) {
-                Log.v(TAG, "getSavedNetworkFromScanDetail Found " + config.getProfileKey()
+                Log.v(TAG, "getSavedNetworkFromScanDetail Found " + config.getProfileKeyInternal()
                         + " for " + scanResult.SSID + "[" + scanResult.capabilities + "]");
             }
         }
@@ -2383,7 +2385,7 @@ public class WifiConfigManager {
                     Log.v(TAG, "Updating scan detail cache freq=" + result.frequency
                             + " BSSID=" + result.BSSID
                             + " RSSI=" + result.level
-                            + " for " + config.getProfileKey());
+                            + " for " + config.getProfileKeyInternal());
                 }
             }
         }
@@ -2475,8 +2477,8 @@ public class WifiConfigManager {
      */
     private void linkNetworks(WifiConfiguration network1, WifiConfiguration network2) {
         if (mVerboseLoggingEnabled) {
-            Log.v(TAG, "linkNetworks will link " + network2.getProfileKey()
-                    + " and " + network1.getProfileKey());
+            Log.v(TAG, "linkNetworks will link " + network2.getProfileKeyInternal()
+                    + " and " + network1.getProfileKeyInternal());
         }
         if (network2.linkedConfigurations == null) {
             network2.linkedConfigurations = new HashMap<>();
@@ -2486,8 +2488,8 @@ public class WifiConfigManager {
         }
         // TODO (b/30638473): This needs to become a set instead of map, but it will need
         // public interface changes and need some migration of existing store data.
-        network2.linkedConfigurations.put(network1.getProfileKey(), 1);
-        network1.linkedConfigurations.put(network2.getProfileKey(), 1);
+        network2.linkedConfigurations.put(network1.getProfileKeyInternal(), 1);
+        network1.linkedConfigurations.put(network2.getProfileKeyInternal(), 1);
     }
 
     /**
@@ -2498,20 +2500,20 @@ public class WifiConfigManager {
      */
     private void unlinkNetworks(WifiConfiguration network1, WifiConfiguration network2) {
         if (network2.linkedConfigurations != null
-                && (network2.linkedConfigurations.get(network1.getProfileKey()) != null)) {
+                && (network2.linkedConfigurations.get(network1.getProfileKeyInternal()) != null)) {
             if (mVerboseLoggingEnabled) {
-                Log.v(TAG, "unlinkNetworks un-link " + network1.getProfileKey()
-                        + " from " + network2.getProfileKey());
+                Log.v(TAG, "unlinkNetworks un-link " + network1.getProfileKeyInternal()
+                        + " from " + network2.getProfileKeyInternal());
             }
-            network2.linkedConfigurations.remove(network1.getProfileKey());
+            network2.linkedConfigurations.remove(network1.getProfileKeyInternal());
         }
         if (network1.linkedConfigurations != null
-                && (network1.linkedConfigurations.get(network2.getProfileKey()) != null)) {
+                && (network1.linkedConfigurations.get(network2.getProfileKeyInternal()) != null)) {
             if (mVerboseLoggingEnabled) {
-                Log.v(TAG, "unlinkNetworks un-link " + network2.getProfileKey()
-                        + " from " + network1.getProfileKey());
+                Log.v(TAG, "unlinkNetworks un-link " + network2.getProfileKeyInternal()
+                        + " from " + network1.getProfileKeyInternal());
             }
-            network1.linkedConfigurations.remove(network2.getProfileKey());
+            network1.linkedConfigurations.remove(network2.getProfileKeyInternal());
         }
     }
 
@@ -2534,7 +2536,7 @@ public class WifiConfigManager {
             return;
         }
         for (WifiConfiguration linkConfig : getInternalConfiguredNetworks()) {
-            if (linkConfig.getProfileKey().equals(config.getProfileKey())) {
+            if (linkConfig.getProfileKeyInternal().equals(config.getProfileKeyInternal())) {
                 continue;
             }
             if (linkConfig.ephemeral) {
@@ -2694,7 +2696,7 @@ public class WifiConfigManager {
                     mWifiMetrics.logUserActionEvent(
                             UserActionEvent.EVENT_DISCONNECT_WIFI, config.networkId);
                 }
-                removeConnectChoiceFromAllNetworks(config.getProfileKey());
+                removeConnectChoiceFromAllNetworks(config.getProfileKeyInternal());
             }
         }
     }
@@ -2938,7 +2940,7 @@ public class WifiConfigManager {
                 removedNetworkIds.add(config.networkId);
                 localLog("clearInternalUserData: removed config."
                         + " netId=" + config.networkId
-                        + " configKey=" + config.getProfileKey());
+                        + " configKey=" + config.getProfileKeyInternal());
                 mConfiguredNetworks.remove(config.networkId);
                 for (OnNetworkUpdateListener listener : mListeners) {
                     listener.onNetworkRemoved(
@@ -2974,7 +2976,8 @@ public class WifiConfigManager {
 
             WifiConfiguration existingConfiguration = getInternalConfiguredNetwork(configuration);
             if (null != existingConfiguration) {
-                Log.d(TAG, "Merging network from shared store " + configuration.getProfileKey());
+                Log.d(TAG, "Merging network from shared store "
+                        + configuration.getProfileKeyInternal());
                 mergeWithInternalWifiConfiguration(existingConfiguration, configuration);
                 continue;
             }
@@ -2982,7 +2985,8 @@ public class WifiConfigManager {
             configuration.networkId = mNextNetworkId++;
             WifiConfigurationUtil.addUpgradableSecurityTypeIfNecessary(configuration);
             if (mVerboseLoggingEnabled) {
-                Log.v(TAG, "Adding network from shared store " + configuration.getProfileKey());
+                Log.v(TAG, "Adding network from shared store "
+                        + configuration.getProfileKeyInternal());
             }
             try {
                 mConfiguredNetworks.put(configuration);
@@ -3009,7 +3013,8 @@ public class WifiConfigManager {
 
             WifiConfiguration existingConfiguration = getInternalConfiguredNetwork(configuration);
             if (null != existingConfiguration) {
-                Log.d(TAG, "Merging network from user store " + configuration.getProfileKey());
+                Log.d(TAG, "Merging network from user store "
+                        + configuration.getProfileKeyInternal());
                 mergeWithInternalWifiConfiguration(existingConfiguration, configuration);
                 continue;
             }
@@ -3017,7 +3022,8 @@ public class WifiConfigManager {
             configuration.networkId = mNextNetworkId++;
             WifiConfigurationUtil.addUpgradableSecurityTypeIfNecessary(configuration);
             if (mVerboseLoggingEnabled) {
-                Log.v(TAG, "Adding network from user store " + configuration.getProfileKey());
+                Log.v(TAG, "Adding network from user store "
+                        + configuration.getProfileKeyInternal());
             }
             try {
                 mConfiguredNetworks.put(configuration);
@@ -3425,7 +3431,7 @@ public class WifiConfigManager {
         localLog("userSelectNetwork: network ID=" + netId);
         WifiConfiguration selected = getInternalConfiguredNetwork(netId);
 
-        if (selected == null || selected.getProfileKey() == null) {
+        if (selected == null || selected.getProfileKeyInternal() == null) {
             localLog("userSelectNetwork: Invalid configuration with nid=" + netId);
             return false;
         }
@@ -3447,7 +3453,7 @@ public class WifiConfigManager {
         boolean change = false;
         Collection<WifiConfiguration> configuredNetworks = getInternalConfiguredNetworks();
         ArrayList<WifiConfiguration> networksInRange = new ArrayList<>();
-        String key = selected.getProfileKey();
+        String key = selected.getProfileKeyInternal();
         for (WifiConfiguration network : configuredNetworks) {
             WifiConfiguration.NetworkSelectionStatus status = network.getNetworkSelectionStatus();
             if (network.networkId == selected.networkId) {

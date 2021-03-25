@@ -407,7 +407,7 @@ public class WifiApConfigStore {
     SoftApConfiguration randomizeBssidIfUnset(Context context, SoftApConfiguration config) {
         SoftApConfiguration.Builder configBuilder = new SoftApConfiguration.Builder(config);
         if (config.getBssid() == null && ApConfigUtil.isApMacRandomizationSupported(mContext)) {
-            if (SdkLevel.isAtLeastS() && config.getMacRandomizationSetting()
+            if (config.getMacRandomizationSettingInternal()
                     == SoftApConfiguration.RANDOMIZATION_NONE) {
                 return configBuilder.build();
             }
@@ -575,9 +575,7 @@ public class WifiApConfigStore {
      * @return A band which will be used for a default band in default configuration.
      */
     public static @BandType int generateDefaultBand(Context context) {
-        int[] supportedBand = {SoftApConfiguration.BAND_2GHZ, SoftApConfiguration.BAND_5GHZ,
-                SoftApConfiguration.BAND_6GHZ, SoftApConfiguration.BAND_60GHZ};
-        for (int band : supportedBand) {
+        for (int band : SoftApConfiguration.BAND_TYPES) {
             if (ApConfigUtil.isBandSupported(band, context)) {
                 return band;
             }

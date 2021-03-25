@@ -26,6 +26,8 @@ import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import com.android.modules.utils.build.SdkLevel;
+
 import java.util.Objects;
 
 /**
@@ -52,6 +54,9 @@ public final class CoexUnsafeChannel implements Parcelable {
      * @param channel Channel number
      */
     public CoexUnsafeChannel(@WifiAnnotations.WifiBandBasic int band, int channel) {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
         mBand = band;
         mChannel = channel;
     }
@@ -64,6 +69,9 @@ public final class CoexUnsafeChannel implements Parcelable {
      */
     public CoexUnsafeChannel(@WifiAnnotations.WifiBandBasic int band, int channel,
             int powerCapDbm) {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
         mBand = band;
         mChannel = channel;
         setPowerCapDbm(powerCapDbm);
@@ -120,8 +128,6 @@ public final class CoexUnsafeChannel implements Parcelable {
     @Override
     public String toString() {
         StringBuilder sj = new StringBuilder("CoexUnsafeChannel{");
-        sj.append(mChannel);
-        sj.append(", ");
         if (mBand == WIFI_BAND_24_GHZ) {
             sj.append("2.4GHz");
         } else if (mBand == WIFI_BAND_5_GHZ) {
@@ -131,6 +137,7 @@ public final class CoexUnsafeChannel implements Parcelable {
         } else {
             sj.append("UNKNOWN BAND");
         }
+        sj.append(", ").append(mChannel);
         if (mIsPowerCapAvailable) {
             sj.append(", ").append(mPowerCapDbm).append("dBm");
         }

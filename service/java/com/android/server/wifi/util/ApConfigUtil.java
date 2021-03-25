@@ -299,6 +299,23 @@ public class ApConfigUtil {
     }
 
     /**
+     * Returns the unsafe channels frequency from coex module.
+     *
+     * @param coexManager reference used to get unsafe channels to avoid for coex.
+     */
+    @NonNull
+    public static Set<Integer> getUnsafeChannelFreqsFromCoex(@NonNull CoexManager coexManager) {
+        Set<Integer> unsafeFreqs = new HashSet<>();
+        if (SdkLevel.isAtLeastS()) {
+            for (CoexUnsafeChannel unsafeChannel : coexManager.getCoexUnsafeChannels()) {
+                unsafeFreqs.add(ScanResult.convertChannelToFrequencyMhz(
+                        unsafeChannel.getChannel(), unsafeChannel.getBand()));
+            }
+        }
+        return unsafeFreqs;
+    }
+
+    /**
      * Get channels or frequencies for band that are allowed by both regulatory
      * and OEM configuration.
      *
@@ -388,10 +405,7 @@ public class ApConfigUtil {
 
         Set<Integer> unsafeFreqs = new HashSet<>();
         if (SdkLevel.isAtLeastS()) {
-            for (CoexUnsafeChannel unsafeChannel : coexManager.getCoexUnsafeChannels()) {
-                unsafeFreqs.add(ScanResult.convertChannelToFrequencyMhz(
-                        unsafeChannel.getChannel(), unsafeChannel.getBand()));
-            }
+            unsafeFreqs = getUnsafeChannelFreqsFromCoex(coexManager);
         }
         final int[] bandPreferences = new int[]{
                 SoftApConfiguration.BAND_60GHZ,
@@ -456,37 +470,28 @@ public class ApConfigUtil {
      * (remaining) available bands. Unavailable bands are those which don't have channels available.
      *
      * @param capability SoftApCapability which inidcates supported channel list.
-     * @param band The target band which plan to enable
+     * @param targetBand The target band which plan to enable
+     * @param coexManager reference to CoexManager
      *
      * @return the available band which removed the unsupported band.
      *         0 when all of the band is not supported.
      */
     public static @BandType int removeUnavailableBands(SoftApCapability capability,
-            @NonNull int band) {
-        int availableBand = band;
-        if (SdkLevel.isAtLeastS()) {
-            if ((band & SoftApConfiguration.BAND_2GHZ) != 0) {
-                if (capability.getSupportedChannelList(SoftApConfiguration.BAND_2GHZ).length
-                        == 0) {
-                    availableBand &= ~SoftApConfiguration.BAND_2GHZ;
+            @NonNull int targetBand, CoexManager coexManager) {
+        int availableBand = targetBand;
+        for (int band : SoftApConfiguration.BAND_TYPES) {
+            Set<Integer> availableChannelFreqsList = new HashSet<>();
+            if ((targetBand & band) != 0) {
+                for (int channel : capability.getSupportedChannelList(band)) {
+                    availableChannelFreqsList.add(convertChannelToFrequency(channel, band));
                 }
-            }
-            if ((band & SoftApConfiguration.BAND_5GHZ) != 0) {
-                if (capability.getSupportedChannelList(SoftApConfiguration.BAND_5GHZ).length
-                        == 0) {
-                    availableBand &= ~SoftApConfiguration.BAND_5GHZ;
+                // Only remove hard unsafe channels
+                if ((coexManager.getCoexRestrictions()
+                                & WifiManager.COEX_RESTRICTION_SOFTAP) != 0) {
+                    availableChannelFreqsList.removeAll(getUnsafeChannelFreqsFromCoex(coexManager));
                 }
-            }
-            if ((band & SoftApConfiguration.BAND_6GHZ) != 0) {
-                if (capability.getSupportedChannelList(SoftApConfiguration.BAND_6GHZ).length
-                        == 0) {
-                    availableBand &= ~SoftApConfiguration.BAND_6GHZ;
-                }
-            }
-            if ((band & SoftApConfiguration.BAND_60GHZ) != 0) {
-                if (capability.getSupportedChannelList(SoftApConfiguration.BAND_60GHZ).length
-                         == 0) {
-                    availableBand &= ~SoftApConfiguration.BAND_60GHZ;
+                if (availableChannelFreqsList.size() == 0) {
+                    availableBand &= ~band;
                 }
             }
         }
@@ -837,6 +842,13 @@ public class ApConfigUtil {
                 == SoftApConfiguration.SECURITY_TYPE_WPA3_SAE_TRANSITION
                 || config.getSecurityType() == SoftApConfiguration.SECURITY_TYPE_WPA3_SAE)) {
             Log.d(TAG, "Error, SAE requires HAL support");
+            return false;
+        }
+
+        if (config.getBands().length > 1
+                && !capability.areFeaturesSupported(SoftApCapability.SOFTAP_FEATURE_ACS_OFFLOAD)
+                && (config.getChannels().valueAt(0) == 0 || config.getChannels().valueAt(1) == 0)) {
+            Log.d(TAG, "Error, dual APs requires HAL ACS support when channel isn't specified");
             return false;
         }
         return true;

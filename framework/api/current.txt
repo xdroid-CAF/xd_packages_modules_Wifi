@@ -217,13 +217,13 @@ package android.net.wifi {
     ctor public WifiEnterpriseConfig();
     ctor public WifiEnterpriseConfig(android.net.wifi.WifiEnterpriseConfig);
     method public int describeContents();
-    method public boolean doesEapMethodUseServerCert();
     method public String getAltSubjectMatch();
     method public String getAnonymousIdentity();
     method @Nullable public java.security.cert.X509Certificate getCaCertificate();
     method @Nullable public java.security.cert.X509Certificate[] getCaCertificates();
     method public java.security.cert.X509Certificate getClientCertificate();
     method @Nullable public java.security.cert.X509Certificate[] getClientCertificateChain();
+    method @Nullable public String getClientKeyPairAlias();
     method @Nullable public java.security.PrivateKey getClientPrivateKey();
     method public String getDomainSuffixMatch();
     method public int getEapMethod();
@@ -234,6 +234,7 @@ package android.net.wifi {
     method public String getRealm();
     method @Deprecated public String getSubjectMatch();
     method public boolean isAuthenticationSimBased();
+    method public boolean isEapMethodServerCertUsed();
     method public boolean isServerCertValidationEnabled();
     method public void setAltSubjectMatch(String);
     method public void setAnonymousIdentity(String);
@@ -241,6 +242,7 @@ package android.net.wifi {
     method public void setCaCertificates(@Nullable java.security.cert.X509Certificate[]);
     method public void setClientKeyEntry(java.security.PrivateKey, java.security.cert.X509Certificate);
     method public void setClientKeyEntryWithCertificateChain(java.security.PrivateKey, java.security.cert.X509Certificate[]);
+    method public void setClientKeyPairAlias(@NonNull String);
     method public void setDomainSuffixMatch(String);
     method public void setEapMethod(int);
     method public void setIdentity(String);
@@ -337,6 +339,7 @@ package android.net.wifi {
     method @Deprecated public boolean disableNetwork(int);
     method @Deprecated public boolean disconnect();
     method @Deprecated public boolean enableNetwork(int, boolean);
+    method @NonNull @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public java.util.List<android.net.wifi.WifiConfiguration> getCallerConfiguredNetworks();
     method @Deprecated @RequiresPermission(allOf={android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_WIFI_STATE}) public java.util.List<android.net.wifi.WifiConfiguration> getConfiguredNetworks();
     method @Deprecated public android.net.wifi.WifiInfo getConnectionInfo();
     method @Deprecated public android.net.DhcpInfo getDhcpInfo();
@@ -353,21 +356,25 @@ package android.net.wifi {
     method @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public boolean isAutoWakeupEnabled();
     method public boolean isBridgedApConcurrencySupported();
     method @Deprecated public boolean isDeviceToApRttSupported();
+    method public boolean isEasyConnectEnrolleeResponderModeSupported();
     method public boolean isEasyConnectSupported();
     method public boolean isEnhancedOpenSupported();
     method public boolean isEnhancedPowerReportingSupported();
-    method public boolean isMultiStaConcurrencySupported();
+    method public boolean isMakeBeforeBreakWifiSwitchingSupported();
     method public boolean isP2pSupported();
+    method public boolean isPasspointTermsAndConditionsSupported();
     method public boolean isPreferredNetworkOffloadSupported();
     method @Deprecated public boolean isScanAlwaysAvailable();
     method @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public boolean isScanThrottleEnabled();
     method public boolean isStaApConcurrencySupported();
     method public boolean isStaBridgedApConcurrencySupported();
+    method public boolean isStaConcurrencyForLocalOnlyConnectionsSupported();
     method public boolean isTdlsSupported();
     method public boolean isWapiSupported();
     method public boolean isWifiEnabled();
     method public boolean isWifiStandardSupported(int);
-    method public boolean isWpa3ApValidationSupported();
+    method public boolean isWpa3SaeH2eSupported();
+    method public boolean isWpa3SaePublicKeySupported();
     method public boolean isWpa3SaeSupported();
     method public boolean isWpa3SuiteBSupported();
     method @Deprecated public boolean pingSupplicant();
@@ -377,6 +384,7 @@ package android.net.wifi {
     method @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public void registerSubsystemRestartTrackingCallback(@NonNull java.util.concurrent.Executor, @NonNull android.net.wifi.WifiManager.SubsystemRestartTrackingCallback);
     method @Deprecated public boolean removeNetwork(int);
     method @RequiresPermission(android.Manifest.permission.CHANGE_WIFI_STATE) public int removeNetworkSuggestions(@NonNull java.util.List<android.net.wifi.WifiNetworkSuggestion>);
+    method @RequiresPermission(android.Manifest.permission.CHANGE_WIFI_STATE) public boolean removeNonCallerConfiguredNetworks();
     method @Deprecated @RequiresPermission(anyOf={android.Manifest.permission.NETWORK_SETTINGS, android.Manifest.permission.NETWORK_CARRIER_PROVISIONING}) public void removePasspointConfiguration(String);
     method @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public void removeSuggestionConnectionStatusListener(@NonNull android.net.wifi.WifiManager.SuggestionConnectionStatusListener);
     method @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE) public void removeSuggestionUserApprovalStatusListener(@NonNull android.net.wifi.WifiManager.SuggestionUserApprovalStatusListener);
@@ -536,7 +544,7 @@ package android.net.wifi {
     method @Nullable public String getPassphrase();
     method @Nullable public android.net.wifi.hotspot2.PasspointConfiguration getPasspointConfig();
     method @IntRange(from=0) public int getPriority();
-    method public int getPriorityGroup();
+    method @IntRange(from=0) public int getPriorityGroup();
     method @Nullable public String getSsid();
     method public int getSubscriptionId();
     method public boolean isAppInteractionRequired();
@@ -550,24 +558,27 @@ package android.net.wifi {
     method public boolean isUserInteractionRequired();
     method public void writeToParcel(android.os.Parcel, int);
     field @NonNull public static final android.os.Parcelable.Creator<android.net.wifi.WifiNetworkSuggestion> CREATOR;
+    field public static final int RANDOMIZATION_NON_PERSISTENT = 1; // 0x1
+    field public static final int RANDOMIZATION_PERSISTENT = 0; // 0x0
   }
 
   public static final class WifiNetworkSuggestion.Builder {
     ctor public WifiNetworkSuggestion.Builder();
     method @NonNull public android.net.wifi.WifiNetworkSuggestion build();
+    method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder enableWpa3SaeH2eOnlyMode(boolean);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setBssid(@NonNull android.net.MacAddress);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setCarrierMerged(boolean);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setCredentialSharedWithUser(boolean);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setIsAppInteractionRequired(boolean);
-    method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setIsEnhancedMacRandomizationEnabled(boolean);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setIsEnhancedOpen(boolean);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setIsHiddenSsid(boolean);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setIsInitialAutojoinEnabled(boolean);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setIsMetered(boolean);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setIsUserInteractionRequired(boolean);
+    method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setMacRandomizationSetting(int);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setPasspointConfig(@NonNull android.net.wifi.hotspot2.PasspointConfiguration);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setPriority(@IntRange(from=0) int);
-    method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setPriorityGroup(int);
+    method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setPriorityGroup(@IntRange(from=0) int);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setSsid(@NonNull String);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setSubscriptionId(int);
     method @NonNull public android.net.wifi.WifiNetworkSuggestion.Builder setUntrusted(boolean);
@@ -608,6 +619,7 @@ package android.net.wifi.aware {
   }
 
   public final class AwareResources implements android.os.Parcelable {
+    ctor public AwareResources(@IntRange(from=0) int, @IntRange(from=0) int, @IntRange(from=0) int);
     method public int describeContents();
     method @IntRange(from=0) public int getAvailableDataPathsCount();
     method @IntRange(from=0) public int getAvailablePublishSessionsCount();
@@ -758,8 +770,8 @@ package android.net.wifi.aware {
 
   public class WifiAwareSession implements java.lang.AutoCloseable {
     method public void close();
-    method public android.net.NetworkSpecifier createNetworkSpecifierOpen(int, @NonNull byte[]);
-    method public android.net.NetworkSpecifier createNetworkSpecifierPassphrase(int, @NonNull byte[], @NonNull String);
+    method @Deprecated public android.net.NetworkSpecifier createNetworkSpecifierOpen(int, @NonNull byte[]);
+    method @Deprecated public android.net.NetworkSpecifier createNetworkSpecifierPassphrase(int, @NonNull byte[], @NonNull String);
     method public void publish(@NonNull android.net.wifi.aware.PublishConfig, @NonNull android.net.wifi.aware.DiscoverySessionCallback, @Nullable android.os.Handler);
     method public void subscribe(@NonNull android.net.wifi.aware.SubscribeConfig, @NonNull android.net.wifi.aware.DiscoverySessionCallback, @Nullable android.os.Handler);
   }

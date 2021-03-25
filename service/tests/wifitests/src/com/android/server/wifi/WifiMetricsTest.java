@@ -56,6 +56,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import static java.lang.StrictMath.toIntExact;
+
 import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -138,6 +140,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
@@ -3607,6 +3610,8 @@ public class WifiMetricsTest extends WifiBaseTest {
         out.on_time_roam_scan = current.on_time_roam_scan + nextRandInt();
         out.on_time_pno_scan = current.on_time_pno_scan + nextRandInt();
         out.on_time_hs20_scan = current.on_time_hs20_scan + nextRandInt();
+        out.timeSliceDutyCycleInPercent =
+                (short) ((current.timeSliceDutyCycleInPercent + nextRandInt()) % 101);
         return out;
     }
 
@@ -3632,7 +3637,6 @@ public class WifiMetricsTest extends WifiBaseTest {
                 mDecodedProto.wifiLinkLayerUsageStats.radioPnoScanTimeMs);
         assertEquals(newStats.on_time_hs20_scan - oldStats.on_time_hs20_scan,
                 mDecodedProto.wifiLinkLayerUsageStats.radioHs20ScanTimeMs);
-
     }
 
     /**
@@ -3716,6 +3720,39 @@ public class WifiMetricsTest extends WifiBaseTest {
         assertEquals(stats.on_time_pno_scan, usabilityStats.totalPnoScanTimeMs);
         assertEquals(stats.on_time_hs20_scan, usabilityStats.totalHotspot2ScanTimeMs);
         assertEquals(stats.beacon_rx, usabilityStats.totalBeaconRx);
+        assertEquals(stats.timeSliceDutyCycleInPercent, usabilityStats.timeSliceDutyCycleInPercent);
+        assertEquals(stats.contentionTimeMinBeInUsec,
+                usabilityStats.contentionTimeStats[0].contentionTimeMinMicros);
+        assertEquals(stats.contentionTimeMaxBeInUsec,
+                usabilityStats.contentionTimeStats[0].contentionTimeMaxMicros);
+        assertEquals(stats.contentionTimeAvgBeInUsec,
+                usabilityStats.contentionTimeStats[0].contentionTimeAvgMicros);
+        assertEquals(stats.contentionNumSamplesBe,
+                usabilityStats.contentionTimeStats[0].contentionNumSamples);
+        assertEquals(stats.contentionTimeMinBkInUsec,
+                usabilityStats.contentionTimeStats[1].contentionTimeMinMicros);
+        assertEquals(stats.contentionTimeMaxBkInUsec,
+                usabilityStats.contentionTimeStats[1].contentionTimeMaxMicros);
+        assertEquals(stats.contentionTimeAvgBkInUsec,
+                usabilityStats.contentionTimeStats[1].contentionTimeAvgMicros);
+        assertEquals(stats.contentionNumSamplesBk,
+                usabilityStats.contentionTimeStats[1].contentionNumSamples);
+        assertEquals(stats.contentionTimeMinViInUsec,
+                usabilityStats.contentionTimeStats[2].contentionTimeMinMicros);
+        assertEquals(stats.contentionTimeMaxViInUsec,
+                usabilityStats.contentionTimeStats[2].contentionTimeMaxMicros);
+        assertEquals(stats.contentionTimeAvgViInUsec,
+                usabilityStats.contentionTimeStats[2].contentionTimeAvgMicros);
+        assertEquals(stats.contentionNumSamplesVi,
+                usabilityStats.contentionTimeStats[2].contentionNumSamples);
+        assertEquals(stats.contentionTimeMinVoInUsec,
+                usabilityStats.contentionTimeStats[3].contentionTimeMinMicros);
+        assertEquals(stats.contentionTimeMaxVoInUsec,
+                usabilityStats.contentionTimeStats[3].contentionTimeMaxMicros);
+        assertEquals(stats.contentionTimeAvgVoInUsec,
+                usabilityStats.contentionTimeStats[3].contentionTimeAvgMicros);
+        assertEquals(stats.contentionNumSamplesVo,
+                usabilityStats.contentionTimeStats[3].contentionNumSamples);
     }
 
     // Simulate adding a LABEL_GOOD WifiUsabilityStats
@@ -4489,7 +4526,17 @@ public class WifiMetricsTest extends WifiBaseTest {
         mWifiMetrics.incrementNetworkRequestApiMatchSizeHistogram(0);
         mWifiMetrics.incrementNetworkRequestApiMatchSizeHistogram(1);
 
-        mWifiMetrics.incrementNetworkRequestApiNumConnectSuccess();
+        mWifiMetrics.incrementNetworkRequestApiNumConnectSuccessOnPrimaryIface();
+        mWifiMetrics.incrementNetworkRequestApiNumConnectSuccessOnPrimaryIface();
+
+        mWifiMetrics.incrementNetworkRequestApiNumConnectSuccessOnSecondaryIface();
+
+        mWifiMetrics.incrementNetworkRequestApiNumConnectOnPrimaryIface();
+        mWifiMetrics.incrementNetworkRequestApiNumConnectOnPrimaryIface();
+
+        mWifiMetrics.incrementNetworkRequestApiNumConnectOnSecondaryIface();
+        mWifiMetrics.incrementNetworkRequestApiNumConnectOnSecondaryIface();
+        mWifiMetrics.incrementNetworkRequestApiNumConnectOnSecondaryIface();
 
         mWifiMetrics.incrementNetworkRequestApiNumUserApprovalBypass();
         mWifiMetrics.incrementNetworkRequestApiNumUserApprovalBypass();
@@ -4498,10 +4545,26 @@ public class WifiMetricsTest extends WifiBaseTest {
 
         mWifiMetrics.incrementNetworkRequestApiNumApps();
 
+        mWifiMetrics.incrementNetworkRequestApiConnectionDurationSecOnPrimaryIfaceHistogram(40);
+        mWifiMetrics.incrementNetworkRequestApiConnectionDurationSecOnPrimaryIfaceHistogram(670);
+        mWifiMetrics.incrementNetworkRequestApiConnectionDurationSecOnPrimaryIfaceHistogram(1801);
+
+        mWifiMetrics.incrementNetworkRequestApiConnectionDurationSecOnSecondaryIfaceHistogram(100);
+        mWifiMetrics.incrementNetworkRequestApiConnectionDurationSecOnSecondaryIfaceHistogram(350);
+        mWifiMetrics.incrementNetworkRequestApiConnectionDurationSecOnSecondaryIfaceHistogram(750);
+
+        mWifiMetrics.incrementNetworkRequestApiConcurrentConnectionDurationSecHistogram(10);
+        mWifiMetrics.incrementNetworkRequestApiConcurrentConnectionDurationSecHistogram(589);
+        mWifiMetrics.incrementNetworkRequestApiConcurrentConnectionDurationSecHistogram(2900);
+        mWifiMetrics.incrementNetworkRequestApiConcurrentConnectionDurationSecHistogram(145);
+
         dumpProtoAndDeserialize();
 
         assertEquals(3, mDecodedProto.wifiNetworkRequestApiLog.numRequest);
-        assertEquals(1, mDecodedProto.wifiNetworkRequestApiLog.numConnectSuccess);
+        assertEquals(2, mDecodedProto.wifiNetworkRequestApiLog.numConnectSuccessOnPrimaryIface);
+        assertEquals(1, mDecodedProto.wifiNetworkRequestApiLog.numConnectSuccessOnSecondaryIface);
+        assertEquals(2, mDecodedProto.wifiNetworkRequestApiLog.numConnectOnPrimaryIface);
+        assertEquals(3, mDecodedProto.wifiNetworkRequestApiLog.numConnectOnSecondaryIface);
         assertEquals(2, mDecodedProto.wifiNetworkRequestApiLog.numUserApprovalBypass);
         assertEquals(1, mDecodedProto.wifiNetworkRequestApiLog.numUserReject);
         assertEquals(1, mDecodedProto.wifiNetworkRequestApiLog.numApps);
@@ -4513,6 +4576,38 @@ public class WifiMetricsTest extends WifiBaseTest {
         };
         assertHistogramBucketsEqual(expectedNetworkMatchSizeHistogram,
                 mDecodedProto.wifiNetworkRequestApiLog.networkMatchSizeHistogram);
+
+        HistogramBucketInt32[] expectedConnectionDurationOnPrimarySec = {
+                buildHistogramBucketInt32(0, toIntExact(Duration.ofMinutes(3).getSeconds()), 1),
+                buildHistogramBucketInt32(toIntExact(Duration.ofMinutes(10).getSeconds()),
+                        toIntExact(Duration.ofMinutes(30).getSeconds()), 1),
+                buildHistogramBucketInt32(toIntExact(Duration.ofMinutes(30).getSeconds()),
+                        toIntExact(Duration.ofHours(1).getSeconds()), 1)
+        };
+        assertHistogramBucketsEqual(expectedConnectionDurationOnPrimarySec,
+                mDecodedProto.wifiNetworkRequestApiLog
+                        .connectionDurationSecOnPrimaryIfaceHistogram);
+
+        HistogramBucketInt32[] expectedConnectionDurationOnSecondarySec = {
+                buildHistogramBucketInt32(0, toIntExact(Duration.ofMinutes(3).getSeconds()), 1),
+                buildHistogramBucketInt32(toIntExact(Duration.ofMinutes(3).getSeconds()),
+                        toIntExact(Duration.ofMinutes(10).getSeconds()), 1),
+                buildHistogramBucketInt32(toIntExact(Duration.ofMinutes(10).getSeconds()),
+                        toIntExact(Duration.ofMinutes(30).getSeconds()), 1),
+        };
+        assertHistogramBucketsEqual(expectedConnectionDurationOnSecondarySec,
+                mDecodedProto.wifiNetworkRequestApiLog
+                        .connectionDurationSecOnSecondaryIfaceHistogram);
+
+        HistogramBucketInt32[] expectedConcurrentConnectionDuration = {
+                buildHistogramBucketInt32(0, toIntExact(Duration.ofMinutes(3).getSeconds()), 2),
+                buildHistogramBucketInt32(toIntExact(Duration.ofMinutes(3).getSeconds()),
+                        toIntExact(Duration.ofMinutes(10).getSeconds()), 1),
+                buildHistogramBucketInt32(toIntExact(Duration.ofMinutes(30).getSeconds()),
+                        toIntExact(Duration.ofHours(1).getSeconds()), 1)
+        };
+        assertHistogramBucketsEqual(expectedConcurrentConnectionDuration,
+                mDecodedProto.wifiNetworkRequestApiLog.concurrentConnectionDurationSecHistogram);
     }
 
     /**
@@ -5929,5 +6024,55 @@ public class WifiMetricsTest extends WifiBaseTest {
         assertNotNull(broadcastReceiver);
         Intent intent = new Intent(screenOn  ? ACTION_SCREEN_ON : ACTION_SCREEN_OFF);
         broadcastReceiver.onReceive(mContext, intent);
+    }
+
+    @Test
+    public void testWifiToWifiSwitchMetrics() throws Exception {
+        // initially all 0
+        dumpProtoAndDeserialize();
+
+        assertFalse(mDecodedProto.wifiToWifiSwitchStats.isMakeBeforeBreakSupported);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.wifiToWifiSwitchTriggerCount);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakTriggerCount);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakNoInternetCount);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakRecoverPrimaryCount);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakInternetValidatedCount);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakSuccessCount);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakLingerCompletedCount);
+
+        // increment everything
+        mWifiMetrics.setIsMakeBeforeBreakSupported(true);
+        mWifiMetrics.incrementWifiToWifiSwitchTriggerCount();
+        mWifiMetrics.incrementMakeBeforeBreakTriggerCount();
+        mWifiMetrics.incrementMakeBeforeBreakNoInternetCount();
+        mWifiMetrics.incrementMakeBeforeBreakRecoverPrimaryCount();
+        mWifiMetrics.incrementMakeBeforeBreakInternetValidatedCount();
+        mWifiMetrics.incrementMakeBeforeBreakSuccessCount();
+        mWifiMetrics.incrementMakeBeforeBreakLingerCompletedCount();
+
+        dumpProtoAndDeserialize();
+
+        // should be all 1
+        assertTrue(mDecodedProto.wifiToWifiSwitchStats.isMakeBeforeBreakSupported);
+        assertEquals(1, mDecodedProto.wifiToWifiSwitchStats.wifiToWifiSwitchTriggerCount);
+        assertEquals(1, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakTriggerCount);
+        assertEquals(1, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakNoInternetCount);
+        assertEquals(1, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakRecoverPrimaryCount);
+        assertEquals(1, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakInternetValidatedCount);
+        assertEquals(1, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakSuccessCount);
+        assertEquals(1, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakLingerCompletedCount);
+
+        // dump again
+        dumpProtoAndDeserialize();
+
+        // everything should be reset
+        assertFalse(mDecodedProto.wifiToWifiSwitchStats.isMakeBeforeBreakSupported);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.wifiToWifiSwitchTriggerCount);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakTriggerCount);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakNoInternetCount);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakRecoverPrimaryCount);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakInternetValidatedCount);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakSuccessCount);
+        assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakLingerCompletedCount);
     }
 }
