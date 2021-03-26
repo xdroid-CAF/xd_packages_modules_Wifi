@@ -1858,7 +1858,7 @@ public class WifiNative {
             }
         }
 
-        if (!mHostapdHal.addAccessPoint(ifaceName, config, isMetered, listener::onFailure)) {
+        if (!addAccessPoint(ifaceName, config, isMetered, listener)) {
             Log.e(TAG, "Failed to add acccess point");
             mWifiMetrics.incrementNumSetupSoftApInterfaceFailureDueToHostapd();
             return false;
@@ -3988,5 +3988,21 @@ public class WifiNative {
         if (mCountryCodeChangeListener != null) {
             mCountryCodeChangeListener.setChangeListener(listener);
         }
+    }
+
+    /* ######################### Vendor hostapd hal V1_2 adaptor  ###################### */
+    private boolean addAccessPoint(@NonNull String ifaceName,
+          @NonNull SoftApConfiguration config, boolean isMetered, SoftApListener listener) {
+
+        if (mHostapdHal.useVendorHostapdHal()) {
+            if (!mHostapdHal.addVendorAccessPoint(ifaceName, config, listener::onFailure)) {
+                return false;
+            }
+        } else {
+            if (!mHostapdHal.addAccessPoint(ifaceName, config, isMetered, listener::onFailure)) {
+                return false;
+            }
+        }
+        return true;
     }
 }
