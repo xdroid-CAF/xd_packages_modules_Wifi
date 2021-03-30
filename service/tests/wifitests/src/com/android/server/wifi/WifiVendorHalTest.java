@@ -36,6 +36,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -48,6 +49,7 @@ import static org.mockito.Mockito.when;
 import android.app.test.MockAnswerUtil.AnswerWithArguments;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.content.res.Resources;
 import android.hardware.wifi.V1_0.IWifiApIface;
 import android.hardware.wifi.V1_0.IWifiChip;
 import android.hardware.wifi.V1_0.IWifiChipEventCallback;
@@ -85,6 +87,9 @@ import android.hardware.wifi.V1_2.IWifiChipEventCallback.RadioModeInfo;
 import android.hardware.wifi.V1_3.WifiChannelStats;
 import android.hardware.wifi.V1_5.IWifiChip.MultiStaUseCase;
 import android.hardware.wifi.V1_5.StaLinkLayerIfaceContentionTimeStats;
+import android.hardware.wifi.V1_5.StaPeerInfo;
+import android.hardware.wifi.V1_5.StaRateStat;
+import android.hardware.wifi.V1_5.WifiUsableChannel;
 import android.net.InetAddresses;
 import android.net.KeepalivePacketData;
 import android.net.MacAddress;
@@ -93,6 +98,7 @@ import android.net.apf.ApfCapabilities;
 import android.net.wifi.CoexUnsafeChannel;
 import android.net.wifi.ScanResult;
 import android.net.wifi.SoftApConfiguration;
+import android.net.wifi.WifiAvailableChannel;
 import android.net.wifi.WifiManager;
 import android.net.wifi.WifiScanner;
 import android.net.wifi.WifiSsid;
@@ -108,14 +114,17 @@ import androidx.test.filters.SmallTest;
 import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.HalDeviceManager.InterfaceDestroyedListener;
 import com.android.server.wifi.WifiLinkLayerStats.ChannelStats;
+import com.android.server.wifi.WifiLinkLayerStats.RadioStat;
 import com.android.server.wifi.WifiNative.RoamingCapabilities;
 import com.android.server.wifi.WifiNative.RxFateReport;
 import com.android.server.wifi.WifiNative.TxFateReport;
 import com.android.server.wifi.util.NativeUtil;
+import com.android.wifi.resources.R;
 
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.mockito.stubbing.Answer;
@@ -149,6 +158,8 @@ public class WifiVendorHalTest extends WifiBaseTest {
     private WifiLog mWifiLog;
     private TestLooper mLooper;
     private Handler mHandler;
+    @Mock
+    private Resources mResources;
     @Mock
     private Context mContext;
     @Mock
@@ -425,6 +436,9 @@ public class WifiVendorHalTest extends WifiBaseTest {
             }
         }).when(mIWifiApIface).getName(any(IWifiIface.getNameCallback.class));
 
+        when(mContext.getResources()).thenReturn(mResources);
+        when(mResources.getBoolean(R.bool.config_wifiLinkLayerAllRadiosStatsAggregationEnabled))
+                .thenReturn(false);
         // Create the vendor HAL object under test.
         mWifiVendorHal = new WifiVendorHal(mContext, mHalDeviceManager, mHandler, mWifiGlobals);
 
@@ -1143,13 +1157,16 @@ public class WifiVendorHalTest extends WifiBaseTest {
         randomizePacketStats(r, stats.iface.wmeBkPktStats);
         randomizePacketStats(r, stats.iface.wmeViPktStats);
         randomizePacketStats(r, stats.iface.wmeVoPktStats);
-        randomizeRadioStats_1_3(1, r, stats.radios);
+        android.hardware.wifi.V1_3.StaLinkLayerRadioStats rstat =
+                new android.hardware.wifi.V1_3.StaLinkLayerRadioStats();
+        randomizeRadioStats_1_3(r, rstat);
+        stats.radios.add(rstat);
         stats.timeStampInMs = r.nextLong() & 0xFFFFFFFFFFL;
 
         WifiLinkLayerStats converted = WifiVendorHal.frameworkFromHalLinkLayerStats_1_3(stats);
 
         verifyIFaceStats(stats.iface, converted);
-        verifyRadioStats_1_3(stats.radios, converted);
+        verifyRadioStats_1_3(stats.radios.get(0), converted);
         assertEquals(stats.timeStampInMs, converted.timeStampInMs);
         assertEquals(WifiLinkLayerStats.V1_3, converted.version);
         assertEquals(1, converted.numRadios);
@@ -1171,18 +1188,23 @@ public class WifiVendorHalTest extends WifiBaseTest {
         randomizePacketStats(r, stats.iface.V1_0.wmeBkPktStats);
         randomizePacketStats(r, stats.iface.V1_0.wmeViPktStats);
         randomizePacketStats(r, stats.iface.V1_0.wmeVoPktStats);
-        randomizeRadioStats_1_3(1, r, stats.radios);
+        android.hardware.wifi.V1_5.StaLinkLayerRadioStats rstat =
+                new android.hardware.wifi.V1_5.StaLinkLayerRadioStats();
+        randomizeRadioStats_1_5(r, rstat);
+        stats.radios.add(rstat);
         stats.timeStampInMs = r.nextLong() & 0xFFFFFFFFFFL;
         randomizeContentionTimeStats(r, stats.iface.wmeBeContentionTimeStats);
         randomizeContentionTimeStats(r, stats.iface.wmeBkContentionTimeStats);
         randomizeContentionTimeStats(r, stats.iface.wmeViContentionTimeStats);
         randomizeContentionTimeStats(r, stats.iface.wmeVoContentionTimeStats);
+        randomizePeerInfoStats(r, stats.iface.peers);
 
         WifiLinkLayerStats converted = WifiVendorHal.frameworkFromHalLinkLayerStats_1_5(stats);
 
         verifyIFaceStats(stats.iface.V1_0, converted);
         verifyIFaceStats_1_5(stats.iface, converted);
-        verifyRadioStats_1_3(stats.radios, converted);
+        verifyPerRadioStats(stats.radios, converted);
+        verifyRadioStats_1_5(stats.radios.get(0), converted);
         assertEquals(stats.timeStampInMs, converted.timeStampInMs);
         assertEquals(WifiLinkLayerStats.V1_5, converted.version);
         assertEquals(1, converted.numRadios);
@@ -1196,15 +1218,104 @@ public class WifiVendorHalTest extends WifiBaseTest {
      * are equal to the values in the converted structure.
      */
     @Test
-    public void testTwoRadioStatsAggregation() throws Exception {
+    public void testTwoRadioStatsAggregation_1_3() throws Exception {
+        when(mResources.getBoolean(R.bool.config_wifiLinkLayerAllRadiosStatsAggregationEnabled))
+                .thenReturn(true);
         Random r = new Random(245786856);
         android.hardware.wifi.V1_3.StaLinkLayerStats stats =
                 new android.hardware.wifi.V1_3.StaLinkLayerStats();
-        randomizeRadioStats_1_3(2, r, stats.radios);
+        // Fill stats in two radios
+        for (int i = 0; i < 2; i++) {
+            android.hardware.wifi.V1_3.StaLinkLayerRadioStats rstat =
+                    new android.hardware.wifi.V1_3.StaLinkLayerRadioStats();
+            randomizeRadioStats_1_3(r, rstat);
+            stats.radios.add(rstat);
+        }
 
         WifiLinkLayerStats converted = WifiVendorHal.frameworkFromHalLinkLayerStats_1_3(stats);
-        verifyTwoRadioStatsAggregation(stats.radios, converted);
+        verifyTwoRadioStatsAggregation_1_3(stats.radios, converted);
         assertEquals(2, converted.numRadios);
+    }
+
+    /**
+     * Test that the link layer stats V1_3 fields are not aggregated on setting
+     * config_wifiLinkLayerAllRadiosStatsAggregationEnabled to false(Default value).
+     *
+     * This is done by filling multiple Hal LinkLayerStats (V1_3) with random values,
+     * converting it to WifiLinkLayerStats and then asserting the values from radio 0
+     * are equal to the values in the converted structure.
+     */
+    @Test
+    public void testRadioStatsAggregationDisabled_1_3() throws Exception {
+        Random r = new Random(245786856);
+        android.hardware.wifi.V1_3.StaLinkLayerStats stats =
+                new android.hardware.wifi.V1_3.StaLinkLayerStats();
+        // Fill stats in two radios
+        for (int i = 0; i < 2; i++) {
+            android.hardware.wifi.V1_3.StaLinkLayerRadioStats rstat =
+                    new android.hardware.wifi.V1_3.StaLinkLayerRadioStats();
+            randomizeRadioStats_1_3(r, rstat);
+            stats.radios.add(rstat);
+        }
+
+        WifiLinkLayerStats converted = WifiVendorHal.frameworkFromHalLinkLayerStats_1_3(stats);
+        verifyRadioStats_1_3(stats.radios.get(0), converted);
+        assertEquals(1, converted.numRadios);
+    }
+
+    /**
+     * Test that the link layer stats V1_5 fields are aggregated correctly for two radios.
+     *
+     * This is done by filling multiple Hal LinkLayerStats (V1_5) with random values,
+     * converting it to WifiLinkLayerStats and then asserting the sum of values from HAL structure
+     * are equal to the values in the converted structure.
+     */
+    @Test
+    public void testTwoRadioStatsAggregation_1_5() throws Exception {
+        when(mResources.getBoolean(R.bool.config_wifiLinkLayerAllRadiosStatsAggregationEnabled))
+                .thenReturn(true);
+        Random r = new Random(245786856);
+        android.hardware.wifi.V1_5.StaLinkLayerStats stats =
+                new android.hardware.wifi.V1_5.StaLinkLayerStats();
+        // Fill stats in two radios
+        for (int i = 0; i < 2; i++) {
+            android.hardware.wifi.V1_5.StaLinkLayerRadioStats rstat =
+                    new android.hardware.wifi.V1_5.StaLinkLayerRadioStats();
+            randomizeRadioStats_1_5(r, rstat);
+            stats.radios.add(rstat);
+        }
+
+        WifiLinkLayerStats converted = WifiVendorHal.frameworkFromHalLinkLayerStats_1_5(stats);
+        verifyPerRadioStats(stats.radios, converted);
+        verifyTwoRadioStatsAggregation_1_5(stats.radios, converted);
+        assertEquals(2, converted.numRadios);
+    }
+
+    /**
+     * Test that the link layer stats V1_5 fields are not aggregated on setting
+     * config_wifiLinkLayerAllRadiosStatsAggregationEnabled to false(Default value).
+     *
+     * This is done by filling multiple Hal LinkLayerStats (V1_5) with random values,
+     * converting it to WifiLinkLayerStats and then asserting the values from radio 0
+     * are equal to the values in the converted structure.
+     */
+    @Test
+    public void testRadioStatsAggregationDisabled_1_5() throws Exception {
+        Random r = new Random(245786856);
+        android.hardware.wifi.V1_5.StaLinkLayerStats stats =
+                new android.hardware.wifi.V1_5.StaLinkLayerStats();
+        // Fill stats in two radios
+        for (int i = 0; i < 2; i++) {
+            android.hardware.wifi.V1_5.StaLinkLayerRadioStats rstat =
+                    new android.hardware.wifi.V1_5.StaLinkLayerRadioStats();
+            randomizeRadioStats_1_5(r, rstat);
+            stats.radios.add(rstat);
+        }
+
+        WifiLinkLayerStats converted = WifiVendorHal.frameworkFromHalLinkLayerStats_1_5(stats);
+        verifyPerRadioStats(stats.radios, converted);
+        verifyRadioStats_1_5(stats.radios.get(0), converted);
+        assertEquals(1, converted.numRadios);
     }
 
     private void verifyIFaceStats(StaLinkLayerIfaceStats iface,
@@ -1270,6 +1381,31 @@ public class WifiVendorHalTest extends WifiBaseTest {
                 wifiLinkLayerStats.contentionTimeAvgVoInUsec);
         assertEquals(iface.wmeVoContentionTimeStats.contentionNumSamples,
                 wifiLinkLayerStats.contentionNumSamplesVo);
+
+        for (int i = 0; i < iface.peers.size(); i++) {
+            assertEquals(iface.peers.get(i).staCount, wifiLinkLayerStats.peerInfo[i].staCount);
+            assertEquals(iface.peers.get(i).chanUtil, wifiLinkLayerStats.peerInfo[i].chanUtil);
+            for (int j = 0; j < iface.peers.get(i).rateStats.size(); j++) {
+                assertEquals(iface.peers.get(i).rateStats.get(j).rateInfo.preamble,
+                        wifiLinkLayerStats.peerInfo[i].rateStats[j].preamble);
+                assertEquals(iface.peers.get(i).rateStats.get(j).rateInfo.nss,
+                        wifiLinkLayerStats.peerInfo[i].rateStats[j].nss);
+                assertEquals(iface.peers.get(i).rateStats.get(j).rateInfo.bw,
+                        wifiLinkLayerStats.peerInfo[i].rateStats[j].bw);
+                assertEquals(iface.peers.get(i).rateStats.get(j).rateInfo.rateMcsIdx,
+                        wifiLinkLayerStats.peerInfo[i].rateStats[j].rateMcsIdx);
+                assertEquals(iface.peers.get(i).rateStats.get(j).rateInfo.bitRateInKbps,
+                        wifiLinkLayerStats.peerInfo[i].rateStats[j].bitRateInKbps);
+                assertEquals(iface.peers.get(i).rateStats.get(j).txMpdu,
+                        wifiLinkLayerStats.peerInfo[i].rateStats[j].txMpdu);
+                assertEquals(iface.peers.get(i).rateStats.get(j).rxMpdu,
+                        wifiLinkLayerStats.peerInfo[i].rateStats[j].rxMpdu);
+                assertEquals(iface.peers.get(i).rateStats.get(j).mpduLost,
+                        wifiLinkLayerStats.peerInfo[i].rateStats[j].mpduLost);
+                assertEquals(iface.peers.get(i).rateStats.get(j).retries,
+                        wifiLinkLayerStats.peerInfo[i].rateStats[j].retries);
+            }
+        }
     }
 
     private void verifyRadioStats(List<StaLinkLayerRadioStats> radios,
@@ -1288,9 +1424,8 @@ public class WifiVendorHalTest extends WifiBaseTest {
     }
 
     private void verifyRadioStats_1_3(
-            List<android.hardware.wifi.V1_3.StaLinkLayerRadioStats> radios,
+            android.hardware.wifi.V1_3.StaLinkLayerRadioStats radio,
             WifiLinkLayerStats wifiLinkLayerStats) {
-        android.hardware.wifi.V1_3.StaLinkLayerRadioStats radio = radios.get(0);
         assertEquals(radio.V1_0.onTimeInMs, wifiLinkLayerStats.on_time);
         assertEquals(radio.V1_0.txTimeInMs, wifiLinkLayerStats.tx_time);
         assertEquals(radio.V1_0.rxTimeInMs, wifiLinkLayerStats.rx_time);
@@ -1319,12 +1454,49 @@ public class WifiVendorHalTest extends WifiBaseTest {
         }
     }
 
-    private void verifyTwoRadioStatsAggregation(
-            List<android.hardware.wifi.V1_3.StaLinkLayerRadioStats> radios,
+    private void verifyPerRadioStats(List<android.hardware.wifi.V1_5.StaLinkLayerRadioStats> radios,
             WifiLinkLayerStats wifiLinkLayerStats) {
-        assertEquals(2, radios.size());
-        android.hardware.wifi.V1_3.StaLinkLayerRadioStats radio0 = radios.get(0);
-        android.hardware.wifi.V1_3.StaLinkLayerRadioStats radio1 = radios.get(1);
+        assertEquals(radios.size(),
+                wifiLinkLayerStats.radioStats.length);
+        for (int i = 0; i < radios.size(); i++) {
+            android.hardware.wifi.V1_5.StaLinkLayerRadioStats radio = radios.get(i);
+            RadioStat radioStat = wifiLinkLayerStats.radioStats[i];
+            assertEquals(radio.radioId, radioStat.radio_id);
+            assertEquals(radio.V1_3.V1_0.onTimeInMs, radioStat.on_time);
+            assertEquals(radio.V1_3.V1_0.txTimeInMs, radioStat.tx_time);
+            assertEquals(radio.V1_3.V1_0.rxTimeInMs, radioStat.rx_time);
+            assertEquals(radio.V1_3.V1_0.onTimeInMsForScan, radioStat.on_time_scan);
+            assertEquals(radio.V1_3.onTimeInMsForNanScan, radioStat.on_time_nan_scan);
+            assertEquals(radio.V1_3.onTimeInMsForBgScan, radioStat.on_time_background_scan);
+            assertEquals(radio.V1_3.onTimeInMsForRoamScan, radioStat.on_time_roam_scan);
+            assertEquals(radio.V1_3.onTimeInMsForPnoScan, radioStat.on_time_pno_scan);
+            assertEquals(radio.V1_3.onTimeInMsForHs20Scan, radioStat.on_time_hs20_scan);
+
+            assertEquals(radio.V1_3.channelStats.size(),
+                    radioStat.channelStatsMap.size());
+            for (int j = 0; j < radio.V1_3.channelStats.size(); j++) {
+                WifiChannelStats channelStats = radio.V1_3.channelStats.get(j);
+                ChannelStats retrievedChannelStats =
+                        radioStat.channelStatsMap.get(channelStats.channel.centerFreq);
+                assertNotNull(retrievedChannelStats);
+                assertEquals(channelStats.channel.centerFreq, retrievedChannelStats.frequency);
+                assertEquals(channelStats.onTimeInMs, retrievedChannelStats.radioOnTimeMs);
+                assertEquals(channelStats.ccaBusyTimeInMs, retrievedChannelStats.ccaBusyTimeMs);
+            }
+        }
+
+    }
+
+    private void verifyRadioStats_1_5(
+            android.hardware.wifi.V1_5.StaLinkLayerRadioStats radio,
+            WifiLinkLayerStats wifiLinkLayerStats) {
+        verifyRadioStats_1_3(radio.V1_3, wifiLinkLayerStats);
+    }
+
+    private void verifyTwoRadioStatsAggregation(
+            android.hardware.wifi.V1_3.StaLinkLayerRadioStats radio0,
+            android.hardware.wifi.V1_3.StaLinkLayerRadioStats radio1,
+            WifiLinkLayerStats wifiLinkLayerStats) {
         assertEquals(radio0.V1_0.onTimeInMs + radio1.V1_0.onTimeInMs,
                 wifiLinkLayerStats.on_time);
         assertEquals(radio0.V1_0.txTimeInMs + radio1.V1_0.txTimeInMs,
@@ -1370,6 +1542,24 @@ public class WifiVendorHalTest extends WifiBaseTest {
         }
     }
 
+    private void verifyTwoRadioStatsAggregation_1_3(
+            List<android.hardware.wifi.V1_3.StaLinkLayerRadioStats> radios,
+            WifiLinkLayerStats wifiLinkLayerStats) {
+        assertEquals(2, radios.size());
+        android.hardware.wifi.V1_3.StaLinkLayerRadioStats radio0 = radios.get(0);
+        android.hardware.wifi.V1_3.StaLinkLayerRadioStats radio1 = radios.get(1);
+        verifyTwoRadioStatsAggregation(radio0, radio1, wifiLinkLayerStats);
+    }
+
+    private void verifyTwoRadioStatsAggregation_1_5(
+            List<android.hardware.wifi.V1_5.StaLinkLayerRadioStats> radios,
+            WifiLinkLayerStats wifiLinkLayerStats) {
+        assertEquals(2, radios.size());
+        android.hardware.wifi.V1_5.StaLinkLayerRadioStats radio0 = radios.get(0);
+        android.hardware.wifi.V1_5.StaLinkLayerRadioStats radio1 = radios.get(1);
+        verifyTwoRadioStatsAggregation(radio0.V1_3, radio1.V1_3, wifiLinkLayerStats);
+    }
+
     /**
      * Populate packet stats with non-negative random values
      */
@@ -1392,6 +1582,28 @@ public class WifiVendorHalTest extends WifiBaseTest {
     }
 
     /**
+     * Populate peer info stats with non-negative random values
+     */
+    private static void randomizePeerInfoStats(Random r, ArrayList<StaPeerInfo> pstats) {
+        StaPeerInfo pstat = new StaPeerInfo();
+        pstat.staCount = 2;
+        pstat.chanUtil = 90;
+        pstat.rateStats = new ArrayList<StaRateStat>();
+        StaRateStat rateStat = new StaRateStat();
+        rateStat.rateInfo.preamble = r.nextInt() & 0x7FFFFFFF;
+        rateStat.rateInfo.nss = r.nextInt() & 0x7FFFFFFF;
+        rateStat.rateInfo.bw = r.nextInt() & 0x7FFFFFFF;
+        rateStat.rateInfo.rateMcsIdx = 9;
+        rateStat.rateInfo.bitRateInKbps = 101;
+        rateStat.txMpdu = r.nextInt() & 0x7FFFFFFF;
+        rateStat.rxMpdu = r.nextInt() & 0x7FFFFFFF;
+        rateStat.mpduLost = r.nextInt() & 0x7FFFFFFF;
+        rateStat.retries = r.nextInt() & 0x7FFFFFFF;
+        pstat.rateStats.add(rateStat);
+        pstats.add(pstat);
+    }
+
+    /**
      * Populate radio stats with non-negative random values
      */
     private static void randomizeRadioStats(Random r, ArrayList<StaLinkLayerRadioStats> rstats) {
@@ -1408,35 +1620,39 @@ public class WifiVendorHalTest extends WifiBaseTest {
     }
 
     /**
-     * Populate radio stats with non-negative random values
+     * Populate radio stats V1_3 with non-negative random values
      */
-    private static void randomizeRadioStats_1_3(int numRadios, Random r,
-            ArrayList<android.hardware.wifi.V1_3.StaLinkLayerRadioStats> rstats) {
-        for (int i = 0; i < numRadios; i++) {
-            android.hardware.wifi.V1_3.StaLinkLayerRadioStats rstat =
-                    new android.hardware.wifi.V1_3.StaLinkLayerRadioStats();
-            rstat.V1_0.onTimeInMs = r.nextInt() & 0xFFFFFF;
-            rstat.V1_0.txTimeInMs = r.nextInt() & 0xFFFFFF;
-            for (int j = 0; j < 4; j++) {
-                Integer v = r.nextInt() & 0xFFFFFF;
-                rstat.V1_0.txTimeInMsPerLevel.add(v);
-            }
-            rstat.V1_0.rxTimeInMs = r.nextInt() & 0xFFFFFF;
-            rstat.V1_0.onTimeInMsForScan = r.nextInt() & 0xFFFFFF;
-            rstat.onTimeInMsForNanScan = r.nextInt() & 0xFFFFFF;
-            rstat.onTimeInMsForBgScan = r.nextInt() & 0xFFFFFF;
-            rstat.onTimeInMsForRoamScan = r.nextInt() & 0xFFFFFF;
-            rstat.onTimeInMsForPnoScan = r.nextInt() & 0xFFFFFF;
-            rstat.onTimeInMsForHs20Scan = r.nextInt() & 0xFFFFFF;
-            for (int k = 0; k < TEST_FREQUENCIES.length; k++) {
-                WifiChannelStats channelStats = new WifiChannelStats();
-                channelStats.channel.centerFreq = TEST_FREQUENCIES[k];
-                channelStats.onTimeInMs = r.nextInt() & 0xFFFFFF;
-                channelStats.ccaBusyTimeInMs = r.nextInt() & 0xFFFFFF;
-                rstat.channelStats.add(channelStats);
-            }
-            rstats.add(rstat);
+    private static void randomizeRadioStats_1_3(Random r,
+            android.hardware.wifi.V1_3.StaLinkLayerRadioStats rstat) {
+        rstat.V1_0.onTimeInMs = r.nextInt() & 0xFFFFFF;
+        rstat.V1_0.txTimeInMs = r.nextInt() & 0xFFFFFF;
+        for (int j = 0; j < 4; j++) {
+            Integer v = r.nextInt() & 0xFFFFFF;
+            rstat.V1_0.txTimeInMsPerLevel.add(v);
         }
+        rstat.V1_0.rxTimeInMs = r.nextInt() & 0xFFFFFF;
+        rstat.V1_0.onTimeInMsForScan = r.nextInt() & 0xFFFFFF;
+        rstat.onTimeInMsForNanScan = r.nextInt() & 0xFFFFFF;
+        rstat.onTimeInMsForBgScan = r.nextInt() & 0xFFFFFF;
+        rstat.onTimeInMsForRoamScan = r.nextInt() & 0xFFFFFF;
+        rstat.onTimeInMsForPnoScan = r.nextInt() & 0xFFFFFF;
+        rstat.onTimeInMsForHs20Scan = r.nextInt() & 0xFFFFFF;
+        for (int k = 0; k < TEST_FREQUENCIES.length; k++) {
+            WifiChannelStats channelStats = new WifiChannelStats();
+            channelStats.channel.centerFreq = TEST_FREQUENCIES[k];
+            channelStats.onTimeInMs = r.nextInt() & 0xFFFFFF;
+            channelStats.ccaBusyTimeInMs = r.nextInt() & 0xFFFFFF;
+            rstat.channelStats.add(channelStats);
+        }
+    }
+
+    /**
+     * Populate radio stats V1_5 with non-negative random values
+     */
+    private static void randomizeRadioStats_1_5(Random r,
+            android.hardware.wifi.V1_5.StaLinkLayerRadioStats rstat) {
+        rstat.radioId = r.nextInt() & 0xFFFFFF;
+        randomizeRadioStats_1_3(r, rstat.V1_3);
     }
 
     /**
@@ -2674,6 +2890,382 @@ public class WifiVendorHalTest extends WifiBaseTest {
     }
 
     /**
+     * Test the selectTxPowerScenario HIDL method invocation for 1.0 interface.
+     * This should return failure since SAR is not supported for this interface version.
+     */
+    @Test
+    public void testSelectTxPowerScenario_1_0() throws RemoteException {
+        // Create a SAR info record
+        SarInfo sarInfo = new SarInfo();
+        sarInfo.isVoiceCall = true;
+
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+        // Should fail because we exposed the 1.0 IWifiChip.
+        assertFalse(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        verify(mIWifiChipV11, never()).selectTxPowerScenario(anyInt());
+        mWifiVendorHal.stopVendorHal();
+    }
+
+    /**
+     * Test the selectTxPowerScenario HIDL method invocation for 1.1 interface.
+     * This should return success.
+     */
+    @Test
+    public void testSelectTxPowerScenario_1_1() throws RemoteException {
+        // Create a SAR info record
+        SarInfo sarInfo = new SarInfo();
+        sarInfo.sarVoiceCallSupported = true;
+        sarInfo.sarSapSupported = false;
+
+        sarInfo.isVoiceCall = true;
+
+        // Now expose the 1.1 IWifiChip.
+        mWifiVendorHal = new WifiVendorHalSpyV1_1(mContext, mHalDeviceManager, mHandler,
+                mWifiGlobals);
+        when(mIWifiChipV11.selectTxPowerScenario(anyInt())).thenReturn(mWifiStatusSuccess);
+
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        verify(mIWifiChipV11).selectTxPowerScenario(
+                eq(android.hardware.wifi.V1_1.IWifiChip.TxPowerScenario.VOICE_CALL));
+        verify(mIWifiChipV11, never()).resetTxPowerScenario();
+        mWifiVendorHal.stopVendorHal();
+    }
+
+   /**
+     * Test the selectTxPowerScenario HIDL method invocation for 1.2 interface.
+     * This should return success.
+     */
+    @Test
+    public void testSelectTxPowerScenario_1_2() throws RemoteException {
+        // Create a SAR info record
+        SarInfo sarInfo = new SarInfo();
+        sarInfo.sarVoiceCallSupported = true;
+        sarInfo.sarSapSupported = false;
+
+        sarInfo.isVoiceCall = true;
+
+        // Now expose the 1.2 IWifiChip
+        mWifiVendorHal = new WifiVendorHalSpyV1_2(mContext, mHalDeviceManager, mHandler,
+                mWifiGlobals);
+        when(mIWifiChipV12.selectTxPowerScenario_1_2(anyInt())).thenReturn(mWifiStatusSuccess);
+
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        verify(mIWifiChipV12).selectTxPowerScenario_1_2(
+                eq(android.hardware.wifi.V1_2.IWifiChip.TxPowerScenario.VOICE_CALL));
+        verify(mIWifiChipV12, never()).resetTxPowerScenario();
+        mWifiVendorHal.stopVendorHal();
+    }
+
+    /**
+     * Test the resetTxPowerScenario HIDL method invocation for 1.0 interface.
+     * This should return failure since it does not supprt SAR.
+     */
+    @Test
+    public void testResetTxPowerScenario_1_0() throws RemoteException {
+        // Create a SAR info record
+        SarInfo sarInfo = new SarInfo();
+
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+        // Should fail because we exposed the 1.0 IWifiChip.
+        assertFalse(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        verify(mIWifiChipV11, never()).resetTxPowerScenario();
+        mWifiVendorHal.stopVendorHal();
+    }
+
+    /**
+     * Test the resetTxPowerScenario HIDL method invocation for 1.1 interface.
+     * This should return success.
+     */
+    @Test
+    public void testResetTxPowerScenario_1_1() throws RemoteException {
+        // Create a SAR info record
+        SarInfo sarInfo = new SarInfo();
+        sarInfo.sarVoiceCallSupported = true;
+        sarInfo.sarSapSupported = false;
+
+        // Now expose the 1.1 IWifiChip.
+        mWifiVendorHal = new WifiVendorHalSpyV1_1(mContext, mHalDeviceManager, mHandler,
+                mWifiGlobals);
+        when(mIWifiChipV11.resetTxPowerScenario()).thenReturn(mWifiStatusSuccess);
+
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        verify(mIWifiChipV11).resetTxPowerScenario();
+        verify(mIWifiChipV11, never()).selectTxPowerScenario(anyInt());
+        mWifiVendorHal.stopVendorHal();
+    }
+
+    /**
+     * Test resetting SAR scenario when not needed, should return true without invoking
+     * the HAL method.
+     * This is using HAL 1.1 interface.
+     */
+    @Test
+    public void testResetTxPowerScenario_not_needed_1_1() throws RemoteException {
+        InOrder inOrder = inOrder(mIWifiChipV11);
+
+        // Create a SAR info record (no SAP support)
+        SarInfo sarInfo = new SarInfo();
+        sarInfo.sarVoiceCallSupported = true;
+        sarInfo.sarSapSupported = false;
+
+        // Now expose the 1.1 IWifiChip.
+        mWifiVendorHal = new WifiVendorHalSpyV1_1(mContext, mHalDeviceManager, mHandler,
+                mWifiGlobals);
+        when(mIWifiChipV11.resetTxPowerScenario()).thenReturn(mWifiStatusSuccess);
+
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+
+        /* Calling reset once */
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        inOrder.verify(mIWifiChipV11).resetTxPowerScenario();
+        inOrder.verify(mIWifiChipV11, never()).selectTxPowerScenario(anyInt());
+        sarInfo.reportingSuccessful();
+
+        /* Calling reset second time */
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        inOrder.verify(mIWifiChipV11, never()).resetTxPowerScenario();
+        inOrder.verify(mIWifiChipV11, never()).selectTxPowerScenario(anyInt());
+
+        mWifiVendorHal.stopVendorHal();
+    }
+
+    /**
+     * Test the new resetTxPowerScenario HIDL method invocation for 1.2 interface.
+     * This should return success.
+     */
+    @Test
+    public void testResetTxPowerScenario_1_2() throws RemoteException {
+        // Create a SAR info record (no SAP support)
+        SarInfo sarInfo = new SarInfo();
+        sarInfo.sarVoiceCallSupported = true;
+        sarInfo.sarSapSupported = false;
+
+        // Now expose the 1.2 IWifiChip.
+        mWifiVendorHal = new WifiVendorHalSpyV1_2(mContext, mHalDeviceManager, mHandler,
+                mWifiGlobals);
+        when(mIWifiChipV12.resetTxPowerScenario()).thenReturn(mWifiStatusSuccess);
+
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        verify(mIWifiChipV12).resetTxPowerScenario();
+        verify(mIWifiChipV12, never()).selectTxPowerScenario_1_2(anyInt());
+        mWifiVendorHal.stopVendorHal();
+    }
+
+    /**
+     * Test resetting SAR scenario when not needed, should return true without invoking
+     * the HAL method.
+     * This is using HAL 1.2 interface.
+     */
+    @Test
+    public void testResetTxPowerScenario_not_needed_1_2() throws RemoteException {
+        InOrder inOrder = inOrder(mIWifiChipV12);
+
+        // Create a SAR info record (no SAP support)
+        SarInfo sarInfo = new SarInfo();
+        sarInfo.sarVoiceCallSupported = true;
+        sarInfo.sarSapSupported = false;
+
+        // Now expose the 1.2 IWifiChip.
+        mWifiVendorHal = new WifiVendorHalSpyV1_2(mContext, mHalDeviceManager, mHandler,
+                mWifiGlobals);
+        when(mIWifiChipV12.resetTxPowerScenario()).thenReturn(mWifiStatusSuccess);
+
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+
+        /* Calling reset once */
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        inOrder.verify(mIWifiChipV12).resetTxPowerScenario();
+        inOrder.verify(mIWifiChipV12, never()).selectTxPowerScenario(anyInt());
+        sarInfo.reportingSuccessful();
+
+        /* Calling reset second time */
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        inOrder.verify(mIWifiChipV12, never()).resetTxPowerScenario();
+        inOrder.verify(mIWifiChipV12, never()).selectTxPowerScenario(anyInt());
+
+        mWifiVendorHal.stopVendorHal();
+    }
+
+     /**
+     * Test the selectTxPowerScenario HIDL method invocation with SAP and voice call support.
+     * When SAP is enabled, should result in SAP with near body scenario
+     * Using IWifiChip 1.2 interface
+     */
+    @Test
+    public void testSapScenarios_SelectTxPowerV1_2() throws RemoteException {
+        // Create a SAR info record (with SAP support)
+        SarInfo sarInfo = new SarInfo();
+        sarInfo.sarVoiceCallSupported = true;
+        sarInfo.sarSapSupported = true;
+        sarInfo.isWifiSapEnabled = true;
+
+        // Expose the 1.2 IWifiChip.
+        mWifiVendorHal = new WifiVendorHalSpyV1_2(mContext, mHalDeviceManager, mHandler,
+                mWifiGlobals);
+        when(mIWifiChipV12.selectTxPowerScenario_1_2(anyInt())).thenReturn(mWifiStatusSuccess);
+
+        // ON_BODY_CELL_ON
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        verify(mIWifiChipV12).selectTxPowerScenario_1_2(
+                eq(android.hardware.wifi.V1_2.IWifiChip.TxPowerScenario.ON_BODY_CELL_ON));
+        verify(mIWifiChipV12, never()).resetTxPowerScenario();
+        mWifiVendorHal.stopVendorHal();
+    }
+
+    /**
+     * Test the selectTxPowerScenario HIDL method invocation with SAP and voice call support.
+     * When a voice call is ongoing, should result in cell with near head scenario
+     * Using IWifiChip 1.2 interface
+     */
+    @Test
+    public void testVoiceCallScenarios_SelectTxPowerV1_2() throws RemoteException {
+        // Create a SAR info record (with SAP support)
+        SarInfo sarInfo = new SarInfo();
+        sarInfo.sarVoiceCallSupported = true;
+        sarInfo.sarSapSupported = true;
+
+        sarInfo.isVoiceCall = true;
+
+        // Expose the 1.2 IWifiChip.
+        mWifiVendorHal = new WifiVendorHalSpyV1_2(mContext, mHalDeviceManager, mHandler,
+                mWifiGlobals);
+        when(mIWifiChipV12.selectTxPowerScenario_1_2(anyInt())).thenReturn(mWifiStatusSuccess);
+
+        // ON_HEAD_CELL_ON
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        verify(mIWifiChipV12).selectTxPowerScenario_1_2(
+                eq(android.hardware.wifi.V1_2.IWifiChip.TxPowerScenario.ON_HEAD_CELL_ON));
+        verify(mIWifiChipV12, never()).resetTxPowerScenario();
+        mWifiVendorHal.stopVendorHal();
+    }
+
+    /**
+     * Test the selectTxPowerScenario HIDL method invocation with SAP and voice call support.
+     * When earpiece is active, should result in cell with near head scenario
+     * Using IWifiChip 1.2 interface
+     */
+    @Test
+    public void testEarPieceScenarios_SelectTxPowerV1_2() throws RemoteException {
+        // Create a SAR info record (with SAP support)
+        SarInfo sarInfo = new SarInfo();
+        sarInfo.sarVoiceCallSupported = true;
+        sarInfo.sarSapSupported = true;
+
+        sarInfo.isEarPieceActive = true;
+
+        // Expose the 1.2 IWifiChip.
+        mWifiVendorHal = new WifiVendorHalSpyV1_2(mContext, mHalDeviceManager, mHandler,
+                mWifiGlobals);
+        when(mIWifiChipV12.selectTxPowerScenario_1_2(anyInt())).thenReturn(mWifiStatusSuccess);
+
+        // ON_HEAD_CELL_ON
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        verify(mIWifiChipV12).selectTxPowerScenario_1_2(
+                eq(android.hardware.wifi.V1_2.IWifiChip.TxPowerScenario.ON_HEAD_CELL_ON));
+        verify(mIWifiChipV12, never()).resetTxPowerScenario();
+        mWifiVendorHal.stopVendorHal();
+    }
+
+    /**
+     * Test setting SAR scenario when not needed, should return true without invoking
+     * the HAL method.
+     * This is using HAL 1.2 interface.
+     */
+    @Test
+    public void testSetTxPowerScenario_not_needed_1_2() throws RemoteException {
+        InOrder inOrder = inOrder(mIWifiChipV12);
+
+        // Create a SAR info record (no SAP support)
+        SarInfo sarInfo = new SarInfo();
+        sarInfo.sarVoiceCallSupported = true;
+        sarInfo.sarSapSupported = true;
+
+        // Now expose the 1.2 IWifiChip.
+        mWifiVendorHal = new WifiVendorHalSpyV1_2(mContext, mHalDeviceManager, mHandler,
+                mWifiGlobals);
+        when(mIWifiChipV12.resetTxPowerScenario()).thenReturn(mWifiStatusSuccess);
+
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+
+        /* Calling set once */
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        inOrder.verify(mIWifiChipV12).resetTxPowerScenario();
+        sarInfo.reportingSuccessful();
+
+        /* Calling set second time */
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        inOrder.verify(mIWifiChipV12, never()).resetTxPowerScenario();
+        inOrder.verify(mIWifiChipV12, never()).selectTxPowerScenario(anyInt());
+
+        mWifiVendorHal.stopVendorHal();
+    }
+
+    /**
+     * Test the selectTxPowerScenario HIDL method invocation with IWifiChip 1.2 interface.
+     * The following inputs:
+     *   - SAP is enabled
+     *   - No voice call
+     */
+    @Test
+    public void testSelectTxPowerScenario_1_2_sap() throws RemoteException {
+        // Create a SAR info record (with SAP support)
+        SarInfo sarInfo = new SarInfo();
+        sarInfo.sarVoiceCallSupported = true;
+        sarInfo.sarSapSupported = true;
+
+        sarInfo.isWifiSapEnabled = true;
+        sarInfo.isVoiceCall = false;
+
+        // Expose the 1.2 IWifiChip.
+        mWifiVendorHal = new WifiVendorHalSpyV1_2(mContext, mHalDeviceManager, mHandler,
+                mWifiGlobals);
+        when(mIWifiChipV12.selectTxPowerScenario_1_2(anyInt())).thenReturn(mWifiStatusSuccess);
+
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        verify(mIWifiChipV12).selectTxPowerScenario_1_2(
+                eq(android.hardware.wifi.V1_2.IWifiChip.TxPowerScenario.ON_BODY_CELL_ON));
+
+        mWifiVendorHal.stopVendorHal();
+    }
+
+    /**
+     * Test the selectTxPowerScenario HIDL method invocation with IWifiChip 1.2 interface.
+     * The following inputs:
+     *   - SAP is enabled
+     *   - voice call is enabled
+     */
+    @Test
+    public void testSelectTxPowerScenario_1_2_head_sap_call() throws RemoteException {
+        // Create a SAR info record (with SAP support)
+        SarInfo sarInfo = new SarInfo();
+        sarInfo.sarVoiceCallSupported = true;
+        sarInfo.sarSapSupported = true;
+
+        sarInfo.isWifiSapEnabled = true;
+        sarInfo.isVoiceCall = true;
+
+        // Expose the 1.2 IWifiChip.
+        mWifiVendorHal = new WifiVendorHalSpyV1_2(mContext, mHalDeviceManager, mHandler,
+                mWifiGlobals);
+        when(mIWifiChipV12.selectTxPowerScenario_1_2(anyInt())).thenReturn(mWifiStatusSuccess);
+
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+        assertTrue(mWifiVendorHal.selectTxPowerScenario(sarInfo));
+        verify(mIWifiChipV12).selectTxPowerScenario_1_2(
+                eq(android.hardware.wifi.V1_2.IWifiChip.TxPowerScenario.ON_HEAD_CELL_ON));
+
+        mWifiVendorHal.stopVendorHal();
+    }
+
+    /**
      * Test the setLowLatencyMode HIDL method invocation with IWifiChip 1.2 interface.
      * Function should return false
      */
@@ -3444,5 +4036,27 @@ public class WifiVendorHalTest extends WifiBaseTest {
 
         assertTrue(mWifiVendorHal.setScanMode(TEST_IFACE_NAME, false));
         verify(mIWifiStaIfaceV15).setScanMode(false);
+    }
+
+    @Test
+    public void testGetUsableChannels() throws Exception {
+        assertTrue(mWifiVendorHal.startVendorHalSta());
+        mWifiVendorHal = new WifiVendorHalSpyV1_5(mContext, mHalDeviceManager, mHandler,
+                mWifiGlobals);
+        ArrayList<WifiUsableChannel> channels = new ArrayList<>();
+        doAnswer(new AnswerWithArguments() {
+            public void answer(int band, int mode, int filter,
+                    android.hardware.wifi.V1_5.IWifiChip.getUsableChannelsCallback cb)
+                    throws RemoteException {
+                cb.onValues(mWifiStatusSuccess, channels);
+            }
+        }).when(mIWifiChipV15).getUsableChannels(anyInt(), anyInt(), anyInt(),
+                any(android.hardware.wifi.V1_5.IWifiChip.getUsableChannelsCallback.class));
+        mWifiVendorHal.getUsableChannels(
+                WifiScanner.WIFI_BAND_24_GHZ,
+                WifiAvailableChannel.OP_MODE_WIFI_DIRECT_CLI,
+                WifiAvailableChannel.FILTER_CELLULAR_COEXISTENCE);
+        verify(mIWifiChipV15).getUsableChannels(anyInt(), anyInt(), anyInt(),
+                any(android.hardware.wifi.V1_5.IWifiChip.getUsableChannelsCallback.class));
     }
 }

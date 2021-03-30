@@ -28,6 +28,7 @@ import android.net.wifi.CoexUnsafeChannel;
 import android.net.wifi.ScanResult;
 import android.net.wifi.SoftApConfiguration;
 import android.net.wifi.WifiAnnotations;
+import android.net.wifi.WifiAvailableChannel;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiScanner;
 import android.net.wifi.WifiSsid;
@@ -957,6 +958,18 @@ public class WifiNative {
             } else {
                 return false;
             }
+        }
+    }
+
+    /**
+     * Register listener for subsystem restart event
+     *
+     * @param listener SubsystemRestartListener listener object.
+     */
+    public void registerSubsystemRestartListener(
+            HalDeviceManager.SubsystemRestartListener listener) {
+        if (listener != null) {
+            mWifiVendorHal.registerSubsystemRestartListener(listener);
         }
     }
 
@@ -2277,7 +2290,26 @@ public class WifiNative {
      * @return anonymous identity string if succeeds, null otherwise.
      */
     public String getEapAnonymousIdentity(@NonNull String ifaceName) {
-        return mSupplicantStaIfaceHal.getCurrentNetworkEapAnonymousIdentity(ifaceName);
+        String anonymousIdentity = mSupplicantStaIfaceHal
+                .getCurrentNetworkEapAnonymousIdentity(ifaceName);
+
+        if (TextUtils.isEmpty(anonymousIdentity)) {
+            return anonymousIdentity;
+        }
+
+        int indexOfDecoration = anonymousIdentity.lastIndexOf('!');
+        if (indexOfDecoration >= 0) {
+            if (anonymousIdentity.substring(indexOfDecoration).length() < 2) {
+                // Invalid identity, shouldn't happen
+                Log.e(TAG, "Unexpected anonymous identity: " + anonymousIdentity);
+                return null;
+            }
+            // Truncate RFC 7542 decorated prefix, if exists. Keep only the anonymous identity or
+            // pseudonym.
+            anonymousIdentity = anonymousIdentity.substring(indexOfDecoration + 1);
+        }
+
+        return anonymousIdentity;
     }
 
     /**
@@ -3057,6 +3089,21 @@ public class WifiNative {
     }
 
     /**
+     * Gets the usable channels
+     * @param band one of the {@code WifiScanner#WIFI_BAND_*} constants.
+     * @param mode bitmask of {@code WifiAvailablechannel#OP_MODE_*} constants.
+     * @param filter bitmask of filters (regulatory, coex, concurrency).
+     *
+     * @return list of channels
+     */
+    public List<WifiAvailableChannel> getUsableChannels(
+            @WifiScanner.WifiBand int band,
+            @WifiAvailableChannel.OpMode int mode,
+            @WifiAvailableChannel.Filter int filter) {
+        return mWifiVendorHal.getUsableChannels(band, mode, filter);
+    }
+
+    /**
      * Returns whether STA + AP concurrency is supported or not.
      */
     public boolean isStaApConcurrencySupported() {
@@ -3790,6 +3837,17 @@ public class WifiNative {
     }
 
     /**
+     * Select one of the pre-configured transmit power level scenarios or reset it back to normal.
+     * Primarily used for meeting SAR requirements.
+     *
+     * @param sarInfo The collection of inputs used to select the SAR scenario.
+     * @return true for success; false for failure or if the HAL version does not support this API.
+     */
+    public boolean selectTxPowerScenario(SarInfo sarInfo) {
+        return mWifiVendorHal.selectTxPowerScenario(sarInfo);
+    }
+
+    /**
      * Set MBO cellular data status
      *
      * @param ifaceName Name of the interface.
@@ -3867,5 +3925,25 @@ public class WifiNative {
      */
     public boolean setScanMode(String ifaceName, boolean enable) {
         return mWifiVendorHal.setScanMode(ifaceName, enable);
+    }
+
+    /** updates linked networks of the |networkId| in supplicant if it's the current network,
+     * if the current configured network matches |networkId|.
+     *
+     * @param ifaceName Name of the interface.
+     * @param networkId network id of the network to be updated from supplicant.
+     * @param linkedNetworks Map of config profile key and config for linking.
+     */
+    public boolean updateLinkedNetworks(@NonNull String ifaceName, int networkId,
+            Map<String, WifiConfiguration> linkedNetworks) {
+        return mSupplicantStaIfaceHal.updateLinkedNetworks(ifaceName, networkId, linkedNetworks);
+    }
+
+    /**
+     * Start Subsystem Restart
+     * @return true on success
+     */
+    public boolean startSubsystemRestart() {
+        return mWifiVendorHal.startSubsystemRestart();
     }
 }

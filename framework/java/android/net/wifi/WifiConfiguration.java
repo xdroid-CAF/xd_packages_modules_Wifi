@@ -61,8 +61,9 @@ import java.util.List;
  * security configuration.
  *
  * @deprecated Use {@link WifiNetworkSpecifier.Builder} to create {@link NetworkSpecifier} and
- * {@link WifiNetworkSuggestion.Builder} to create {@link WifiNetworkSuggestion}. This will become a
- * system use only object in the future.
+ * {@link WifiNetworkSuggestion.Builder} to create {@link WifiNetworkSuggestion}. This class can
+ * still be used with privileged APIs such as
+ * {@link WifiManager#addNetwork(WifiConfiguration)}.
  */
 @Deprecated
 public class WifiConfiguration implements Parcelable {
@@ -1078,6 +1079,47 @@ public class WifiConfiguration implements Parcelable {
     public int priority;
 
     /**
+     * The deletion priority of this configuration.
+     *
+     * Deletion priority is a non-negative value (default 0) indicating the priority for deletion
+     * when auto-pruning the amount of saved configurations. Networks with a lower value will be
+     * pruned before networks with a higher value.
+     */
+    private int mDeletionPriority;
+
+    /**
+     * Sets the deletion priority of this configuration.
+     *
+     * Deletion priority is a non-negative value (default 0) indicating the priority for deletion
+     * when auto-pruning the amount of saved configurations. Networks with a lower value will be
+     * pruned before networks with a higher value.
+     *
+     * @param priority non-negative deletion priority
+     * @hide
+     */
+    @SystemApi
+    public void setDeletionPriority(int priority) throws IllegalArgumentException {
+        if (priority < 0) {
+            throw new IllegalArgumentException("Deletion priority must be non-negative");
+        }
+        mDeletionPriority = priority;
+    }
+
+    /**
+     * Returns the deletion priority of this configuration.
+     *
+     * Deletion priority is a non-negative value (default 0) indicating the priority for deletion
+     * when auto-pruning the amount of saved configurations. Networks with a lower value will be
+     * pruned before networks with a higher value.
+     *
+     * @hide
+     */
+    @SystemApi
+    public int getDeletionPriority() {
+        return mDeletionPriority;
+    }
+
+    /**
      * This is a network that does not broadcast its SSID, so an
      * SSID-specific probe request must be used for scans.
      */
@@ -1746,8 +1788,7 @@ public class WifiConfiguration implements Parcelable {
                 DISABLED_BY_WIFI_MANAGER,
                 DISABLED_BY_WRONG_PASSWORD,
                 DISABLED_AUTHENTICATION_NO_SUBSCRIPTION,
-                DISABLED_AUTHENTICATION_FAILURE_GENERIC,
-                DISABLED_AUTHENTICATION_FAILURE_CARRIER_SPECIFIC,
+                DISABLED_AUTHENTICATION_PRIVATE_EAP_ERROR,
                 DISABLED_NETWORK_NOT_FOUND,
                 DISABLED_CONSECUTIVE_FAILURES})
         public @interface NetworkSelectionDisableReason {}
@@ -1762,16 +1803,8 @@ public class WifiConfiguration implements Parcelable {
         public static final int NETWORK_SELECTION_DISABLED_STARTING_INDEX = 1;
         /** This network is temporarily disabled because of multiple association rejections. */
         public static final int DISABLED_ASSOCIATION_REJECTION = 1;
-        /** This network is disabled due to generic authentication failure. */
-        public static final int DISABLED_AUTHENTICATION_FAILURE_GENERIC = 2;
-        /** Separate DISABLED_AUTHENTICATION_FAILURE into DISABLED_AUTHENTICATION_FAILURE_GENERIC
-         *  and DISABLED_AUTHENTICATION_FAILURE_CARRIER_SPECIFIC
-         *  @deprecated Use the {@link #DISABLED_AUTHENTICATION_FAILURE_GENERIC} constant
-         * (which is the same value).
-         */
-        @Deprecated
-        public static final int DISABLED_AUTHENTICATION_FAILURE =
-                DISABLED_AUTHENTICATION_FAILURE_GENERIC;
+        /** This network is temporarily disabled because of multiple authentication failure. */
+        public static final int DISABLED_AUTHENTICATION_FAILURE = 2;
         /** This network is temporarily disabled because of multiple DHCP failure. */
         public static final int DISABLED_DHCP_FAILURE = 3;
         /** This network is temporarily disabled because it has no Internet access. */
@@ -1789,8 +1822,8 @@ public class WifiConfiguration implements Parcelable {
         public static final int DISABLED_BY_WRONG_PASSWORD = 8;
         /** This network is permanently disabled because service is not subscribed. */
         public static final int DISABLED_AUTHENTICATION_NO_SUBSCRIPTION = 9;
-        /** This network is disabled due to carrier specific EAP failure. */
-        public static final int DISABLED_AUTHENTICATION_FAILURE_CARRIER_SPECIFIC = 10;
+        /** This network is disabled due to provider-specific (private) EAP failure. */
+        public static final int DISABLED_AUTHENTICATION_PRIVATE_EAP_ERROR = 10;
         /**
          * This network is disabled because supplicant failed to find a network in scan result
          * which matches the network requested by framework for connection
@@ -1958,15 +1991,9 @@ public class WifiConfiguration implements Parcelable {
                             1,
                             DisableReasonInfo.PERMANENT_DISABLE_TIMEOUT));
 
-            reasons.append(DISABLED_AUTHENTICATION_FAILURE_GENERIC,
+            reasons.append(DISABLED_AUTHENTICATION_PRIVATE_EAP_ERROR,
                     new DisableReasonInfo(
-                            "NETWORK_SELECTION_DISABLED_AUTHENTICATION_FAILURE_GENERIC",
-                            5,
-                            5 * 60 * 1000));
-
-            reasons.append(DISABLED_AUTHENTICATION_FAILURE_CARRIER_SPECIFIC,
-                    new DisableReasonInfo(
-                            "NETWORK_SELECTION_DISABLED_AUTHENTICATION_FAILURE_CARRIER_SPECIFIC",
+                            "NETWORK_SELECTION_DISABLED_AUTHENTICATION_PRIVATE_EAP_ERROR",
                             1,
                             DisableReasonInfo.PERMANENT_DISABLE_TIMEOUT));
 
@@ -2602,7 +2629,6 @@ public class WifiConfiguration implements Parcelable {
         /**
          * Get the recent failure code. One of {@link #RECENT_FAILURE_NONE},
          * {@link #RECENT_FAILURE_AP_UNABLE_TO_HANDLE_NEW_STA},
-         * {@link #RECENT_FAILURE_MBO_OCE_DISCONNECT},
          * {@link #RECENT_FAILURE_REFUSED_TEMPORARILY},
          * {@link #RECENT_FAILURE_POOR_CHANNEL_CONDITIONS}.
          * {@link #RECENT_FAILURE_DISCONNECTION_AP_BUSY}
@@ -2634,10 +2660,17 @@ public class WifiConfiguration implements Parcelable {
     @IntDef(prefix = "RECENT_FAILURE_", value = {
             RECENT_FAILURE_NONE,
             RECENT_FAILURE_AP_UNABLE_TO_HANDLE_NEW_STA,
-            RECENT_FAILURE_MBO_OCE_DISCONNECT,
             RECENT_FAILURE_REFUSED_TEMPORARILY,
             RECENT_FAILURE_POOR_CHANNEL_CONDITIONS,
-            RECENT_FAILURE_DISCONNECTION_AP_BUSY
+            RECENT_FAILURE_DISCONNECTION_AP_BUSY,
+            RECENT_FAILURE_MBO_ASSOC_DISALLOWED_UNSPECIFIED,
+            RECENT_FAILURE_MBO_ASSOC_DISALLOWED_MAX_NUM_STA_ASSOCIATED,
+            RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AIR_INTERFACE_OVERLOADED,
+            RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AUTH_SERVER_OVERLOADED,
+            RECENT_FAILURE_MBO_ASSOC_DISALLOWED_INSUFFICIENT_RSSI,
+            RECENT_FAILURE_OCE_RSSI_BASED_ASSOCIATION_REJECTION,
+            RECENT_FAILURE_NETWORK_NOT_FOUND
+
     })
     public @interface RecentFailureReason {}
 
@@ -2654,13 +2687,6 @@ public class WifiConfiguration implements Parcelable {
      */
     @SystemApi
     public static final int RECENT_FAILURE_AP_UNABLE_TO_HANDLE_NEW_STA = 17;
-
-    /**
-     * This network recently disconnected as a result of MBO/OCE.
-     * @hide
-     */
-    @SystemApi
-    public static final int RECENT_FAILURE_MBO_OCE_DISCONNECT = 1001;
 
     /**
      * Failed to connect because the association is rejected by the AP.
@@ -2687,15 +2713,83 @@ public class WifiConfiguration implements Parcelable {
     public static final int RECENT_FAILURE_DISCONNECTION_AP_BUSY = 1004;
 
     /**
+     * Failed to connect because the association is rejected by the AP with
+     * MBO association disallowed Reason code: 1 - Unspecified or 0/6-255 - Reserved.
+     * Details in MBO spec v1.2, 4.2.4 Table 13: MBO Association Disallowed attribute
+     * @hide
+     */
+    @SystemApi
+    public static final int RECENT_FAILURE_MBO_ASSOC_DISALLOWED_UNSPECIFIED = 1005;
+
+    /**
+     * Failed to connect because the association is rejected by the AP with
+     * MBO association disallowed Reason code: 2 - Maximum number of associated stations reached.
+     * Details in MBO spec v1.2, 4.2.4 Table 13: MBO Association Disallowed attribute
+     * @hide
+     */
+    @SystemApi
+    public static final int RECENT_FAILURE_MBO_ASSOC_DISALLOWED_MAX_NUM_STA_ASSOCIATED = 1006;
+
+    /**
+     * Failed to connect because the association is rejected by the AP with
+     * MBO association disallowed Reason code: 3 - Air interface is overloaded.
+     * Details in MBO spec v1.2, 4.2.4 Table 13: MBO Association Disallowed attribute
+     * @hide
+     */
+    @SystemApi
+    public static final int RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AIR_INTERFACE_OVERLOADED = 1007;
+
+    /**
+     * Failed to connect because the association is rejected by the AP with
+     * MBO association disallowed Reason code: 4 - Authentication server overloaded.
+     * Details in MBO spec v1.2, 4.2.4 Table 13: MBO Association Disallowed attribute
+     * @hide
+     */
+    @SystemApi
+    public static final int RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AUTH_SERVER_OVERLOADED = 1008;
+
+    /**
+     * Failed to connect because the association is rejected by the AP with
+     * MBO association disallowed Reason code: 5 - Insufficient RSSI.
+     * Details in MBO spec v1.2, 4.2.4 Table 13: MBO Association Disallowed attribute
+     * @hide
+     */
+    @SystemApi
+    public static final int RECENT_FAILURE_MBO_ASSOC_DISALLOWED_INSUFFICIENT_RSSI = 1009;
+
+    /**
+     * Failed to connect because the association is rejected by the AP with
+     * OCE rssi based association rejection attribute.
+     * Details in OCE spec v1.0, 3.14 Presence of OCE rssi based association rejection attribute.
+     * @hide
+     */
+    @SystemApi
+    public static final int RECENT_FAILURE_OCE_RSSI_BASED_ASSOCIATION_REJECTION = 1010;
+
+    /**
+     * Failed to connect because supplicant failed to find a network in scan result which
+     * matches the network requested by framework for connection (including network capabilities).
+     * @hide
+     */
+    @SystemApi
+    public static final int RECENT_FAILURE_NETWORK_NOT_FOUND = 1011;
+
+    /**
      * Get the failure reason for the most recent connection attempt, or
      * {@link #RECENT_FAILURE_NONE} if there was no failure.
      *
      * Failure reasons include:
      * {@link #RECENT_FAILURE_AP_UNABLE_TO_HANDLE_NEW_STA}
-     * {@link #RECENT_FAILURE_MBO_OCE_DISCONNECT}
      * {@link #RECENT_FAILURE_REFUSED_TEMPORARILY}
      * {@link #RECENT_FAILURE_POOR_CHANNEL_CONDITIONS}
      * {@link #RECENT_FAILURE_DISCONNECTION_AP_BUSY}
+     * {@link #RECENT_FAILURE_MBO_ASSOC_DISALLOWED_UNSPECIFIED}
+     * {@link #RECENT_FAILURE_MBO_ASSOC_DISALLOWED_MAX_NUM_STA_ASSOCIATED}
+     * {@link #RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AIR_INTERFACE_OVERLOADED}
+     * {@link #RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AUTH_SERVER_OVERLOADED}
+     * {@link #RECENT_FAILURE_MBO_ASSOC_DISALLOWED_INSUFFICIENT_RSSI}
+     * {@link #RECENT_FAILURE_OCE_RSSI_BASED_ASSOCIATION_REJECTION}
+     * {@link #RECENT_FAILURE_NETWORK_NOT_FOUND}
      * @hide
      */
     @RecentFailureReason
@@ -2740,6 +2834,7 @@ public class WifiConfiguration implements Parcelable {
         FQDN = null;
         roamingConsortiumIds = new long[0];
         priority = 0;
+        mDeletionPriority = 0;
         hiddenSSID = false;
         allowedKeyManagement = new BitSet();
         allowedProtocols = new BitSet();
@@ -2906,6 +3001,7 @@ public class WifiConfiguration implements Parcelable {
         sbuf.append(" randomizedMacLastModifiedTimeMs: ")
                 .append(randomizedMacLastModifiedTimeMs == 0 ? "<none>"
                         : logTimeOfDay(randomizedMacLastModifiedTimeMs)).append("\n");
+        sbuf.append(" deletionPriority: ").append(mDeletionPriority).append("\n");
         sbuf.append(" KeyMgmt:");
         for (int k = 0; k < this.allowedKeyManagement.size(); k++) {
             if (this.allowedKeyManagement.get(k)) {
@@ -3437,6 +3533,7 @@ public class WifiConfiguration implements Parcelable {
 
             wepTxKeyIndex = source.wepTxKeyIndex;
             priority = source.priority;
+            mDeletionPriority = source.mDeletionPriority;
             hiddenSSID = source.hiddenSSID;
             allowedKeyManagement   = (BitSet) source.allowedKeyManagement.clone();
             allowedProtocols       = (BitSet) source.allowedProtocols.clone();
@@ -3524,6 +3621,7 @@ public class WifiConfiguration implements Parcelable {
         }
         dest.writeInt(wepTxKeyIndex);
         dest.writeInt(priority);
+        dest.writeInt(mDeletionPriority);
         dest.writeInt(hiddenSSID ? 1 : 0);
         dest.writeInt(requirePmf ? 1 : 0);
         dest.writeString(updateIdentifier);
@@ -3609,6 +3707,7 @@ public class WifiConfiguration implements Parcelable {
                 }
                 config.wepTxKeyIndex = in.readInt();
                 config.priority = in.readInt();
+                config.mDeletionPriority = in.readInt();
                 config.hiddenSSID = in.readInt() != 0;
                 config.requirePmf = in.readInt() != 0;
                 config.updateIdentifier = in.readString();

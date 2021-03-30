@@ -148,6 +148,8 @@ public class ActiveModeWardenTest extends WifiBaseTest {
     @Mock ConnectivityManager mConnectivityManager;
     @Mock ExternalScoreUpdateObserverProxy mExternalScoreUpdateObserverProxy;
     @Mock DppManager mDppManager;
+    @Mock SarManager mSarManager;
+    @Mock HalDeviceManager mHalDeviceManager;
 
     ActiveModeManager.Listener<ConcreteClientModeManager> mClientListener;
     ActiveModeManager.Listener<SoftApManager> mSoftApListener;
@@ -176,6 +178,8 @@ public class ActiveModeWardenTest extends WifiBaseTest {
         mLooper = new TestLooper();
 
         when(mWifiInjector.getScanRequestProxy()).thenReturn(mScanRequestProxy);
+        when(mWifiInjector.getSarManager()).thenReturn(mSarManager);
+        when(mWifiInjector.getHalDeviceManager()).thenReturn(mHalDeviceManager);
         when(mClientModeManager.getRole()).thenReturn(ROLE_CLIENT_PRIMARY);
         when(mClientModeManager.getInterfaceName()).thenReturn(WIFI_IFACE_NAME);
         when(mContext.getResources()).thenReturn(mResources);
@@ -1088,7 +1092,7 @@ public class ActiveModeWardenTest extends WifiBaseTest {
         SoftApModeConfiguration tetherConfig =
                 new SoftApModeConfiguration(WifiManager.IFACE_IP_MODE_TETHERED, null,
                 mSoftApCapability);
-        SoftApConfiguration lohsConfigWC = WifiApConfigStore.generateLocalOnlyHotspotConfig(
+        SoftApConfiguration lohsConfigWC = mWifiApConfigStore.generateLocalOnlyHotspotConfig(
                 mContext, SoftApConfiguration.BAND_2GHZ, null);
         SoftApModeConfiguration lohsConfig =
                 new SoftApModeConfiguration(WifiManager.IFACE_IP_MODE_LOCAL_ONLY, lohsConfigWC,

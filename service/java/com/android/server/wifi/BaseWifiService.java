@@ -35,10 +35,13 @@ import android.net.wifi.ISuggestionUserApprovalStatusListener;
 import android.net.wifi.ITrafficStateCallback;
 import android.net.wifi.IWifiConnectedNetworkScorer;
 import android.net.wifi.IWifiManager;
+import android.net.wifi.IWifiVerboseLoggingStatusCallback;
 import android.net.wifi.ScanResult;
 import android.net.wifi.SoftApConfiguration;
+import android.net.wifi.WifiAvailableChannel;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.net.wifi.WifiNetworkSuggestion;
 import android.net.wifi.hotspot2.IProvisioningCallback;
 import android.net.wifi.hotspot2.OsuProvider;
@@ -118,6 +121,12 @@ public class BaseWifiService extends IWifiManager.Stub {
 
     @Override
     public int addOrUpdateNetwork(WifiConfiguration config, String packageName) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public WifiManager.AddNetworkResult addOrUpdateNetworkPrivileged(WifiConfiguration config,
+            String packageName) {
         throw new UnsupportedOperationException();
     }
 
@@ -243,7 +252,7 @@ public class BaseWifiService extends IWifiManager.Stub {
     }
 
     @Override
-    public void restartWifiSubsystem(String reason) {
+    public void restartWifiSubsystem() {
         throw new UnsupportedOperationException();
     }
 
@@ -525,6 +534,18 @@ public class BaseWifiService extends IWifiManager.Stub {
     }
 
     @Override
+    public void registerWifiVerboseLoggingStatusCallback(
+            IWifiVerboseLoggingStatusCallback callback) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void unregisterWifiVerboseLoggingStatusCallback(
+            IWifiVerboseLoggingStatusCallback callback) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public void registerSoftApCallback(ISoftApCallback callback) {
         throw new UnsupportedOperationException();
     }
@@ -638,12 +659,12 @@ public class BaseWifiService extends IWifiManager.Stub {
     }
 
     @Override
-    public void startTemporarilyDisablingAllNonCarrierMergedWifi(int subId) {
+    public void startRestrictingAutoJoinToSubscriptionId(int subId) {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public void stopTemporarilyDisablingAllNonCarrierMergedWifi() {
+    public void stopRestrictingAutoJoinToSubscriptionId() {
         throw new UnsupportedOperationException();
     }
 
@@ -776,4 +797,11 @@ public class BaseWifiService extends IWifiManager.Stub {
     public void flushPasspointAnqpCache(@NonNull String packageName) {
         throw new UnsupportedOperationException();
     }
+
+    @Override
+    public List<WifiAvailableChannel> getUsableChannels(
+            int band, int mode, int filter) {
+        throw new UnsupportedOperationException();
+    }
 }
+

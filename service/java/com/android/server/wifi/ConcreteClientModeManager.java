@@ -757,6 +757,9 @@ public class ConcreteClientModeManager implements ClientModeManager {
                 reset();
                 mModeListener.onRoleChanged(ConcreteClientModeManager.this);
             }
+            if (mClientModeImpl != null) {
+                mClientModeImpl.onRoleChanged();
+            }
         }
 
         private class IdleState extends State {
@@ -916,6 +919,7 @@ public class ConcreteClientModeManager implements ClientModeManager {
                     mScanRoleChangeInfoToSetOnTransition =
                             new RoleChangeInfo(ROLE_CLIENT_SCAN_ONLY);
                 }
+
                 setRoleInternalAndInvokeCallback(mScanRoleChangeInfoToSetOnTransition);
                 mWakeupController.start();
                 mWifiNative.setScanMode(mClientInterfaceName, true);
@@ -937,6 +941,7 @@ public class ConcreteClientModeManager implements ClientModeManager {
             public void exit() {
                 mScanOnlyModeImpl = null;
                 mScanRoleChangeInfoToSetOnTransition = null;
+
                 mWakeupController.stop();
                 mWifiNative.setScanMode(mClientInterfaceName, false);
             }
@@ -967,6 +972,7 @@ public class ConcreteClientModeManager implements ClientModeManager {
                     mConnectRoleChangeInfoToSetOnTransition =
                             new RoleChangeInfo(ROLE_CLIENT_PRIMARY);
                 }
+
                 // Could be any one of possible connect mode roles.
                 setRoleInternalAndInvokeCallback(mConnectRoleChangeInfoToSetOnTransition);
                 updateConnectModeState(mConnectRoleChangeInfoToSetOnTransition.role,
@@ -1039,6 +1045,7 @@ public class ConcreteClientModeManager implements ClientModeManager {
                     mGraveyard.inter(mClientModeImpl);
                     mClientModeImpl = null;
                 }
+
                 mConnectRoleChangeInfoToSetOnTransition = null;
             }
         }
@@ -1346,11 +1353,6 @@ public class ConcreteClientModeManager implements ClientModeManager {
     public void setShouldReduceNetworkScore(boolean shouldReduceNetworkScore) {
         mShouldReduceNetworkScore = shouldReduceNetworkScore;
         getClientMode().setShouldReduceNetworkScore(shouldReduceNetworkScore);
-    }
-
-    @Override
-    public void applyCachedPacketFilter() {
-        getClientMode().applyCachedPacketFilter();
     }
 
     @Override

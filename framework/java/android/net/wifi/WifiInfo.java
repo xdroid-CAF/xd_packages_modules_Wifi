@@ -19,6 +19,7 @@ package android.net.wifi;
 import static android.net.wifi.WifiConfiguration.INVALID_NETWORK_ID;
 
 import android.Manifest;
+import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -41,6 +42,8 @@ import android.text.TextUtils;
 import com.android.modules.utils.build.SdkLevel;
 import com.android.net.module.util.Inet4AddressUtils;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -62,6 +65,7 @@ import java.util.Objects;
  * {@link #getPasspointFqdn()} will return null.
  * {@link #getPasspointProviderFriendlyName()} will return null.
  * {@link #getInformationElements()} will return null.
+ * {@link #getMacAddress()} will return {@code "02:00:00:00:00:00"}.
  */
 public class WifiInfo implements TransportInfo, Parcelable {
     private static final String TAG = "WifiInfo";
@@ -98,11 +102,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
         stateMap.put(SupplicantState.INVALID, DetailedState.FAILED);
     }
 
-    /**
-     * Indicates whether parceling should preserve fields that are set based on permissions of
-     * the process receiving the {@link NetworkCapabilities}.
-     */
-    private final boolean mParcelLocationSenstiveFields;
+    private final long mRedactions;
 
     private SupplicantState mSupplicantState;
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
@@ -110,6 +110,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
     @UnsupportedAppUsage
     private WifiSsid mWifiSsid;
     private int mNetworkId;
+    private int mSecurityType;
 
     /**
      * Used to indicate that the RSSI is invalid, for example if no RSSI measurements are available
@@ -125,6 +126,73 @@ public class WifiInfo implements TransportInfo, Parcelable {
     /** @hide **/
     public static final int MAX_RSSI = 200;
 
+    /** Unknown security type. */
+    public static final int SECURITY_TYPE_UNKNOWN = -1;
+    /** Security type for an open network. */
+    public static final int SECURITY_TYPE_OPEN = 0;
+    /** Security type for a WEP network. */
+    public static final int SECURITY_TYPE_WEP = 1;
+    /** Security type for a PSK network. */
+    public static final int SECURITY_TYPE_PSK = 2;
+    /** Security type for an EAP network. */
+    public static final int SECURITY_TYPE_EAP = 3;
+    /** Security type for an SAE network. */
+    public static final int SECURITY_TYPE_SAE = 4;
+    /** Security type for a WPA3-Enterprise in 192-bit security network. */
+    public static final int SECURITY_TYPE_EAP_WPA3_ENTERPRISE_192_BIT = 5;
+    /** Security type for an OWE network. */
+    public static final int SECURITY_TYPE_OWE = 6;
+    /** Security type for a WAPI PSK network. */
+    public static final int SECURITY_TYPE_WAPI_PSK = 7;
+    /** Security type for a WAPI Certificate network. */
+    public static final int SECURITY_TYPE_WAPI_CERT = 8;
+    /** Security type for a WPA3-Enterprise network. */
+    public static final int SECURITY_TYPE_EAP_WPA3_ENTERPRISE = 9;
+    /** Security type for an OSEN network. */
+    public static final int SECURITY_TYPE_OSEN = 10;
+    /** Security type for a Passpoint R1/R2 network, where TKIP and WEP are not allowed. */
+    public static final int SECURITY_TYPE_PASSPOINT_R1_R2 = 11;
+    /**
+     * Security type for a Passpoint R3 network, where TKIP and WEP are not allowed,
+     * and PMF must be set to Required.
+     */
+    public static final int SECURITY_TYPE_PASSPOINT_R3 = 12;
+
+    /**
+     * Security type of current connection.
+     * @hide
+     */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = { "SECURITY_TYPE_" }, value = {
+            SECURITY_TYPE_UNKNOWN,
+            SECURITY_TYPE_OPEN,
+            SECURITY_TYPE_WEP,
+            SECURITY_TYPE_PSK,
+            SECURITY_TYPE_EAP,
+            SECURITY_TYPE_SAE,
+            SECURITY_TYPE_OWE,
+            SECURITY_TYPE_WAPI_PSK,
+            SECURITY_TYPE_WAPI_CERT,
+            SECURITY_TYPE_EAP_WPA3_ENTERPRISE,
+            SECURITY_TYPE_EAP_WPA3_ENTERPRISE_192_BIT,
+            SECURITY_TYPE_PASSPOINT_R1_R2,
+            SECURITY_TYPE_PASSPOINT_R3,
+    })
+    public @interface SecurityType {}
+
+    /** @see #isPrimary() - No permission to access the field.  */
+    private static final int IS_PRIMARY_NO_PERMISSION = -1;
+    /** @see #isPrimary() - false */
+    private static final int IS_PRIMARY_FALSE = 0;
+    /** @see #isPrimary() - true */
+    private static final int IS_PRIMARY_TRUE = 1;
+    /** Tri state to store {@link #isPrimary()} field. */
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = { "IS_PRIMARY_" }, value = {
+            IS_PRIMARY_NO_PERMISSION, IS_PRIMARY_FALSE, IS_PRIMARY_TRUE
+    })
+    public @interface IsPrimaryValues {}
 
     /**
      * Received Signal Strength Indicator
@@ -351,6 +419,12 @@ public class WifiInfo implements TransportInfo, Parcelable {
     @Nullable
     private List<ScanResult.InformationElement> mInformationElements;
 
+    /**
+     * @see #isPrimary()
+     * The field is stored as an int since is a tristate internally -  true, false, no permission.
+     */
+    private @IsPrimaryValues int mIsPrimary;
+
     private boolean mVhtMax8SpatialStreamsSupport;
 
     private boolean mHe8ssCapableAp;
@@ -358,7 +432,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
     /** @hide */
     @UnsupportedAppUsage
     public WifiInfo() {
-        mParcelLocationSenstiveFields = false;
+        mRedactions = NetworkCapabilities.REDACT_ALL;
         mWifiSsid = null;
         mBSSID = null;
         mNetworkId = -1;
@@ -367,15 +441,17 @@ public class WifiInfo implements TransportInfo, Parcelable {
         mLinkSpeed = LINK_SPEED_UNKNOWN;
         mFrequency = -1;
         mSubscriptionId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+        mSecurityType = -1;
+        mIsPrimary = IS_PRIMARY_FALSE;
     }
 
     /** @hide */
     public void reset() {
-        if (mParcelLocationSenstiveFields) {
+        if (mRedactions != NetworkCapabilities.REDACT_ALL) {
             // To ensure that we don't accidentally set this bit on the master copy of WifiInfo
             // (reset is only invoked in the master copy)
             throw new UnsupportedOperationException(
-                    "Cannot clear WifiInfo when parcelSensitiveLocationFields is set");
+                    "Cannot clear WifiInfo when mRedactions is set");
         }
         setInetAddress(null);
         setBSSID(null);
@@ -401,6 +477,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
         setPasspointUniqueId(null);
         setSubscriptionId(SubscriptionManager.INVALID_SUBSCRIPTION_ID);
         setInformationElements(null);
+        setIsPrimary(false);
         txBad = 0;
         txSuccess = 0;
         rxSuccess = 0;
@@ -410,6 +487,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
         mSuccessfulRxPacketsPerSecond = 0;
         mTxRetriedTxPacketsPerSecond = 0;
         score = 0;
+        mSecurityType = -1;
     }
 
     /**
@@ -417,15 +495,15 @@ public class WifiInfo implements TransportInfo, Parcelable {
      * @hide
      */
     public WifiInfo(WifiInfo source) {
-        this(source, false);
+        this(source, NetworkCapabilities.REDACT_ALL);
     }
 
     /**
      * Copy constructor
      * @hide
      */
-    private WifiInfo(WifiInfo source, boolean parcelSensitiveFields) {
-        mParcelLocationSenstiveFields = parcelSensitiveFields;
+    private WifiInfo(WifiInfo source, long redactions) {
+        mRedactions = redactions;
         if (source != null) {
             mSupplicantState = source.mSupplicantState;
             mBSSID = source.mBSSID;
@@ -468,6 +546,8 @@ public class WifiInfo implements TransportInfo, Parcelable {
             if (source.mInformationElements != null) {
                 mInformationElements = new ArrayList<>(source.mInformationElements);
             }
+            mIsPrimary = source.mIsPrimary;
+            mSecurityType = source.mSecurityType;
         }
     }
 
@@ -512,6 +592,16 @@ public class WifiInfo implements TransportInfo, Parcelable {
         @NonNull
         public Builder setNetworkId(int networkId) {
             mWifiInfo.setNetworkId(networkId);
+            return this;
+        }
+
+        /**
+         * Set the current security type
+         * @see WifiInfo#getCurrentSecurityType()
+         */
+        @NonNull
+        public Builder setCurrentSecurityType(@WifiConfiguration.SecurityType int securityType) {
+            mWifiInfo.setCurrentSecurityType(securityType);
             return this;
         }
 
@@ -757,16 +847,13 @@ public class WifiInfo implements TransportInfo, Parcelable {
 
     /**
      * Returns the MAC address used for this connection.
-     * <p>
-     * Note:
-     * <li> This field is only populated when retrieved via {@link WifiManager#getConnectionInfo()}.
-     * WifiInfo retrieved via {@link NetworkCapabilities#getTransportInfo()} will always return
-     * {@code "02:00:00:00:00:00"}.
-     * </li>
-     * </p>
-     * @return MAC address of the connection.
+     * @return MAC address of the connection or {@code "02:00:00:00:00:00"} if the caller has
+     * insufficient permission.
      */
-    @RequiresPermission(Manifest.permission.LOCAL_MAC_ADDRESS)
+    @RequiresPermission(allOf = {
+            Manifest.permission.LOCAL_MAC_ADDRESS,
+            Manifest.permission.ACCESS_FINE_LOCATION
+    })
     public String getMacAddress() {
         return mMacAddress;
     }
@@ -1112,6 +1199,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
         sb.append("SSID: ").append(getSSID())
                 .append(", BSSID: ").append(mBSSID == null ? none : mBSSID)
                 .append(", MAC: ").append(mMacAddress == null ? none : mMacAddress)
+                .append(", Security type: ").append(mSecurityType)
                 .append(", Supplicant state: ")
                 .append(mSupplicantState == null ? none : mSupplicantState)
                 .append(", HE Eight Max VHT Spatial Streams Supported AP: ").append(mHe8ssCapableAp)
@@ -1130,7 +1218,8 @@ public class WifiInfo implements TransportInfo, Parcelable {
                 .append(", Metered hint: ").append(mMeteredHint)
                 .append(", score: ").append(Integer.toString(score))
                 .append(", CarrierMerged: ").append(mCarrierMerged)
-                .append(", SubscriptionId: ").append(mSubscriptionId);
+                .append(", SubscriptionId: ").append(mSubscriptionId)
+                .append(", IsPrimary: ").append(mIsPrimary);
         return sb.toString();
     }
 
@@ -1139,9 +1228,23 @@ public class WifiInfo implements TransportInfo, Parcelable {
         return 0;
     }
 
+    private boolean shouldParcelLocationSensitiveFields() {
+        return (mRedactions & NetworkCapabilities.REDACT_FOR_ACCESS_FINE_LOCATION) == 0;
+    }
+
+    private boolean shouldParcelLocalMacAddressFields() {
+        return (mRedactions & NetworkCapabilities.REDACT_FOR_LOCAL_MAC_ADDRESS) == 0;
+    }
+
+    private boolean shouldParcelNetworkSettingsFields() {
+        return (mRedactions & NetworkCapabilities.REDACT_FOR_NETWORK_SETTINGS) == 0;
+    }
+
     /** Implement the Parcelable interface {@hide} */
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeInt(mParcelLocationSenstiveFields ? mNetworkId : INVALID_NETWORK_ID);
+        // TODO (b/162602799): Should we proactively redact instance fields in memory instead of
+        // current approach of redacting while parceling.
+        dest.writeInt(shouldParcelLocationSensitiveFields() ? mNetworkId : INVALID_NETWORK_ID);
         dest.writeInt(mRssi);
         dest.writeInt(mLinkSpeed);
         dest.writeInt(mTxLinkSpeed);
@@ -1156,7 +1259,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
         if (mWifiSsid != null) {
             dest.writeInt(1);
             final WifiSsid ssid;
-            if (mParcelLocationSenstiveFields) {
+            if (shouldParcelLocationSensitiveFields()) {
                 ssid = mWifiSsid;
             } else {
                 ssid = WifiSsid.createFromHex(null);
@@ -1165,8 +1268,10 @@ public class WifiInfo implements TransportInfo, Parcelable {
         } else {
             dest.writeInt(0);
         }
-        dest.writeString(mParcelLocationSenstiveFields ? mBSSID : DEFAULT_MAC_ADDRESS);
-        dest.writeString(mMacAddress);
+        dest.writeString(shouldParcelLocationSensitiveFields() ? mBSSID : DEFAULT_MAC_ADDRESS);
+        dest.writeString(
+                shouldParcelLocalMacAddressFields() && shouldParcelLocationSensitiveFields()
+                        ? mMacAddress : DEFAULT_MAC_ADDRESS);
         dest.writeInt(mMeteredHint ? 1 : 0);
         dest.writeInt(mEphemeral ? 1 : 0);
         dest.writeInt(mTrusted ? 1 : 0);
@@ -1185,18 +1290,23 @@ public class WifiInfo implements TransportInfo, Parcelable {
         mSupplicantState.writeToParcel(dest, flags);
         dest.writeInt(mOsuAp ? 1 : 0);
         dest.writeString(mRequestingPackageName);
-        dest.writeString(mParcelLocationSenstiveFields ? mFqdn : null);
-        dest.writeString(mParcelLocationSenstiveFields ? mProviderFriendlyName : null);
+        dest.writeString(shouldParcelLocationSensitiveFields() ? mFqdn : null);
+        dest.writeString(shouldParcelLocationSensitiveFields() ? mProviderFriendlyName : null);
         dest.writeInt(mVhtMax8SpatialStreamsSupport ? 1 : 0);
         dest.writeInt(mHe8ssCapableAp ? 1 : 0);
         dest.writeInt(mWifiStandard);
         dest.writeInt(mMaxSupportedTxLinkSpeed);
         dest.writeInt(mMaxSupportedRxLinkSpeed);
-        dest.writeString(mParcelLocationSenstiveFields ? mPasspointUniqueId : null);
+        dest.writeString(shouldParcelLocationSensitiveFields() ? mPasspointUniqueId : null);
         dest.writeInt(mSubscriptionId);
         if (SdkLevel.isAtLeastS()) {
-            dest.writeTypedList(mParcelLocationSenstiveFields ? mInformationElements : null);
+            dest.writeTypedList(
+                    shouldParcelLocationSensitiveFields() ? mInformationElements : null);
+            // IS_PRIMARY_NO_PERMISSION indicates no permission to access field.
+            dest.writeInt(shouldParcelNetworkSettingsFields()
+                    ? mIsPrimary : IS_PRIMARY_NO_PERMISSION);
         }
+        dest.writeInt(mSecurityType);
     }
 
     /** Implement the Parcelable interface {@hide} */
@@ -1251,7 +1361,9 @@ public class WifiInfo implements TransportInfo, Parcelable {
                 if (SdkLevel.isAtLeastS()) {
                     info.mInformationElements = in.createTypedArrayList(
                             ScanResult.InformationElement.CREATOR);
+                    info.mIsPrimary = in.readInt();
                 }
+                info.mSecurityType = in.readInt();
                 return info;
             }
 
@@ -1311,6 +1423,42 @@ public class WifiInfo implements TransportInfo, Parcelable {
         return new ArrayList<>(mInformationElements);
     }
 
+    /**
+     * @see #isPrimary()
+     * @hide
+     */
+    public void setIsPrimary(boolean isPrimary) {
+        mIsPrimary = isPrimary ? IS_PRIMARY_TRUE : IS_PRIMARY_FALSE;
+    }
+
+    /**
+     * Returns whether this is the primary wifi connection or not.
+     *
+     * Wifi service considers this connection to be the best among all Wifi connections, and this
+     * connection should be the one surfaced to the user if only one can be displayed.
+     *
+     * Note that the default route (chosen by Connectivity Service) may not correspond to the
+     * primary Wifi connection e.g. when there exists a better cellular network, or if the
+     * primary Wifi connection doesn't have internet access.
+     *
+     * @return whether this is the primary connection or not.
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.NETWORK_SETTINGS)
+    @SystemApi
+    public boolean isPrimary() {
+        if (!SdkLevel.isAtLeastS()) {
+            // Intentional - since we don't support STA + STA on older devices, this field
+            // is redundant. Don't allow anyone to use this.
+            throw new UnsupportedOperationException();
+        }
+        if (mIsPrimary == IS_PRIMARY_NO_PERMISSION) {
+            throw new SecurityException("Not allowed to access this field");
+        }
+        return mIsPrimary == IS_PRIMARY_TRUE;
+    }
+
     @Override
     public boolean equals(Object that) {
         if (this == that) return true;
@@ -1359,7 +1507,9 @@ public class WifiInfo implements TransportInfo, Parcelable {
                 && Objects.equals(mMaxSupportedTxLinkSpeed, thatWifiInfo.mMaxSupportedTxLinkSpeed)
                 && Objects.equals(mMaxSupportedRxLinkSpeed, thatWifiInfo.mMaxSupportedRxLinkSpeed)
                 && Objects.equals(mPasspointUniqueId, thatWifiInfo.mPasspointUniqueId)
-                && Objects.equals(mInformationElements, thatWifiInfo.mInformationElements);
+                && Objects.equals(mInformationElements, thatWifiInfo.mInformationElements)
+                && Objects.equals(mIsPrimary, thatWifiInfo.mIsPrimary)
+                && Objects.equals(mSecurityType, thatWifiInfo.mSecurityType);
     }
 
     @Override
@@ -1402,44 +1552,91 @@ public class WifiInfo implements TransportInfo, Parcelable {
                 mMaxSupportedTxLinkSpeed,
                 mMaxSupportedRxLinkSpeed,
                 mPasspointUniqueId,
-                mInformationElements);
+                mInformationElements,
+                mIsPrimary,
+                mSecurityType);
     }
 
     /**
-     * Make a copy of WifiInfo instance.
+     * Create a copy of a {@link WifiInfo} with some fields redacted based on the permissions
+     * held by the receiving app.
      *
-     * @param parcelSensitiveFields Whether to parcel location sensitive fields or not.
-     * @return instance of {@link WifiInfo}.
+     * @param redactions bitmask of redactions that needs to be performed on this instance.
+     * @return Copy of this instance with the necessary redactions.
+     */
+    @Override
+    @NonNull
+    public WifiInfo makeCopy(long redactions) {
+        return new WifiInfo(this, redactions);
+    }
+
+    /**
+     * Returns a bitmask of all the applicable redactions (based on the permissions held by the
+     * receiving app) to be performed on this TransportInfo.
+     *
+     * @return bitmask of redactions applicable on this instance.
+     */
+    @Override
+    public long getApplicableRedactions() {
+        return NetworkCapabilities.REDACT_FOR_ACCESS_FINE_LOCATION
+                | NetworkCapabilities.REDACT_FOR_LOCAL_MAC_ADDRESS
+                | NetworkCapabilities.REDACT_FOR_NETWORK_SETTINGS;
+    }
+
+    /**
+     * Set the security type of the current connection
      * @hide
      */
-    @NonNull
-    public WifiInfo makeCopyInternal(boolean parcelSensitiveFields) {
-        return new WifiInfo(this, parcelSensitiveFields);
+    public void setCurrentSecurityType(@WifiConfiguration.SecurityType int securityType) {
+        mSecurityType = convertSecurityTypeToWifiInfo(securityType);
     }
 
     /**
-     * Make a copy of WifiInfo instance.
+     * Clear the last set security type
+     * @hide
+     */
+    public void clearCurrentSecurityType() {
+        mSecurityType = SECURITY_TYPE_UNKNOWN;
+    }
+
+    /**
+     * Returns the security type of the current 802.11 network connection.
      *
-     * @param parcelSensitiveFields Whether to parcel location sensitive fields or not.
-     * @return instance of {@link WifiInfo}.
+     * @return the security type, or {@link #SECURITY_TYPE_UNKNOWN} if not currently connected.
      */
-    @NonNull
-    @Override
-    public WifiInfo makeCopy(boolean parcelSensitiveFields) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
-        return makeCopyInternal(parcelSensitiveFields);
+    public @SecurityType int getCurrentSecurityType() {
+        return mSecurityType;
     }
 
-    /**
-     * Whether it has location sensitive data or not.
-     */
-    @Override
-    public boolean hasLocationSensitiveFields() {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
+    private @SecurityType int convertSecurityTypeToWifiInfo(
+            @WifiConfiguration.SecurityType int securityType) {
+        switch (securityType) {
+            case WifiConfiguration.SECURITY_TYPE_OPEN:
+                return SECURITY_TYPE_OPEN;
+            case WifiConfiguration.SECURITY_TYPE_WEP:
+                return SECURITY_TYPE_WEP;
+            case WifiConfiguration.SECURITY_TYPE_PSK:
+                return SECURITY_TYPE_PSK;
+            case WifiConfiguration.SECURITY_TYPE_EAP:
+                return SECURITY_TYPE_EAP;
+            case WifiConfiguration.SECURITY_TYPE_SAE:
+                return SECURITY_TYPE_SAE;
+            case WifiConfiguration.SECURITY_TYPE_OWE:
+                return SECURITY_TYPE_OWE;
+            case WifiConfiguration.SECURITY_TYPE_WAPI_PSK:
+                return SECURITY_TYPE_WAPI_PSK;
+            case WifiConfiguration.SECURITY_TYPE_WAPI_CERT:
+                return SECURITY_TYPE_WAPI_CERT;
+            case WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE:
+                return SECURITY_TYPE_EAP_WPA3_ENTERPRISE;
+            case WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE_192_BIT:
+                return SECURITY_TYPE_EAP_WPA3_ENTERPRISE_192_BIT;
+            case WifiConfiguration.SECURITY_TYPE_PASSPOINT_R1_R2:
+                return SECURITY_TYPE_PASSPOINT_R1_R2;
+            case WifiConfiguration.SECURITY_TYPE_PASSPOINT_R3:
+                return SECURITY_TYPE_PASSPOINT_R3;
+            default:
+                return SECURITY_TYPE_UNKNOWN;
         }
-        return true;
     }
 }

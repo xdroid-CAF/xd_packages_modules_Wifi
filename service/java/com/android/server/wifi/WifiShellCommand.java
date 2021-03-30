@@ -47,6 +47,7 @@ import android.net.wifi.SoftApInfo;
 import android.net.wifi.SupplicantState;
 import android.net.wifi.WifiClient;
 import android.net.wifi.WifiConfiguration;
+import android.net.wifi.WifiConnectedSessionInfo;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.net.wifi.WifiNetworkSpecifier;
@@ -150,6 +151,7 @@ public class WifiShellCommand extends BasicShellCommandHandler {
     private final ConnectivityManager mConnectivityManager;
     private final WifiCarrierInfoManager mWifiCarrierInfoManager;
     private final WifiNetworkFactory mWifiNetworkFactory;
+    private final SelfRecovery mSelfRecovery;
     private int mSapState = WifiManager.WIFI_STATE_UNKNOWN;
 
     /**
@@ -167,8 +169,8 @@ public class WifiShellCommand extends BasicShellCommandHandler {
         }
 
         @Override
-        public void onStart(int sessionId) {
-            mSessionId = sessionId;
+        public void onStart(WifiConnectedSessionInfo sessionInfo) {
+            mSessionId = sessionInfo.getSessionId();
             mCountDownLatch.countDown();
         }
         @Override
@@ -209,6 +211,7 @@ public class WifiShellCommand extends BasicShellCommandHandler {
         mConnectivityManager = context.getSystemService(ConnectivityManager.class);
         mWifiCarrierInfoManager = wifiInjector.getWifiCarrierInfoManager();
         mWifiNetworkFactory = wifiInjector.getWifiNetworkFactory();
+        mSelfRecovery = wifiInjector.getSelfRecovery();
     }
 
     @Override
@@ -359,7 +362,8 @@ public class WifiShellCommand extends BasicShellCommandHandler {
                                     + "- must be a positive integer");
                             return -1;
                         }
-                        int apChannel = ScanResult.convertFrequencyMhzToChannel(apChannelMHz);
+                        int apChannel = ScanResult.convertFrequencyMhzToChannelIfSupported(
+                                apChannelMHz);
                         int band = ApConfigUtil.convertFrequencyToBand(apChannelMHz);
                         pw.println("channel: " + apChannel + " band: " + band);
                         if (apChannel == -1 || band == -1) {
@@ -629,13 +633,13 @@ public class WifiShellCommand extends BasicShellCommandHandler {
                     mWifiService.enableVerboseLogging(enabled ? 1 : 0);
                     return 0;
                 }
-                case "start-temporarily-disabling-all-non-carrier-merged-wifi": {
+                case "start-restricting-auto-join-to-subscription-id": {
                     int subId = Integer.parseInt(getNextArgRequired());
-                    mWifiService.startTemporarilyDisablingAllNonCarrierMergedWifi(subId);
+                    mWifiService.startRestrictingAutoJoinToSubscriptionId(subId);
                     return 0;
                 }
-                case "stop-temporarily-disabling-all-non-carrier-merged-wifi": {
-                    mWifiService.stopTemporarilyDisablingAllNonCarrierMergedWifi();
+                case "stop-restricting-auto-join-to-subscription-id": {
+                    mWifiService.stopRestrictingAutoJoinToSubscriptionId();
                     return 0;
                 }
                 case "add-suggestion": {
@@ -871,7 +875,7 @@ public class WifiShellCommand extends BasicShellCommandHandler {
                     return 0;
                 }
                 case "trigger-recovery": {
-                    mActiveModeWarden.recoveryRestartWifi(REASON_API_CALL, null, false);
+                    mSelfRecovery.trigger(REASON_API_CALL);
                     return 0;
                 }
                 default:
@@ -1395,12 +1399,12 @@ public class WifiShellCommand extends BasicShellCommandHandler {
         pw.println("    Current wifi status");
         pw.println("  set-verbose-logging enabled|disabled ");
         pw.println("    Set the verbose logging enabled or disabled");
-        pw.println("  start-temporarily-disabling-all-non-carrier-merged-wifi subId");
+        pw.println("  start-restricting-auto-join-to-subscription-id subId");
         pw.println("    temporarily disable all wifi networks except merged carrier networks with"
                 + " the given subId");
-        pw.println("  stop-temporarily-disabling-all-non-carrier-merged-wifi");
+        pw.println("  stop-restricting-auto-join-to-subscription-id");
         pw.println("    Undo the effects of "
-                + "start-temporarily-disabling-all-non-carrier-merged-wifi");
+                + "start-restricting-auto-join-to-subscription-id");
         pw.println("  add-suggestion <ssid> open|owe|wpa2|wpa3 [<passphrase>] [-u] [-o] [-p] [-m] "
                 + " [-s] [-d] [-b <bssid>] [-e] [-i] [-a <carrierId>] [-c <subscriptionId>]");
         pw.println("    Add a network suggestion with provided params");
