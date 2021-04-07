@@ -272,6 +272,11 @@ public final class SoftApConfiguration implements Parcelable {
      */
     private boolean mIeee80211axEnabled;
 
+    /**
+     * Whether the current configuration is configured by user or not.
+     */
+    private boolean mIsUserConfiguration;
+
 
     /**
      * THe definition of security type OPEN.
@@ -310,7 +315,7 @@ public final class SoftApConfiguration implements Parcelable {
             long shutdownTimeoutMillis, boolean clientControlByUser,
             @NonNull List<MacAddress> blockedList, @NonNull List<MacAddress> allowedList,
             int macRandomizationSetting, boolean bridgedModeOpportunisticShutdownEnabled,
-            boolean ieee80211axEnabled) {
+            boolean ieee80211axEnabled, boolean isUserConfiguration) {
         mSsid = ssid;
         mBssid = bssid;
         mPassphrase = passphrase;
@@ -331,6 +336,7 @@ public final class SoftApConfiguration implements Parcelable {
         mMacRandomizationSetting = macRandomizationSetting;
         mBridgedModeOpportunisticShutdownEnabled = bridgedModeOpportunisticShutdownEnabled;
         mIeee80211axEnabled = ieee80211axEnabled;
+        mIsUserConfiguration = isUserConfiguration;
     }
 
     @Override
@@ -357,7 +363,8 @@ public final class SoftApConfiguration implements Parcelable {
                 && mMacRandomizationSetting == other.mMacRandomizationSetting
                 && mBridgedModeOpportunisticShutdownEnabled
                 == other.mBridgedModeOpportunisticShutdownEnabled
-                && mIeee80211axEnabled == other.mIeee80211axEnabled;
+                && mIeee80211axEnabled == other.mIeee80211axEnabled
+                && mIsUserConfiguration == other.mIsUserConfiguration;
     }
 
     @Override
@@ -366,7 +373,8 @@ public final class SoftApConfiguration implements Parcelable {
                 mChannels.toString(), mSecurityType, mMaxNumberOfClients, mAutoShutdownEnabled,
                 mShutdownTimeoutMillis, mClientControlByUser, mBlockedClientList,
                 mAllowedClientList, mMacRandomizationSetting,
-                mBridgedModeOpportunisticShutdownEnabled, mIeee80211axEnabled);
+                mBridgedModeOpportunisticShutdownEnabled, mIeee80211axEnabled,
+                mIsUserConfiguration);
     }
 
     @Override
@@ -389,6 +397,7 @@ public final class SoftApConfiguration implements Parcelable {
         sbuf.append(" \n BridgedModeInstanceOpportunisticEnabled = ")
                 .append(mBridgedModeOpportunisticShutdownEnabled);
         sbuf.append(" \n Ieee80211axEnabled = ").append(mIeee80211axEnabled);
+        sbuf.append(" \n isUserConfiguration = ").append(mIsUserConfiguration);
         return sbuf.toString();
     }
 
@@ -409,6 +418,7 @@ public final class SoftApConfiguration implements Parcelable {
         dest.writeInt(mMacRandomizationSetting);
         dest.writeBoolean(mBridgedModeOpportunisticShutdownEnabled);
         dest.writeBoolean(mIeee80211axEnabled);
+        dest.writeBoolean(mIsUserConfiguration);
     }
 
     /* Reference from frameworks/base/core/java/android/os/Parcel.java */
@@ -463,7 +473,7 @@ public final class SoftApConfiguration implements Parcelable {
                     in.readInt(), in.readBoolean(), in.readLong(), in.readBoolean(),
                     in.createTypedArrayList(MacAddress.CREATOR),
                     in.createTypedArrayList(MacAddress.CREATOR), in.readInt(), in.readBoolean(),
-                    in.readBoolean());
+                    in.readBoolean(), in.readBoolean());
         }
 
         @Override
@@ -515,12 +525,14 @@ public final class SoftApConfiguration implements Parcelable {
      * {@link #BAND_2GHZ}, {@link #BAND_5GHZ}, or {@code BAND_2GHZ | BAND_5GHZ}.
      *
      * Note: Returns the lowest band when more than one band is set.
-     * Use {@link #getBands()} to get dual bands setting.
+     * Use {@link #getChannels()} to get dual bands setting.
      *
      * See also {@link Builder#setBand(int)}.
      *
+     * @deprecated This API is deprecated. Use {@link #getChannels()} instead.
      * @hide
      */
+    @Deprecated
     @SystemApi
     public @BandType int getBand() {
         return mChannels.keyAt(0);
@@ -538,11 +550,7 @@ public final class SoftApConfiguration implements Parcelable {
      *
      * @hide
      */
-    @SystemApi
     public @NonNull int[] getBands() {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         int[] bands = new int[mChannels.size()];
         for (int i = 0; i < bands.length; i++) {
             bands[i] = mChannels.keyAt(i);
@@ -557,8 +565,10 @@ public final class SoftApConfiguration implements Parcelable {
      * is set. Use {@link Builder#getChannels()} to get dual channel setting.
      * See also {@link Builder#setChannel(int, int)}.
      *
+     * @deprecated This API is deprecated. Use {@link #getChannels()} instead.
      * @hide
      */
+    @Deprecated
     @SystemApi
     public int getChannel() {
         return mChannels.valueAt(0);
@@ -568,6 +578,10 @@ public final class SoftApConfiguration implements Parcelable {
     /**
      * Returns SparseIntArray (key: {@code BandType} , value: channel) that consists of
      * the configured bands and channels for the AP(s).
+     *
+     * The returned channel value is Wi-Fi channel numbering.
+     * Reference the Wi-Fi channel numbering and the channelization in IEEE 802.11-2016
+     * specifications, section 17.3.8.4.2, 17.3.8.4.3 and Table 15-6.
      *
      * Note: return array may only include one channel when current setting is single AP mode.
      * See also {@link Builder#setChannels(SparseIntArray)}.
@@ -693,7 +707,23 @@ public final class SoftApConfiguration implements Parcelable {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();
         }
+        return isBridgedModeOpportunisticShutdownEnabledInternal();
+    }
+
+    /**
+     * @see #isBridgedModeOpportunisticShutdownEnabled()
+     * @hide
+     */
+    public boolean isBridgedModeOpportunisticShutdownEnabledInternal() {
         return mBridgedModeOpportunisticShutdownEnabled;
+    }
+
+    /**
+     * @see #isIeee80211axEnabled()
+     * @hide
+     */
+    public boolean isIeee80211axEnabledInternal() {
+        return mIeee80211axEnabled;
     }
 
     /**
@@ -708,7 +738,25 @@ public final class SoftApConfiguration implements Parcelable {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();
         }
-        return mIeee80211axEnabled;
+        return isIeee80211axEnabledInternal();
+    }
+
+    /**
+     * Returns whether or not the {@link SoftApConfiguration} was configured by the user
+     * (as opposed to the default system configuration).
+     * <p>
+     * The {@link SoftApConfiguration} is considered user edited once the
+     * {@link WifiManager#setSoftApConfiguration(SoftApConfiguration)} is called
+     * - whether or not that configuration is the same as the default system configuration!
+     *
+     * @hide
+     */
+    @SystemApi
+    public boolean isUserConfiguration() {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
+        return mIsUserConfiguration;
     }
 
     /**
@@ -790,6 +838,7 @@ public final class SoftApConfiguration implements Parcelable {
         private int mMacRandomizationSetting;
         private boolean mBridgedModeOpportunisticShutdownEnabled;
         private boolean mIeee80211axEnabled;
+        private boolean mIsUserConfiguration;
 
         /**
          * Constructs a Builder with default values (see {@link Builder}).
@@ -811,6 +860,7 @@ public final class SoftApConfiguration implements Parcelable {
             mMacRandomizationSetting = RANDOMIZATION_PERSISTENT;
             mBridgedModeOpportunisticShutdownEnabled = true;
             mIeee80211axEnabled = true;
+            mIsUserConfiguration = true;
         }
 
         /**
@@ -835,6 +885,7 @@ public final class SoftApConfiguration implements Parcelable {
             mBridgedModeOpportunisticShutdownEnabled =
                     other.mBridgedModeOpportunisticShutdownEnabled;
             mIeee80211axEnabled = other.mIeee80211axEnabled;
+            mIsUserConfiguration = other.mIsUserConfiguration;
         }
 
         /**
@@ -853,7 +904,8 @@ public final class SoftApConfiguration implements Parcelable {
                     mHiddenSsid, mChannels, mSecurityType, mMaxNumberOfClients,
                     mAutoShutdownEnabled, mShutdownTimeoutMillis, mClientControlByUser,
                     mBlockedClientList, mAllowedClientList, mMacRandomizationSetting,
-                    mBridgedModeOpportunisticShutdownEnabled, mIeee80211axEnabled);
+                    mBridgedModeOpportunisticShutdownEnabled, mIeee80211axEnabled,
+                    mIsUserConfiguration);
         }
 
         /**
@@ -1098,6 +1150,9 @@ public final class SoftApConfiguration implements Parcelable {
          * The API contains (band, channel) input since the 6GHz band uses the same channel
          * numbering scheme as is used in the 2.4GHz and 5GHz band. Therefore, both are needed to
          * uniquely identify individual channels.
+         *
+         * Reference the Wi-Fi channel numbering and the channelization in IEEE 802.11-2016
+         * specifications, section 17.3.8.4.2, 17.3.8.4.3 and Table 15-6.
          *
          * <p>
          * @param channels SparseIntArray (key: {@code #BandType} , value: channel) consists of
@@ -1400,6 +1455,20 @@ public final class SoftApConfiguration implements Parcelable {
                 throw new UnsupportedOperationException();
             }
             mIeee80211axEnabled = enable;
+            return this;
+        }
+
+        /**
+         * Specifies whether or not the configuration is configured by user.
+         *
+         * @param isUserConfigured true to user configuration, false otherwise.
+         * @return Builder for chaining.
+         *
+         * @hide
+         */
+        @NonNull
+        public Builder setUserConfiguration(boolean isUserConfigured) {
+            mIsUserConfiguration = isUserConfigured;
             return this;
         }
     }

@@ -1392,6 +1392,10 @@ public class WifiManager {
             sSuggestionUserApprovalStatusListenerMap = new SparseArray();
     private static final SparseArray<INetworkRequestMatchCallback>
             sNetworkRequestMatchCallbackMap = new SparseArray();
+    private static final SparseArray<ITrafficStateCallback>
+            sTrafficStateCallbackMap = new SparseArray();
+    private static final SparseArray<ISoftApCallback> sSoftApCallbackMap = new SparseArray();
+
     /**
      * Create a new WifiManager instance.
      * Applications will almost always want to use
@@ -2691,12 +2695,24 @@ public class WifiManager {
     }
 
     /**
-     * @return true if this device supports connected MAC randomization.
+     * @return true if this device supports AP MAC randomization.
      * @hide
      */
     @SystemApi
     public boolean isApMacRandomizationSupported() {
         return isFeatureSupported(WIFI_FEATURE_AP_RAND_MAC);
+    }
+
+    /**
+     * Check if the chipset supports 2.4GHz band.
+     * @return {@code true} if supported, {@code false} otherwise.
+     */
+    public boolean is24GHzBandSupported() {
+        try {
+            return mService.is24GHzBandSupported();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
     }
 
     /**
@@ -3245,6 +3261,8 @@ public class WifiManager {
      * Registers a {@link SubsystemRestartTrackingCallback} to listen to Wi-Fi subsystem restarts.
      * The subsystem may restart due to internal recovery mechanisms or via user action.
      *
+     * @see #unregisterSubsystemRestartTrackingCallback(SubsystemRestartTrackingCallback)
+     *
      * @param executor Executor to execute callback on
      * @param callback {@link SubsystemRestartTrackingCallback} to register
      */
@@ -3271,7 +3289,7 @@ public class WifiManager {
      * @param callback {@link SubsystemRestartTrackingCallback} to unregister
      */
     @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE)
-    public void unregisterWifiSubsystemRestartTrackingCallback(
+    public void unregisterSubsystemRestartTrackingCallback(
             @NonNull SubsystemRestartTrackingCallback callback) {
         if (callback == null) throw new IllegalArgumentException("callback must not be null");
         SubsystemRestartTrackingCallback.SubsystemRestartCallbackProxy proxy = callback.getProxy();
@@ -4268,7 +4286,11 @@ public class WifiManager {
          * Called when the connected clients to soft AP changes.
          *
          * @param clients the currently connected clients
+         *
+         * @deprecated This API is deprecated.
+         * Use {@link #onConnectedClientsChanged(SoftApInfo, List<WifiClient>)} instead.
          */
+        @Deprecated
         default void onConnectedClientsChanged(@NonNull List<WifiClient> clients) {}
 
 
@@ -4280,9 +4302,6 @@ public class WifiManager {
          * When the Soft AP is configured in bridged mode, this callback is invoked with
          * the corresponding {@link SoftApInfo} for the instance in which the connected clients
          * changed.
-         *
-         * Use {@link #onConnectedClientsChanged(List<WifiClient>)} if you don't care about
-         * the mapping from SoftApInfo instance to connected clients.
          *
          * @param info The {@link SoftApInfo} of the AP.
          * @param clients The currently connected clients on the AP instance specified by
@@ -4300,7 +4319,11 @@ public class WifiManager {
          * {@link #onInfoChanged(List<SoftApInfo>)} callback in bridged AP mode.
          *
          * @param softApInfo is the softap information. {@link SoftApInfo}
+         *
+         * @deprecated This API is deprecated. Use {@link #onInfoChanged(List<SoftApInfo>)}
+         * instead.
          */
+        @Deprecated
         default void onInfoChanged(@NonNull SoftApInfo softApInfo) {
             // Do nothing: can be updated to add SoftApInfo details (e.g. channel) to the UI.
         }
@@ -4510,8 +4533,6 @@ public class WifiManager {
      * <li> {@link SoftApCallback#onCapabilityChanged(SoftApCapability)}</li>
      * </ul>
      *
-     * Use {@link SoftApCallback#onConnectedClientsChanged(List<WifiClient>)} to know if there are
-     * any clients connected to any of the bridged instances of this AP (if bridged AP is enabled).
      * Use {@link SoftApCallback#onConnectedClientsChanged(SoftApInfo, List<WifiClient>)} to know
      * if there are any clients connected to a specific bridged instance of this AP
      * (if bridged AP is enabled).
@@ -4544,10 +4565,12 @@ public class WifiManager {
         if (callback == null) throw new IllegalArgumentException("callback cannot be null");
         Log.v(TAG, "registerSoftApCallback: callback=" + callback + ", executor=" + executor);
 
-        Binder binder = new Binder();
         try {
-            mService.registerSoftApCallback(
-                    binder, new SoftApCallbackProxy(executor, callback), callback.hashCode());
+            synchronized (sSoftApCallbackMap) {
+                ISoftApCallback.Stub binderCallback = new SoftApCallbackProxy(executor, callback);
+                sSoftApCallbackMap.put(System.identityHashCode(callback), binderCallback);
+                mService.registerSoftApCallback(binderCallback);
+            }
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -4568,7 +4591,15 @@ public class WifiManager {
         Log.v(TAG, "unregisterSoftApCallback: callback=" + callback);
 
         try {
-            mService.unregisterSoftApCallback(callback.hashCode());
+            synchronized (sSoftApCallbackMap) {
+                int callbackIdentifier = System.identityHashCode(callback);
+                if (!sSoftApCallbackMap.contains(callbackIdentifier)) {
+                    Log.w(TAG, "Unknown external callback " + callbackIdentifier);
+                    return;
+                }
+                mService.unregisterSoftApCallback(sSoftApCallbackMap.get(callbackIdentifier));
+                sSoftApCallbackMap.remove(callbackIdentifier);
+            }
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -6045,10 +6076,13 @@ public class WifiManager {
         if (callback == null) throw new IllegalArgumentException("callback cannot be null");
         Log.v(TAG, "registerTrafficStateCallback: callback=" + callback + ", executor=" + executor);
 
-        Binder binder = new Binder();
         try {
-            mService.registerTrafficStateCallback(
-                    binder, new TrafficStateCallbackProxy(executor, callback), callback.hashCode());
+            synchronized (sTrafficStateCallbackMap) {
+                ITrafficStateCallback.Stub binderCallback = new TrafficStateCallbackProxy(executor,
+                        callback);
+                sTrafficStateCallbackMap.put(System.identityHashCode(callback), binderCallback);
+                mService.registerTrafficStateCallback(binderCallback);
+            }
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -6068,7 +6102,16 @@ public class WifiManager {
         Log.v(TAG, "unregisterTrafficStateCallback: callback=" + callback);
 
         try {
-            mService.unregisterTrafficStateCallback(callback.hashCode());
+            synchronized (sTrafficStateCallbackMap) {
+                int callbackIdentifier = System.identityHashCode(callback);
+                if (!sTrafficStateCallbackMap.contains(callbackIdentifier)) {
+                    Log.w(TAG, "Unknown external callback " + callbackIdentifier);
+                    return;
+                }
+                mService.unregisterTrafficStateCallback(
+                        sTrafficStateCallbackMap.get(callbackIdentifier));
+                sTrafficStateCallbackMap.remove(callbackIdentifier);
+            }
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -7006,10 +7049,8 @@ public class WifiManager {
          *
          * @param sessionId The ID to indicate current Wi-Fi network connection obtained from
          *                  {@link WifiConnectedNetworkScorer#onStart(int)}.
-         * @param nudTrigger The boolean indicating whether triggering NUD is recommended.
-         *                   Populated by connected network scorer in applications.
          */
-        default void requestNudOperation(int sessionId, boolean nudTrigger) {}
+        default void requestNudOperation(int sessionId) {}
 
         /**
          * Called by applications to blocklist currently connected BSSID. No blocklisting operation
@@ -7064,12 +7105,12 @@ public class WifiManager {
         }
 
         @Override
-        public void requestNudOperation(int sessionId, boolean nudTrigger) {
+        public void requestNudOperation(int sessionId) {
             if (!SdkLevel.isAtLeastS()) {
                 throw new UnsupportedOperationException();
             }
             try {
-                mScoreUpdateObserver.requestNudOperation(sessionId, nudTrigger);
+                mScoreUpdateObserver.requestNudOperation(sessionId);
             } catch (RemoteException e) {
                 throw e.rethrowFromSystemServer();
             }

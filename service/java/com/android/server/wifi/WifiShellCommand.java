@@ -56,20 +56,28 @@ import android.os.Binder;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import android.telephony.Annotation;
+import android.telephony.PhysicalChannelConfig;
 import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Pair;
+
+import androidx.annotation.NonNull;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.modules.utils.BasicShellCommandHandler;
 import com.android.modules.utils.ParceledListSlice;
 import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.ClientMode.LinkProbeCallback;
+import com.android.server.wifi.coex.CoexManager;
+import com.android.server.wifi.coex.CoexUtils;
 import com.android.server.wifi.util.ApConfigUtil;
 import com.android.server.wifi.util.ArrayUtils;
 import com.android.server.wifi.util.ScanResultUtil;
 
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -133,6 +141,7 @@ public class WifiShellCommand extends BasicShellCommandHandler {
     private final WifiConfigManager mWifiConfigManager;
     private final WifiNative mWifiNative;
     private final HostapdHal mHostapdHal;
+    private final CoexManager mCoexManager;
     private final WifiCountryCode mWifiCountryCode;
     private final WifiLastResortWatchdog mWifiLastResortWatchdog;
     private final WifiServiceImpl mWifiService;
@@ -191,6 +200,7 @@ public class WifiShellCommand extends BasicShellCommandHandler {
         mWifiConfigManager = wifiInjector.getWifiConfigManager();
         mHostapdHal = wifiInjector.getHostapdHal();
         mWifiNative = wifiInjector.getWifiNative();
+        mCoexManager = wifiInjector.getCoexManager();
         mWifiCountryCode = wifiInjector.getWifiCountryCode();
         mWifiLastResortWatchdog = wifiInjector.getWifiLastResortWatchdog();
         mWifiService = wifiService;
@@ -779,6 +789,27 @@ public class WifiShellCommand extends BasicShellCommandHandler {
                     pw.println(hasUserApproved ? "yes" : "no");
                     return 0;
                 }
+                case "set-coex-cell-channels": {
+                    if (!SdkLevel.isAtLeastS()) {
+                        return handleDefaultCommands(cmd);
+                    }
+                    mCoexManager.setMockCellChannels(buildCoexCellChannels());
+                    return 0;
+                }
+                case "reset-coex-cell-channels": {
+                    if (!SdkLevel.isAtLeastS()) {
+                        return handleDefaultCommands(cmd);
+                    }
+                    mCoexManager.resetMockCellChannels();
+                    return 0;
+                }
+                case "get-coex-cell-channels": {
+                    if (!SdkLevel.isAtLeastS()) {
+                        return handleDefaultCommands(cmd);
+                    }
+                    pw.println("Cell channels: " + mCoexManager.getCellChannels());
+                    return 0;
+                }
                 case "set-connected-score": {
                     int score = Integer.parseInt(getNextArgRequired());
                     CountDownLatch countDownLatch = new CountDownLatch(2);
@@ -895,6 +926,24 @@ public class WifiShellCommand extends BasicShellCommandHandler {
                 configuration.allowAutojoin = false;
             } else if (option.equals("-b")) {
                 configuration.BSSID = getNextArgRequired();
+            } else if (option.equals("-r")) {
+                String macRandomizationScheme = getNextArgRequired();
+                if (macRandomizationScheme.equals("auto")) {
+                    configuration.macRandomizationSetting = WifiConfiguration.RANDOMIZATION_AUTO;
+                } else if (macRandomizationScheme.equals("none")) {
+                    configuration.macRandomizationSetting = WifiConfiguration.RANDOMIZATION_NONE;
+                } else if (macRandomizationScheme.equals("persistent")) {
+                    configuration.macRandomizationSetting =
+                            WifiConfiguration.RANDOMIZATION_PERSISTENT;
+                } else if (macRandomizationScheme.equals("enhanced")) {
+                    if (SdkLevel.isAtLeastS()) {
+                        configuration.macRandomizationSetting =
+                                WifiConfiguration.RANDOMIZATION_ENHANCED;
+                    } else {
+                        throw new IllegalArgumentException(
+                                "-r enhanced MAC randomization not supported before S");
+                    }
+                }
             } else {
                 pw.println("Ignoring unknown option " + option);
             }
@@ -941,7 +990,8 @@ public class WifiShellCommand extends BasicShellCommandHandler {
                                 SoftApConfiguration.BAND_2GHZ, SoftApConfiguration.BAND_5GHZ};
                         configBuilder.setBands(dualBands);
                     } else {
-                        pw.println("-b bridged option is not supported before S");
+                        throw new IllegalArgumentException(
+                                "-b bridged option is not supported before S");
                     }
                 } else {
                     throw new IllegalArgumentException("Invalid band option " + preferredBand);
@@ -979,10 +1029,16 @@ public class WifiShellCommand extends BasicShellCommandHandler {
             } else if (option.equals("-o")) {
                 if (SdkLevel.isAtLeastS()) {
                     suggestionBuilder.setOemPaid(true);
+                } else {
+                    throw new IllegalArgumentException(
+                            "-o OEM paid suggestions not supported before S");
                 }
             } else if (option.equals("-p")) {
                 if (SdkLevel.isAtLeastS()) {
                     suggestionBuilder.setOemPrivate(true);
+                } else {
+                    throw new IllegalArgumentException(
+                            "-p OEM private suggestions not supported before S");
                 }
             } else if (option.equals("-m")) {
                 suggestionBuilder.setIsMetered(true);
@@ -992,11 +1048,12 @@ public class WifiShellCommand extends BasicShellCommandHandler {
                 suggestionBuilder.setIsInitialAutojoinEnabled(false);
             } else if (option.equals("-b")) {
                 suggestionBuilder.setBssid(MacAddress.fromString(getNextArgRequired()));
-            } else if (option.equals("-e")) {
+            } else if (option.equals("-r")) {
                 if (SdkLevel.isAtLeastS()) {
-                    suggestionBuilder.setIsEnhancedMacRandomizationEnabled(false);
+                    suggestionBuilder.setIsEnhancedMacRandomizationEnabled(true);
                 } else {
-                    pw.println("-e option is not supported before S");
+                    throw new IllegalArgumentException(
+                            "-r enhanced MAC randomization not supported before S");
                 }
             } else if (option.equals("-a")) {
                 if (SdkLevel.isAtLeastS()) {
@@ -1009,7 +1066,8 @@ public class WifiShellCommand extends BasicShellCommandHandler {
                     int subId = Integer.parseInt(getNextArgRequired());
                     suggestionBuilder.setSubscriptionId(subId);
                 } else {
-                    pw.println("-c option is not supported before S");
+                    throw new IllegalArgumentException(
+                            "-i subscription ID option is not supported before S");
                 }
             } else if (option.equals("-c")) {
                 int carrierId = Integer.parseInt(getNextArgRequired());
@@ -1081,6 +1139,56 @@ public class WifiShellCommand extends BasicShellCommandHandler {
                 .removeCapability(NET_CAPABILITY_INTERNET)
                 .setNetworkSpecifier(specifierBuilder.build())
                 .build();
+    }
+
+    @NonNull
+    private List<CoexUtils.CoexCellChannel> buildCoexCellChannels() {
+        List<CoexUtils.CoexCellChannel> cellChannels = new ArrayList<>();
+        while (getRemainingArgsCount() > 0) {
+            final @Annotation.NetworkType int rat;
+            final String ratArg = getNextArgRequired();
+            if (TextUtils.equals(ratArg, "lte")) {
+                rat = TelephonyManager.NETWORK_TYPE_LTE;
+            } else if (TextUtils.equals(ratArg, "nr")) {
+                rat = TelephonyManager.NETWORK_TYPE_NR;
+            } else {
+                throw new IllegalArgumentException("Unknown rat type " + ratArg);
+            }
+            final int band = Integer.parseInt(getNextArgRequired());
+            if (band < 1 || band > 261) {
+                throw new IllegalArgumentException("Band is " + band
+                        + " but should be a value from 1 to 261");
+            }
+            final int downlinkFreqKhz = Integer.parseInt(getNextArgRequired());
+            if (downlinkFreqKhz < 0 && downlinkFreqKhz != PhysicalChannelConfig.FREQUENCY_UNKNOWN) {
+                throw new IllegalArgumentException("Downlink frequency is " + downlinkFreqKhz
+                        + " but should be >= 0 or UNKNOWN: "
+                        + PhysicalChannelConfig.FREQUENCY_UNKNOWN);
+            }
+            final int downlinkBandwidthKhz = Integer.parseInt(getNextArgRequired());
+            if (downlinkBandwidthKhz <= 0
+                    && downlinkBandwidthKhz != PhysicalChannelConfig.CELL_BANDWIDTH_UNKNOWN) {
+                throw new IllegalArgumentException("Downlink bandwidth is " + downlinkBandwidthKhz
+                        + " but should be > 0 or UNKNOWN: "
+                        + PhysicalChannelConfig.CELL_BANDWIDTH_UNKNOWN);
+            }
+            final int uplinkFreqKhz = Integer.parseInt(getNextArgRequired());
+            if (uplinkFreqKhz < 0 && uplinkFreqKhz != PhysicalChannelConfig.FREQUENCY_UNKNOWN) {
+                throw new IllegalArgumentException("Uplink frequency is " + uplinkFreqKhz
+                        + " but should be >= 0 or UNKNOWN: "
+                        + PhysicalChannelConfig.FREQUENCY_UNKNOWN);
+            }
+            final int uplinkBandwidthKhz = Integer.parseInt(getNextArgRequired());
+            if (uplinkBandwidthKhz <= 0
+                    && uplinkBandwidthKhz != PhysicalChannelConfig.CELL_BANDWIDTH_UNKNOWN) {
+                throw new IllegalArgumentException("Uplink bandwidth is " + uplinkBandwidthKhz
+                        + " but should be > 0 or UNKNOWN: "
+                        + PhysicalChannelConfig.CELL_BANDWIDTH_UNKNOWN);
+            }
+            cellChannels.add(new CoexUtils.CoexCellChannel(rat, band,
+                    downlinkFreqKhz, downlinkBandwidthKhz, uplinkFreqKhz, uplinkBandwidthKhz));
+        }
+        return cellChannels;
     }
 
     private void setAutoJoin(PrintWriter pw, String ssid, boolean allowAutojoin) {
@@ -1248,7 +1356,7 @@ public class WifiShellCommand extends BasicShellCommandHandler {
         pw.println("  list-networks");
         pw.println("    Lists the saved networks");
         pw.println("  connect-network <ssid> open|owe|wpa2|wpa3 [<passphrase>] [-m] [-d] "
-                + "[-b <bssid>]");
+                + "[-b <bssid>] [-r auto|none|persistent|enhanced]");
         pw.println("    Connect to a network with provided params and add to saved networks list");
         pw.println("    <ssid> - SSID of the network");
         pw.println("    open|owe|wpa2|wpa3 - Security type of the network.");
@@ -1261,8 +1369,10 @@ public class WifiShellCommand extends BasicShellCommandHandler {
         pw.println("    -m - Mark the network metered.");
         pw.println("    -d - Mark the network autojoin disabled.");
         pw.println("    -b <bssid> - Set specific BSSID.");
+        pw.println("    -r auto|none|persistent|enhanced - MAC randomization scheme for the"
+                + " network");
         pw.println("  add-network <ssid> open|owe|wpa2|wpa3 [<passphrase>] [-m] [-d] "
-                + "[-b <bssid>]");
+                + "[-b <bssid>] [-r auto|none|persistent|enhanced]");
         pw.println("    Add/update saved network with provided params");
         pw.println("    <ssid> - SSID of the network");
         pw.println("    open|owe|wpa2|wpa3 - Security type of the network.");
@@ -1275,6 +1385,8 @@ public class WifiShellCommand extends BasicShellCommandHandler {
         pw.println("    -m - Mark the network metered.");
         pw.println("    -d - Mark the network autojoin disabled.");
         pw.println("    -b <bssid> - Set specific BSSID.");
+        pw.println("    -r auto|none|persistent|enhanced - MAC randomization scheme for the"
+                + " network");
         pw.println("  forget-network <networkId>");
         pw.println("    Remove the network mentioned by <networkId>");
         pw.println("        - Use list-networks to retrieve <networkId> for the network");
@@ -1308,8 +1420,7 @@ public class WifiShellCommand extends BasicShellCommandHandler {
         pw.println("    -s - Share the suggestion with user.");
         pw.println("    -d - Mark the suggestion autojoin disabled.");
         pw.println("    -b <bssid> - Set specific BSSID.");
-        pw.println("    -e - Disable enhanced randomization "
-                + "(i.e use persistent MAC randomization).");
+        pw.println("    -r - Enable enhanced randomization (disabled by default)");
         pw.println("    -a - Mark the suggestion carrier merged");
         pw.println("    -c <carrierId> - set carrier Id");
         pw.println("    -i <subscriptionId> - set subscription Id, if -a is used, "
@@ -1320,6 +1431,25 @@ public class WifiShellCommand extends BasicShellCommandHandler {
         pw.println("    Removes all suggestions added via shell");
         pw.println("  list-suggestions");
         pw.println("    Lists the suggested networks added via shell");
+        if (SdkLevel.isAtLeastS()) {
+            pw.println("  set-coex-cell-channels [lte|nr <bandNumber 1-261> "
+                    + "<downlinkFreqKhz or UNKNOWN: "
+                    + PhysicalChannelConfig.FREQUENCY_UNKNOWN + "> "
+                    + "<downlinkBandwidthKhz or UNKNOWN: "
+                    + PhysicalChannelConfig.CELL_BANDWIDTH_UNKNOWN + "> "
+                    + "<uplinkFreqKhz or UNKNOWN: "
+                    + PhysicalChannelConfig.FREQUENCY_UNKNOWN + "> "
+                    + "<uplinkBandwidthKhz or UNKNOWN: "
+                    + PhysicalChannelConfig.CELL_BANDWIDTH_UNKNOWN + ">] ...");
+            pw.println("    Sets a list of zero or more cell channels to use for coex calculations."
+                    + " Actual device reported cell channels will be ignored until"
+                    + " reset-coex-cell-channels is called.");
+            pw.println("  reset-coex-cell-channels");
+            pw.println("    Removes all cell channels set in set-coex-cell-channels and returns to "
+                    + "listening on actual device reported cell channels");
+            pw.println("  get-coex-cell-channels");
+            pw.println("    Prints the cell channels being used for coex.");
+        }
         pw.println("  set-connected-score <score>");
         pw.println("    Set connected wifi network score (to choose between LTE & Wifi for "
                 + "default route).");
