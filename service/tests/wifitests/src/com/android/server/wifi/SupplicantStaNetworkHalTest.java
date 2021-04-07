@@ -21,6 +21,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyByte;
 import static org.mockito.Matchers.eq;
@@ -48,6 +49,7 @@ import android.text.TextUtils;
 
 import androidx.test.filters.SmallTest;
 
+import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.util.NativeUtil;
 import com.android.wifi.resources.R;
 
@@ -99,6 +101,7 @@ public class SupplicantStaNetworkHalTest extends WifiBaseTest {
     private ISupplicantStaNetworkCallback mISupplicantStaNetworkCallback;
     private android.hardware.wifi.supplicant.V1_4.ISupplicantStaNetworkCallback
             mISupplicantStaNetworkCallbackV14;
+    private static final String TEST_DECORATED_IDENTITY_PREFIX = "androidwifi.dev!";
 
     enum SupplicantStaNetworkVersion {
         V1_0,
@@ -1506,6 +1509,31 @@ public class SupplicantStaNetworkHalTest extends WifiBaseTest {
     @Test
     public void testUnsupportingCiphers1_4() throws Exception {
         testUnsupportingCiphers(SupplicantStaNetworkVersion.V1_4);
+    }
+
+    /**
+     * Tests the appending decorated identity prefix to anonymous identity and saving to
+     * wpa_supplicant.
+     */
+    @Test
+    public void testEapNetworkSetsDecoratedIdentityPrefix() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
+        createSupplicantStaNetwork(SupplicantStaNetworkVersion.V1_4);
+        WifiConfiguration config = WifiConfigurationTestUtil.createEapNetwork();
+        config.enterpriseConfig.setAnonymousIdentity(ANONYMOUS_IDENTITY);
+        config.enterpriseConfig.setDecoratedIdentityPrefix(TEST_DECORATED_IDENTITY_PREFIX);
+        // Assume that the default params is used for this test.
+        config.getNetworkSelectionStatus().setCandidateSecurityParams(
+                config.getDefaultSecurityParams());
+        assertTrue(mSupplicantNetwork.saveWifiConfiguration(config));
+        WifiConfiguration loadConfig = new WifiConfiguration();
+        Map<String, String> networkExtras = new HashMap<>();
+        assertTrue(mSupplicantNetwork.loadWifiConfiguration(loadConfig, networkExtras));
+        assertEquals(TEST_DECORATED_IDENTITY_PREFIX
+                + config.enterpriseConfig.getAnonymousIdentity(),
+                loadConfig.enterpriseConfig.getAnonymousIdentity());
+        assertEquals(TEST_DECORATED_IDENTITY_PREFIX + ANONYMOUS_IDENTITY,
+                mSupplicantNetwork.fetchEapAnonymousIdentity());
     }
 
     /**

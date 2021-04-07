@@ -19,6 +19,7 @@ package com.android.server.wifi.hotspot2;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -38,6 +39,7 @@ import android.util.Pair;
 
 import androidx.test.filters.SmallTest;
 
+import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.Clock;
 import com.android.server.wifi.FakeKeys;
 import com.android.server.wifi.MboOceConstants;
@@ -124,6 +126,7 @@ public class PasspointProviderTest extends WifiBaseTest {
     private static final String TEST_ANONYMOUS_IDENTITY = "AnonymousIdentity";
     private static final String USER_CONNECT_CHOICE = "SomeNetworkProfileId";
     private static final int TEST_RSSI = -50;
+    private static final String TEST_DECORATED_IDENTITY_PREFIX = "androidwifi.dev!";
 
     private enum CredentialType {
         USER,
@@ -1932,5 +1935,25 @@ public class PasspointProviderTest extends WifiBaseTest {
         assertEquals(USER_CONNECT_CHOICE,
                 configuration.getNetworkSelectionStatus().getConnectChoice());
         assertEquals(TEST_RSSI, configuration.getNetworkSelectionStatus().getConnectChoiceRssi());
+    }
+
+
+    /**
+     * Verify that an expected decorated identity prefix is received from getWifiConfig()
+     *
+     * @throws Exception
+     */
+    @Test
+    public void testSetDecoratedIdentityPrefix() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
+        // Create provider for R2.
+        PasspointConfiguration config = generateTestPasspointConfiguration(
+                CredentialType.USER, false);
+        config.getCredential().setCaCertificates(null);
+        config.setDecoratedIdentityPrefix(TEST_DECORATED_IDENTITY_PREFIX);
+        mProvider = createProvider(config);
+
+        assertEquals(TEST_DECORATED_IDENTITY_PREFIX,
+                mProvider.getWifiConfig().enterpriseConfig.getDecoratedIdentityPrefix());
     }
 }

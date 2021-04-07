@@ -22,6 +22,7 @@ import android.net.wifi.hotspot2.pps.HomeSp;
 import android.net.wifi.hotspot2.pps.Policy;
 import android.net.wifi.hotspot2.pps.UpdateParameter;
 
+import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.util.XmlUtil;
 
 import org.xmlpull.v1.XmlPullParser;
@@ -117,6 +118,7 @@ public class PasspointXmlUtils {
     private static final String XML_TAG_IS_CARRIER_MERGED = "IsCarrierMerged";
     private static final String XML_TAG_IS_OEM_PAID = "IsOemPaid";
     private static final String XML_TAG_IS_OEM_PRIVATE = "IsOemPrivate";
+    private static final String XML_TAG_DECORATED_IDENTITY_PREFIX = "DecoratedIdentityPrefix";
 
     /**
      * Serialize a {@link PasspointConfiguration} to the output stream as a XML block.
@@ -162,6 +164,10 @@ public class PasspointXmlUtils {
         XmlUtil.writeNextValue(out, XML_TAG_IS_CARRIER_MERGED, config.isCarrierMerged());
         XmlUtil.writeNextValue(out, XML_TAG_IS_OEM_PAID, config.isOemPaid());
         XmlUtil.writeNextValue(out, XML_TAG_IS_OEM_PRIVATE, config.isOemPrivate());
+        if (SdkLevel.isAtLeastS()) {
+            XmlUtil.writeNextValue(out, XML_TAG_DECORATED_IDENTITY_PREFIX,
+                    config.getDecoratedIdentityPrefix());
+        }
     }
 
     /**
@@ -238,6 +244,9 @@ public class PasspointXmlUtils {
                         break;
                     case XML_TAG_IS_OEM_PRIVATE:
                         config.setOemPrivate((boolean) value);
+                        break;
+                    case XML_TAG_DECORATED_IDENTITY_PREFIX:
+                        config.setDecoratedIdentityPrefix((String) value);
                         break;
                     default:
                         throw new XmlPullParserException("Unknown value under "

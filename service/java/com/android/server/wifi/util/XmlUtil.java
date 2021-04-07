@@ -358,6 +358,8 @@ public class XmlUtil {
         public static final String XML_TAG_CARRIER_ID = "CarrierId";
         public static final String XML_TAG_SUBSCRIPTION_ID = "SubscriptionId";
         public static final String XML_TAG_IS_AUTO_JOIN = "AutoJoinEnabled";
+        public static final String XML_TAG_DELETION_PRIORITY = "DeletionPriority";
+
         public static final String XML_TAG_IS_TRUSTED = "Trusted";
         public static final String XML_TAG_IS_OEM_PAID = "OemPaid";
         public static final String XML_TAG_IS_OEM_PRIVATE = "OemPrivate";
@@ -493,6 +495,8 @@ public class XmlUtil {
                     configuration.allowedSuiteBCiphers.toByteArray());
             XmlUtil.writeNextValue(out, XML_TAG_SHARED, configuration.shared);
             XmlUtil.writeNextValue(out, XML_TAG_IS_AUTO_JOIN, configuration.allowAutojoin);
+            XmlUtil.writeNextValue(out, XML_TAG_DELETION_PRIORITY,
+                    configuration.getDeletionPriority());
             writeSecurityParamsListToXml(out, configuration);
         }
 
@@ -811,6 +815,9 @@ public class XmlUtil {
                             break;
                         case XML_TAG_IS_AUTO_JOIN:
                             configuration.allowAutojoin = (boolean) value;
+                            break;
+                        case XML_TAG_DELETION_PRIORITY:
+                            configuration.setDeletionPriority((int) value);
                             break;
                         case XML_TAG_IS_TRUSTED:
                             configuration.trusted = (boolean) value;
@@ -1256,6 +1263,7 @@ public class XmlUtil {
         public static final String XML_TAG_APP_INSTALLED_ROOT_CA_CERT = "AppInstalledRootCaCert";
         public static final String XML_TAG_APP_INSTALLED_PRIVATE_KEY = "AppInstalledPrivateKey";
         public static final String XML_TAG_KEYCHAIN_KEY_ALIAS = "KeyChainAlias";
+        public static final String XML_TAG_DECORATED_IDENTITY_PREFIX = "DecoratedIdentityPrefix";
 
         /**
          * Write password key to the XML stream.
@@ -1335,6 +1343,10 @@ public class XmlUtil {
                     enterpriseConfig.isAppInstalledDeviceKeyAndCert());
             XmlUtil.writeNextValue(out, XML_TAG_KEYCHAIN_KEY_ALIAS,
                     enterpriseConfig.getClientKeyPairAliasInternal());
+            if (SdkLevel.isAtLeastS()) {
+                XmlUtil.writeNextValue(out, XML_TAG_DECORATED_IDENTITY_PREFIX,
+                        enterpriseConfig.getDecoratedIdentityPrefix());
+            }
         }
 
         /**
@@ -1444,6 +1456,11 @@ public class XmlUtil {
                         case XML_TAG_KEYCHAIN_KEY_ALIAS:
                             if (SdkLevel.isAtLeastS()) {
                                 enterpriseConfig.setClientKeyPairAlias((String) value);
+                            }
+                            break;
+                        case XML_TAG_DECORATED_IDENTITY_PREFIX:
+                            if (SdkLevel.isAtLeastS()) {
+                                enterpriseConfig.setDecoratedIdentityPrefix((String) value);
                             }
                             break;
                         default:

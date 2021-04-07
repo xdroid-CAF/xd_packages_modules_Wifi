@@ -43,6 +43,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -133,10 +134,15 @@ public class WifiBlocklistMonitor {
     // Internal logger to make sure imporatant logs do not get lost.
     private BssidBlocklistMonitorLogger mBssidBlocklistMonitorLogger =
             new BssidBlocklistMonitorLogger(60);
+
+    // Map of ssid to Allowlist SSIDs
+    private Map<String, List<String>> mSsidAllowlistMap = new ArrayMap<>();
+
     /**
      * Verbose logging flag. Toggled by developer options.
      */
     private boolean mVerboseLoggingEnabled = false;
+
 
     private Map<Integer, BssidDisableReason> buildBssidDisableReasons() {
         Map<Integer, BssidDisableReason> result = new ArrayMap<>();
@@ -711,6 +717,28 @@ public class WifiBlocklistMonitor {
             bssidBlocklist = new ArrayList<String>(bssidBlocklist.subList(0,
                     fwMaxBlocklistSize));
         }
+
+        // Collect all the allowed SSIDs
+        Set<String> allowedSsidSet = new HashSet<>();
+        for (String ssid : ssids) {
+            List<String> allowedSsidsForSsid = mSsidAllowlistMap.get(ssid);
+            if (allowedSsidsForSsid != null) {
+                allowedSsidSet.addAll(allowedSsidsForSsid);
+            }
+        }
+        ArrayList<String> ssidAllowlist = new ArrayList<>(allowedSsidSet);
+        int allowlistSize = ssidAllowlist.size();
+        int maxAllowlistSize = mConnectivityHelper.getMaxNumAllowlistSsid();
+        if (maxAllowlistSize <= 0) {
+            Log.wtf(TAG, "Invalid max SSID allowlist size:  " + maxAllowlistSize);
+            return;
+        }
+        if (allowlistSize > maxAllowlistSize) {
+            ssidAllowlist = new ArrayList<>(ssidAllowlist.subList(0, maxAllowlistSize));
+            localLog("Trim down SSID allowlist size from " + allowlistSize + " to "
+                    + ssidAllowlist.size());
+        }
+
         // plumb down to HAL
         String message = "set firmware roaming configurations. "
                 + "bssidBlocklist=";
@@ -719,8 +747,7 @@ public class WifiBlocklistMonitor {
         } else {
             message += String.join(", ", bssidBlocklist);
         }
-        if (!mConnectivityHelper.setFirmwareRoamingConfiguration(bssidBlocklist,
-                new ArrayList<String>())) {  // TODO(b/36488259): SSID whitelist management.
+        if (!mConnectivityHelper.setFirmwareRoamingConfiguration(bssidBlocklist, ssidAllowlist)) {
             Log.e(TAG, "Failed to " + message);
             mBssidBlocklistMonitorLogger.log("Failed to " + message);
         } else {
@@ -906,12 +933,12 @@ public class WifiBlocklistMonitor {
         int duration = mContext.getResources().getInteger(
                 R.integer.config_wifiDisableReasonAuthenticationFailureCarrierSpecificDurationMs);
         DisableReasonInfo disableReasonInfo = new DisableReasonInfo(
-                "NETWORK_SELECTION_DISABLED_AUTHENTICATION_FAILURE_CARRIER_SPECIFIC",
+                "NETWORK_SELECTION_DISABLED_AUTHENTICATION_PRIVATE_EAP_ERROR",
                 mContext.getResources().getInteger(R.integer
                         .config_wifiDisableReasonAuthenticationFailureCarrierSpecificThreshold),
                 duration);
         mDisableReasonInfo.put(
-                NetworkSelectionStatus.DISABLED_AUTHENTICATION_FAILURE_CARRIER_SPECIFIC,
+                NetworkSelectionStatus.DISABLED_AUTHENTICATION_PRIVATE_EAP_ERROR,
                 disableReasonInfo);
     }
 
@@ -1102,5 +1129,12 @@ public class WifiBlocklistMonitor {
         } else {
             return info.mDisableTimeoutMillis;
         }
+    }
+
+    /**
+     * Sets the allowlist ssids for the given ssid
+     */
+    public void setAllowlistSsids(@NonNull String ssid, @NonNull List<String> ssidAllowlist) {
+        mSsidAllowlistMap.put(ssid, ssidAllowlist);
     }
 }

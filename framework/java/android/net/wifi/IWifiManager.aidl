@@ -37,10 +37,13 @@ import android.net.wifi.ISuggestionConnectionStatusListener;
 import android.net.wifi.ISuggestionUserApprovalStatusListener;
 import android.net.wifi.ITrafficStateCallback;
 import android.net.wifi.IWifiConnectedNetworkScorer;
+import android.net.wifi.IWifiVerboseLoggingStatusCallback;
 import android.net.wifi.ScanResult;
 import android.net.wifi.SoftApConfiguration;
+import android.net.wifi.WifiAvailableChannel;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.net.wifi.WifiNetworkSuggestion;
 
 import android.os.Messenger;
@@ -71,6 +74,8 @@ interface IWifiManager
     Map getMatchingPasspointConfigsForOsuProviders(in List<OsuProvider> osuProviders);
 
     int addOrUpdateNetwork(in WifiConfiguration config, String packageName);
+
+    WifiManager.AddNetworkResult addOrUpdateNetworkPrivileged(in WifiConfiguration config, String packageName);
 
     boolean addOrUpdatePasspointConfiguration(in PasspointConfiguration config, String packageName);
 
@@ -232,6 +237,10 @@ interface IWifiManager
 
     void unregisterSoftApCallback(in ISoftApCallback callback);
 
+    void registerWifiVerboseLoggingStatusCallback(in IWifiVerboseLoggingStatusCallback listener);
+
+    void unregisterWifiVerboseLoggingStatusCallback(in IWifiVerboseLoggingStatusCallback listener);
+
     void addOnWifiUsabilityStatsListener(in IOnWifiUsabilityStatsListener listener);
 
     void removeOnWifiUsabilityStatsListener(in IOnWifiUsabilityStatsListener listener);
@@ -307,9 +316,9 @@ interface IWifiManager
 
     boolean isAutoWakeupEnabled();
 
-    void startTemporarilyDisablingAllNonCarrierMergedWifi(int subId);
+    void startRestrictingAutoJoinToSubscriptionId(int subId);
 
-    void stopTemporarilyDisablingAllNonCarrierMergedWifi();
+    void stopRestrictingAutoJoinToSubscriptionId();
 
     void setCarrierNetworkOffloadEnabled(int subscriptionId, boolean merged, boolean enabled);
 
@@ -319,7 +328,7 @@ interface IWifiManager
 
     void unregisterSubsystemRestartCallback(in ISubsystemRestartCallback callback);
 
-    void restartWifiSubsystem(String reason);
+    void restartWifiSubsystem();
 
     void addSuggestionUserApprovalStatusListener(in ISuggestionUserApprovalStatusListener listener, String packageName);
 
@@ -332,6 +341,8 @@ interface IWifiManager
     boolean setWifiScoringEnabled(boolean enabled);
 
     void flushPasspointAnqpCache(String packageName);
+
+    List<WifiAvailableChannel> getUsableChannels(int band, int mode, int filter);
 
     int getSoftApWifiStandard();
 
