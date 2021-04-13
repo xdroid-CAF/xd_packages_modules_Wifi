@@ -636,7 +636,7 @@ public class WifiNative {
             if (!unregisterNetworkObserver(iface.networkObserver)) {
                 Log.e(TAG, "Failed to unregister network observer on " + iface);
             }
-            if (!mHostapdHal.removeAccessPoint(iface.name)) {
+            if (!removeAccessPoint(iface.name)) {
                 Log.e(TAG, "Failed to remove access point on " + iface);
             }
             if (!mWifiCondManager.tearDownSoftApInterface(iface.name)) {
@@ -921,6 +921,13 @@ public class WifiNative {
             @SoftApConfiguration.BandType int band, boolean isBridged) {
         synchronized (mLock) {
             if (mWifiVendorHal.isVendorHalSupported()) {
+                // Hostapd vendor V1_2: bridge iface setup start
+                mVendorBridgeModeActive = isBridged && mHostapdHal.useVendorHostapdHal();
+                Log.i(TAG, "CreateApIface - vendor bridge=" + mVendorBridgeModeActive);
+                if (isVendorBridgeModeActive()) {
+                    return createVendorBridgeIface(iface, requestorWs, band);
+                }
+                // Hostapd vendor V1_2: bridge iface setup end
                 return mWifiVendorHal.createApIface(
                         new InterfaceDestoyedListenerInternal(iface.id), requestorWs,
                         band, isBridged);
@@ -965,6 +972,11 @@ public class WifiNative {
     private boolean removeApIface(@NonNull Iface iface) {
         synchronized (mLock) {
             if (mWifiVendorHal.isVendorHalSupported()) {
+                // Hostapd vendor V1_2: bridge iface remove start
+                if (isVendorBridgeModeActive()) {
+                    return removeVendorBridgeIface(iface);
+                }
+                // Hostapd vendor V1_2: bridge iface remove end
                 return mWifiVendorHal.removeApIface(iface.name);
             } else {
                 Log.i(TAG, "Vendor Hal not supported, ignoring removeApIface.");
@@ -1413,6 +1425,24 @@ public class WifiNative {
                 Log.e(TAG, "Unable to get interface config", e);
                 return false;
             }
+        }
+    }
+
+    /**
+     * Set interface UP.
+     *
+     * @param ifaceName Name of the interface.
+     * @return true if iface up, false if it's down or on error.
+     */
+    public boolean setInterfaceUp(String ifname) {
+        if (TextUtils.isEmpty(ifname)) return false;
+
+        try {
+            mNetdWrapper.setInterfaceUp(ifname);
+            return mNetdWrapper.isInterfaceUp(ifname);
+        } catch (IllegalStateException e) {
+            Log.e(TAG, "Unable to set interface Up", e);
+            return false;
         }
     }
 
@@ -1877,6 +1907,17 @@ public class WifiNative {
      */
     public boolean forceClientDisconnect(@NonNull String ifaceName,
             @NonNull MacAddress client, int reasonCode) {
+        if (isVendorBridgeModeActive()) {
+            boolean ret1 = false, ret2= false;
+            if (!TextUtils.isEmpty(mdualApInterfaces[0])) {
+                ret1 = mHostapdHal.forceClientDisconnect(mdualApInterfaces[0], client, reasonCode);
+            }
+            if (!TextUtils.isEmpty(mdualApInterfaces[1])) {
+                ret2 = mHostapdHal.forceClientDisconnect(mdualApInterfaces[1], client, reasonCode);
+            }
+            return ret1 || ret2;
+        }
+
         return mHostapdHal.forceClientDisconnect(ifaceName, client, reasonCode);
     }
 
@@ -3991,15 +4032,126 @@ public class WifiNative {
     }
 
     /* ######################### Vendor hostapd hal V1_2 adaptor  ###################### */
+    private boolean mVendorBridgeModeActive;
+    private String[] mdualApInterfaces = new String[2];
+
+    public static String getBridgeIfaceName() {
+        return "ap_br_0"; // Refer kApBridgeIfacePrefix
+    }
+
+    public boolean isVendorBridgeModeActive() {
+        return mVendorBridgeModeActive;
+    }
+
+    private String createVendorBridgeIface(@NonNull Iface iface,
+            @NonNull WorkSource requestorWs,
+            @SoftApConfiguration.BandType int band) {
+
+        // create 2 Ap interfaces
+        mdualApInterfaces[0] = mWifiVendorHal.createApIface(
+              new InterfaceDestoyedListenerInternal(iface.id), requestorWs, band, false);
+        if (TextUtils.isEmpty(mdualApInterfaces[0])) {
+            return null;
+        }
+        mdualApInterfaces[1] = mWifiVendorHal.createApIface(
+              new InterfaceDestoyedListenerInternal(iface.id), requestorWs, band, false);
+        if (TextUtils.isEmpty(mdualApInterfaces[1])) {
+            mWifiVendorHal.removeApIface(mdualApInterfaces[0]);
+            return null;
+        }
+
+        // return bridge name
+        return getBridgeIfaceName();
+    }
+
+    private boolean removeVendorBridgeIface(@NonNull Iface iface) {
+         boolean ret1 = true, ret2 = true;
+
+         if (!getBridgeIfaceName().equals(iface.name)) {
+             Log.i(TAG, "Trying to remove unknown vendor bridge iface=" + iface.name);
+             return false;
+         }
+
+         Log.i(TAG, "Trying to remove vendor bridge iface=" + iface.name);
+         if (!TextUtils.isEmpty(mdualApInterfaces[0])) {
+             ret1 = mWifiVendorHal.removeApIface(mdualApInterfaces[0]);
+             if (ret1) {
+                 mdualApInterfaces[0] = null;
+             }
+         }
+         if (!TextUtils.isEmpty(mdualApInterfaces[1])) {
+             ret2 = mWifiVendorHal.removeApIface(mdualApInterfaces[1]);
+             if (ret2) {
+                 mdualApInterfaces[1] = null;
+             }
+         }
+
+         return ret1 && ret2;
+    }
+
     private boolean addAccessPoint(@NonNull String ifaceName,
           @NonNull SoftApConfiguration config, boolean isMetered, SoftApListener listener) {
 
-        if (mHostapdHal.useVendorHostapdHal()) {
+        if (isVendorBridgeModeActive()) {
+            SoftApConfiguration.Builder localConfigBuilder =
+                    new SoftApConfiguration.Builder(config);
+            int channelNum = config.getChannels().size();
+            if (channelNum != 2) return false;
+
+            // AP + AP UP
+            for (int i = 0; i < channelNum; i++) {
+                SoftApConfiguration localConfig;
+                int band = config.getChannels().keyAt(i);
+                int channel = config.getChannels().valueAt(i);
+                if (channel == 0) {
+                     localConfig = localConfigBuilder.setBand(band).build();
+                } else {
+                     localConfig = localConfigBuilder.setChannel(channel, band).build();
+                }
+                if (!mHostapdHal.addVendorAccessPoint(
+                      mdualApInterfaces[i], localConfig, listener::onFailure)) {
+                    Log.e(TAG, "Failed to addVendorAP["+ i + "] - " + mdualApInterfaces[i]);
+                    return false;
+                }
+            }
+
+            // bridge UP
+            String bridgeInterface = getBridgeIfaceName();
+            if (!setInterfaceUp(bridgeInterface)) {
+                Log.e(TAG, "Failed to set interface up - " + bridgeInterface);
+                return false;
+            }
+        } else if (mHostapdHal.useVendorHostapdHal()) {
             if (!mHostapdHal.addVendorAccessPoint(ifaceName, config, listener::onFailure)) {
+                Log.e(TAG, "Failed to addVendorAP - " + ifaceName);
                 return false;
             }
         } else {
             if (!mHostapdHal.addAccessPoint(ifaceName, config, isMetered, listener::onFailure)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean removeAccessPoint(@NonNull String ifaceName) {
+        if (isVendorBridgeModeActive()) {
+            boolean ret1 = true, ret2 = true;
+
+            if (!getBridgeIfaceName().equals(ifaceName)) {
+                Log.e(TAG, "Trying to remove unknown vendor access point iface=" + ifaceName);
+                return false;
+            }
+
+            if (!TextUtils.isEmpty(mdualApInterfaces[0])) {
+                ret1 = mHostapdHal.removeAccessPoint(mdualApInterfaces[0]);
+            }
+            if (!TextUtils.isEmpty(mdualApInterfaces[1])) {
+                ret2 = mHostapdHal.removeAccessPoint(mdualApInterfaces[1]);
+            }
+            return ret1 && ret2;
+        } else {
+            if (!mHostapdHal.removeAccessPoint(ifaceName)) {
                 return false;
             }
         }

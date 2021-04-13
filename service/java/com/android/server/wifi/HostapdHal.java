@@ -1471,7 +1471,12 @@ public class HostapdHal {
         vIfaceParamsV1_0.ifaceParams = ifaceParamsV1_0;
 
         // Vendor Hostapd V1_0 specific parameters
-        vIfaceParamsV1_0.bridgeIfaceName = "";
+        WifiNative wifiNative = WifiInjector.getInstance().getWifiNative();
+        if (wifiNative.isVendorBridgeModeActive()) {
+            vIfaceParamsV1_0.bridgeIfaceName = wifiNative.getBridgeIfaceName();
+        } else {
+            vIfaceParamsV1_0.bridgeIfaceName = "";
+        }
 
         return vIfaceParamsV1_0;
     }
@@ -1785,12 +1790,18 @@ public class HostapdHal {
       String ifaceName, byte[/* 6 */] bssid, boolean isConnected) {
         if (bssid == null) return;
 
+        String apIfaceInstance = ifaceName;
+        WifiNative wifiNative = WifiInjector.getInstance().getWifiNative();
+        if (wifiNative.isVendorBridgeModeActive()) {
+            apIfaceInstance = wifiNative.getBridgeIfaceName();
+        }
+
         try {
-            Log.d(TAG, "notifyConnectedClientsChanged on " + ifaceName
+            Log.d(TAG, "notifyConnectedClientsChanged on " + ifaceName + " / " + apIfaceInstance
                    + " and Mac is " + MacAddress.fromBytes(bssid).toString()
                    + " isConnected: " + isConnected);
             if (mSoftApEventListener != null) {
-                mSoftApEventListener.onConnectedClientsChanged(ifaceName,
+                mSoftApEventListener.onConnectedClientsChanged(apIfaceInstance,
                     MacAddress.fromBytes(bssid), isConnected);
             }
         } catch (IllegalArgumentException iae) {
