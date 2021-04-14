@@ -938,17 +938,11 @@ public class HalDeviceManager {
 
                 if (!mWifi.linkToDeath(mIWifiDeathRecipient, /* don't care */ 0)) {
                     Log.e(TAG, "Error on linkToDeath on IWifi - will retry later");
+                    mWifi = null;
                     return;
                 }
 
-                WifiStatus status;
-                android.hardware.wifi.V1_5.IWifi iWifiV15 = getWifiServiceForV1_5Mockable(mWifi);
-                if (iWifiV15 != null) {
-                    status = iWifiV15.registerEventCallback_1_5(mWifiEventCallbackV15);
-                } else {
-                    status = mWifi.registerEventCallback(mWifiEventCallback);
-                }
-
+                WifiStatus status = mWifi.registerEventCallback(mWifiEventCallback);
                 if (status.code != WifiStatusCode.SUCCESS) {
                     Log.e(TAG, "IWifi.registerEventCallback failed: " + statusString(status));
                     mWifi = null;
@@ -958,6 +952,7 @@ public class HalDeviceManager {
                 stopWifi();
                 mIsReady = true;
             } catch (RemoteException e) {
+                mWifi = null;
                 Log.e(TAG, "Exception while operating on IWifi: " + e);
             }
         }
