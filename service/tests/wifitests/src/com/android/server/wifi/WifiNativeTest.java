@@ -23,6 +23,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeTrue;
@@ -50,6 +51,7 @@ import android.net.wifi.nl80211.WifiNl80211Manager.SendMgmtFrameCallback;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.WorkSource;
+import android.text.TextUtils;
 
 import androidx.test.filters.SmallTest;
 
@@ -62,6 +64,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.AdditionalMatchers;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -253,6 +256,10 @@ public class WifiNativeTest extends WifiBaseTest {
 
     ArgumentCaptor<WifiNl80211Manager.ScanEventCallback> mScanCallbackCaptor =
             ArgumentCaptor.forClass(WifiNl80211Manager.ScanEventCallback.class);
+
+    @Captor
+    private ArgumentCaptor<WifiNl80211Manager.CountryCodeChangeListener>
+            mCountryCodeChangeListenerCaptor;
 
     private WifiNative mWifiNative;
 
@@ -987,6 +994,28 @@ public class WifiNativeTest extends WifiBaseTest {
     }
 
     /**
+     * Test that selectTxPowerScenario() calls into WifiVendorHal (success case)
+     */
+    @Test
+    public void testSelectTxPowerScenario_success() throws Exception {
+        when(mWifiVendorHal.selectTxPowerScenario(any(SarInfo.class))).thenReturn(true);
+        SarInfo sarInfo = new SarInfo();
+        assertTrue(mWifiNative.selectTxPowerScenario(sarInfo));
+        verify(mWifiVendorHal).selectTxPowerScenario(sarInfo);
+    }
+
+    /**
+     * Test that selectTxPowerScenario() calls into WifiVendorHal (failure case)
+     */
+    @Test
+    public void testSelectTxPowerScenario_failure() throws Exception {
+        when(mWifiVendorHal.selectTxPowerScenario(any(SarInfo.class))).thenReturn(false);
+        SarInfo sarInfo = new SarInfo();
+        assertFalse(mWifiNative.selectTxPowerScenario(sarInfo));
+        verify(mWifiVendorHal).selectTxPowerScenario(sarInfo);
+    }
+
+    /**
      * Test that setPowerSave() with true, results in calling into SupplicantStaIfaceHal
      */
     @Test
@@ -1178,5 +1207,66 @@ public class WifiNativeTest extends WifiBaseTest {
         assertTrue(mWifiNative.replaceStaIfaceRequestorWs(WIFI_IFACE_NAME, TEST_WORKSOURCE2));
         verify(mWifiVendorHal).replaceStaIfaceRequestorWs(
                 eq(WIFI_IFACE_NAME), same(TEST_WORKSOURCE2));
+    }
+
+    /**
+     * Verifies that updateLinkedNetworks() calls underlying SupplicantStaIfaceHal.
+     */
+    @Test
+    public void testUpdateLinkedNetworks() {
+        when(mStaIfaceHal.updateLinkedNetworks(any(), anyInt(), any())).thenReturn(true);
+
+        assertTrue(mWifiNative.updateLinkedNetworks(WIFI_IFACE_NAME, 0, null));
+        verify(mStaIfaceHal).updateLinkedNetworks(WIFI_IFACE_NAME, 0, null);
+    }
+
+    /**
+     * Verifies that getEapAnonymousIdentity() works as expected.
+     */
+    @Test
+    public void testGetEapAnonymousIdentity() {
+        // Verify the empty use case
+        when(mStaIfaceHal.getCurrentNetworkEapAnonymousIdentity(WIFI_IFACE_NAME))
+                .thenReturn("");
+        assertTrue(TextUtils.isEmpty(mWifiNative.getEapAnonymousIdentity(WIFI_IFACE_NAME)));
+
+        // Verify with an anonymous identity
+        final String anonymousId = "anonymous@homerealm.example.org";
+        when(mStaIfaceHal.getCurrentNetworkEapAnonymousIdentity(WIFI_IFACE_NAME))
+                .thenReturn(anonymousId);
+        assertEquals(anonymousId, mWifiNative.getEapAnonymousIdentity(WIFI_IFACE_NAME));
+
+        // Verify with a pseudonym identity
+        final String pseudonymId = "a4624bc22490da3@homerealm.example.org";
+        when(mStaIfaceHal.getCurrentNetworkEapAnonymousIdentity(WIFI_IFACE_NAME))
+                .thenReturn(pseudonymId);
+        assertEquals(pseudonymId, mWifiNative.getEapAnonymousIdentity(WIFI_IFACE_NAME));
+
+        // Verify that decorated anonymous identity is truncated
+        when(mStaIfaceHal.getCurrentNetworkEapAnonymousIdentity(WIFI_IFACE_NAME))
+                .thenReturn("otherrealm.example.net!" + anonymousId);
+        assertEquals(anonymousId, mWifiNative.getEapAnonymousIdentity(WIFI_IFACE_NAME));
+
+        // Verify that recursive decorated anonymous identity is truncated
+        when(mStaIfaceHal.getCurrentNetworkEapAnonymousIdentity(WIFI_IFACE_NAME))
+                .thenReturn("proxyrealm.example.com!otherrealm.example.net!" + anonymousId);
+        assertEquals(anonymousId, mWifiNative.getEapAnonymousIdentity(WIFI_IFACE_NAME));
+
+        // Verify an invalid decoration with no identity use cases
+        when(mStaIfaceHal.getCurrentNetworkEapAnonymousIdentity(WIFI_IFACE_NAME))
+                .thenReturn("otherrealm.example.net!");
+        assertNull(mWifiNative.getEapAnonymousIdentity(WIFI_IFACE_NAME));
+    }
+
+
+    @Test
+    public void testCountryCodeChangeListener() {
+        final String testCountryCode = "US";
+        WifiCountryCode.ChangeListener changeListener = mock(WifiCountryCode.ChangeListener.class);
+        mWifiNative.registerCountryCodeEventListener(changeListener);
+        verify(mWificondControl).registerCountryCodeChangeListener(any(),
+                mCountryCodeChangeListenerCaptor.capture());
+        mCountryCodeChangeListenerCaptor.getValue().onChanged(testCountryCode);
+        verify(changeListener).onDriverCountryCodeChanged(testCountryCode);
     }
 }

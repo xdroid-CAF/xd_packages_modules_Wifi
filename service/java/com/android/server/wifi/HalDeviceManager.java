@@ -40,9 +40,6 @@ import android.os.IHwBinder.DeathRecipient;
 import android.os.RemoteException;
 import android.os.WorkSource;
 import android.util.Log;
-import android.util.MutableBoolean;
-import android.util.MutableInt;
-import android.util.MutableLong;
 import android.util.Pair;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
@@ -411,6 +408,26 @@ public class HalDeviceManager {
     }
 
     /**
+     * Register a SubsystemRestartListener to listen to the subsystem restart event from HAL.
+     * Use the action() to forward the event to SelfRecovery when receiving the event from HAL.
+     *
+     * @param listener SubsystemRestartListener listener object.
+     * @param handler Handler on which to dispatch listener. Null implies the listener will be
+     *                invoked synchronously from the context of the client which triggered the
+     *                state change.
+     */
+    public void registerSubsystemRestartListener(@NonNull SubsystemRestartListener listener,
+            @Nullable Handler handler) {
+        if (listener == null) {
+            Log.wtf(TAG, "registerSubsystemRestartListener with nulls!? listener=" + listener);
+            return;
+        }
+        if (!mSubsystemRestartListener.add(new SubsystemRestartListenerProxy(listener, handler))) {
+            Log.w(TAG, "registerSubsystemRestartListener: duplicate registration ignored");
+        }
+    }
+
+    /**
      * Register an InterfaceDestroyedListener to the specified iface - returns true on success
      * and false on failure. This listener is in addition to the one registered when the interface
      * was created - allowing non-creators to monitor interface status.
@@ -509,6 +526,17 @@ public class HalDeviceManager {
     }
 
     /**
+     * Called when subsystem restart
+     */
+    public interface SubsystemRestartListener {
+        /**
+         * Called for subsystem restart event from the HAL.
+         * It will trigger recovery mechanism in framework.
+         */
+        void onSubsystemRestart();
+    }
+
+    /**
      * Called when interface is destroyed.
      */
     public interface InterfaceDestroyedListener {
@@ -577,7 +605,7 @@ public class HalDeviceManager {
             for (int type : IFACE_TYPES_BY_PRIORITY) {
                 ifaceComboArr[type] = ifaceCombo.get(type, 0);
             }
-            WifiChipInfo[] chipInfos = getAllChipInfo();
+            WifiChipInfo[] chipInfos = getAllChipInfoCached();
             if (chipInfos == null) return false;
             return isItPossibleToCreateIfaceCombo(
                     chipInfos, requiredChipCapabilities, ifaceComboArr);
@@ -657,11 +685,13 @@ public class HalDeviceManager {
     private IWifi mWifi;
     private IWifiRttController mIWifiRttController;
     private final WifiEventCallback mWifiEventCallback = new WifiEventCallback();
+    private final WifiEventCallbackV15 mWifiEventCallbackV15 = new WifiEventCallbackV15();
     private final Set<ManagerStatusListenerProxy> mManagerStatusListeners = new HashSet<>();
     private final Set<InterfaceRttControllerLifecycleCallbackProxy>
             mRttControllerLifecycleCallbacks = new HashSet<>();
     private final SparseArray<IWifiChipEventCallback.Stub> mDebugCallbacks = new SparseArray<>();
     private boolean mIsReady;
+    private final Set<SubsystemRestartListenerProxy> mSubsystemRestartListener = new HashSet<>();
 
     /*
      * This is the only place where we cache HIDL information in this manager. Necessary since
@@ -737,6 +767,11 @@ public class HalDeviceManager {
             Log.e(TAG, "Exception getting IWifi service: " + e);
             return null;
         }
+    }
+
+    protected android.hardware.wifi.V1_5.IWifi getWifiServiceForV1_5Mockable(IWifi iWifi) {
+        if (null == iWifi) return null;
+        return android.hardware.wifi.V1_5.IWifi.castFrom(iWifi);
     }
 
     protected IServiceManager getServiceManagerMockable() {
@@ -906,7 +941,14 @@ public class HalDeviceManager {
                     return;
                 }
 
-                WifiStatus status = mWifi.registerEventCallback(mWifiEventCallback);
+                WifiStatus status;
+                android.hardware.wifi.V1_5.IWifi iWifiV15 = getWifiServiceForV1_5Mockable(mWifi);
+                if (iWifiV15 != null) {
+                    status = iWifiV15.registerEventCallback_1_5(mWifiEventCallbackV15);
+                } else {
+                    status = mWifi.registerEventCallback(mWifiEventCallback);
+                }
+
                 if (status.code != WifiStatusCode.SUCCESS) {
                     Log.e(TAG, "IWifi.registerEventCallback failed: " + statusString(status));
                     mWifi = null;
@@ -938,7 +980,7 @@ public class HalDeviceManager {
 
         synchronized (mLock) {
             try {
-                MutableBoolean statusOk = new MutableBoolean(false);
+                Mutable<Boolean> statusOk = new Mutable<>(false);
                 Mutable<ArrayList<Integer>> chipIdsResp = new Mutable<>();
 
                 // get all chip IDs
@@ -1029,6 +1071,23 @@ public class HalDeviceManager {
         }
     }
 
+    @Nullable
+    private WifiChipInfo[] mCachedWifiChipInfos = null;
+
+    /**
+     * Get current information about all the chips in the system: modes, current mode (if any), and
+     * any existing interfaces.
+     *
+     * Intended to be called for any external iface support related queries. This information is
+     * cached to reduce performance overhead (unlike {@link #getAllChipInfo()}).
+     */
+    private WifiChipInfo[] getAllChipInfoCached() {
+        if (mCachedWifiChipInfos == null) {
+            mCachedWifiChipInfos = getAllChipInfo();
+        }
+        return mCachedWifiChipInfos;
+    }
+
     /**
      * Get current information about all the chips in the system: modes, current mode (if any), and
      * any existing interfaces.
@@ -1046,7 +1105,7 @@ public class HalDeviceManager {
             }
 
             try {
-                MutableBoolean statusOk = new MutableBoolean(false);
+                Mutable<Boolean> statusOk = new Mutable<>(false);
                 Mutable<ArrayList<Integer>> chipIdsResp = new Mutable<>();
 
                 // get all chip IDs
@@ -1099,8 +1158,8 @@ public class HalDeviceManager {
                         return null;
                     }
 
-                    MutableBoolean currentModeValidResp = new MutableBoolean(false);
-                    MutableInt currentModeResp = new MutableInt(0);
+                    Mutable<Boolean> currentModeValidResp = new Mutable<>(false);
+                    Mutable<Integer> currentModeResp = new Mutable<>(0);
                     chipResp.value.getMode((WifiStatus status, int modeId) -> {
                         statusOk.value = status.code == WifiStatusCode.SUCCESS;
                         if (statusOk.value) {
@@ -1116,11 +1175,11 @@ public class HalDeviceManager {
                         return null;
                     }
 
-                    MutableLong chipCapabilities = new MutableLong(0);
+                    Mutable<Long> chipCapabilities = new Mutable<>(0L);
                     chipCapabilities.value = getChipCapabilities(chipResp.value);
 
                     Mutable<ArrayList<String>> ifaceNamesResp = new Mutable<>();
-                    MutableInt ifaceIndex = new MutableInt(0);
+                    Mutable<Integer> ifaceIndex = new Mutable<>(0);
 
                     chipResp.value.getStaIfaceNames(
                             (WifiStatus status, ArrayList<String> ifnames) -> {
@@ -1444,6 +1503,36 @@ public class HalDeviceManager {
         }
     }
 
+    private class WifiEventCallbackV15 extends
+            android.hardware.wifi.V1_5.IWifiEventCallback.Stub {
+        private final WifiEventCallback mWifiEventCallback = new WifiEventCallback();
+        @Override
+        public void onStart() throws RemoteException {
+            mWifiEventCallback.onStart();
+        }
+
+        @Override
+        public void onStop() throws RemoteException {
+            mWifiEventCallback.onStop();
+        }
+
+        @Override
+        public void onFailure(WifiStatus status) throws RemoteException {
+            mWifiEventCallback.onFailure(status);
+        }
+
+        @Override
+        public void onSubsystemRestart(WifiStatus status) throws RemoteException {
+            mEventHandler.post(() -> {
+                synchronized (mLock) {
+                    for (SubsystemRestartListenerProxy cb : mSubsystemRestartListener) {
+                        cb.action();
+                    }
+                }
+            });
+        }
+    }
+
     private void managerStatusListenerDispatch() {
         synchronized (mLock) {
             for (ManagerStatusListenerProxy cb : mManagerStatusListeners) {
@@ -1464,18 +1553,18 @@ public class HalDeviceManager {
         }
     }
 
-    Set<Integer> getSupportedIfaceTypesInternal(IWifiChip chip) {
+    private Set<Integer> getSupportedIfaceTypesInternal(IWifiChip chip) {
         Set<Integer> results = new HashSet<>();
 
-        WifiChipInfo[] chipInfos = getAllChipInfo();
+        WifiChipInfo[] chipInfos = getAllChipInfoCached();
         if (chipInfos == null) {
             Log.e(TAG, "getSupportedIfaceTypesInternal: no chip info found");
             return results;
         }
 
-        MutableInt chipIdIfProvided = new MutableInt(0); // NOT using 0 as a magic value
+        Mutable<Integer> chipIdIfProvided = new Mutable<>(0); // NOT using 0 as a magic value
         if (chip != null) {
-            MutableBoolean statusOk = new MutableBoolean(false);
+            Mutable<Boolean> statusOk = new Mutable<>(false);
             try {
                 chip.getId((WifiStatus status, int id) -> {
                     if (status.code == WifiStatusCode.SUCCESS) {
@@ -2356,6 +2445,19 @@ public class HalDeviceManager {
         }
     }
 
+    private class SubsystemRestartListenerProxy extends
+            ListenerProxy<SubsystemRestartListener> {
+        SubsystemRestartListenerProxy(@NonNull SubsystemRestartListener subsystemRestartListener,
+                                        Handler handler) {
+            super(subsystemRestartListener, handler, "SubsystemRestartListenerProxy");
+        }
+
+        @Override
+        protected void action() {
+            mListener.onSubsystemRestart();
+        }
+    }
+
     private class InterfaceDestroyedListenerProxy extends
             ListenerProxy<InterfaceDestroyedListener> {
         private final String mIfaceName;
@@ -2529,7 +2631,7 @@ public class HalDeviceManager {
 
     // Will return -1 for invalid results! Otherwise will return one of the 4 valid values.
     private static int getType(IWifiIface iface) {
-        MutableInt typeResp = new MutableInt(-1);
+        Mutable<Integer> typeResp = new Mutable<>(-1);
         try {
             iface.getType((WifiStatus status, int type) -> {
                 if (status.code == WifiStatusCode.SUCCESS) {
@@ -2573,7 +2675,7 @@ public class HalDeviceManager {
         if (wifiChip == null) return featureSet;
 
         try {
-            final MutableLong feat = new MutableLong(CHIP_CAPABILITY_UNINITIALIZED);
+            final Mutable<Long> feat = new Mutable<>(CHIP_CAPABILITY_UNINITIALIZED);
             synchronized (mLock) {
                 android.hardware.wifi.V1_5.IWifiChip iWifiChipV15 =
                         getWifiChipForV1_5Mockable(wifiChip);
@@ -2581,7 +2683,7 @@ public class HalDeviceManager {
                 if (iWifiChipV15 != null) {
                     iWifiChipV15.getCapabilities_1_5((status, capabilities) -> {
                         if (!ok("getCapabilities_1_5", status)) return;
-                        feat.value = capabilities;
+                        feat.value = (long) capabilities;
                     });
                 }
             }
@@ -2597,7 +2699,7 @@ public class HalDeviceManager {
      * Dump the internal state of the class.
      */
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        pw.println("HalDeviceManager:");
+        pw.println("Dump of HalDeviceManager:");
         pw.println("  mServiceManager: " + mServiceManager);
         pw.println("  mWifi: " + mWifi);
         pw.println("  mManagerStatusListeners: " + mManagerStatusListeners);

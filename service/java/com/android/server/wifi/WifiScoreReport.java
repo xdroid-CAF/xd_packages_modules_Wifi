@@ -19,8 +19,9 @@ package com.android.server.wifi;
 import android.annotation.Nullable;
 import android.content.Context;
 import android.net.Network;
-import android.net.NetworkAgent;
+import android.net.NetworkCapabilities;
 import android.net.wifi.IWifiConnectedNetworkScorer;
+import android.net.wifi.WifiConnectedSessionInfo;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.net.wifi.nl80211.WifiNl80211Manager;
@@ -89,9 +90,11 @@ public class WifiScoreReport {
     private VelocityBasedConnectedScore mVelocityBasedConnectedScore;
     private final WifiSettingsStore mWifiSettingsStore;
     private int mSessionIdNoReset = INVALID_SESSION_ID;
+    // Indicate whether current network is selected by the user
+    private boolean mIsUserSelected = false;
 
     @Nullable
-    private NetworkAgent mNetworkAgent;
+    private WifiNetworkAgent mNetworkAgent;
     private final WifiMetrics mWifiMetrics;
     private final ExtendedWifiInfo mWifiInfo;
     private final WifiNative mWifiNative;
@@ -384,7 +387,7 @@ public class WifiScoreReport {
         /**
          * Starts a new scoring session.
          */
-        public void startSession(int sessionId) {
+        public void startSession(int sessionId, boolean isUserSelected) {
             if (sessionId == INVALID_SESSION_ID) {
                 throw new IllegalArgumentException();
             }
@@ -400,7 +403,11 @@ public class WifiScoreReport {
             mSessionId = sessionId;
             mSessionIdNoReset = sessionId;
             try {
-                mScorer.onStart(sessionId);
+                WifiConnectedSessionInfo sessionInfo =
+                        new WifiConnectedSessionInfo.Builder(sessionId)
+                                .setUserSelected(isUserSelected)
+                                .build();
+                mScorer.onStart(sessionInfo);
             } catch (RemoteException e) {
                 Log.e(TAG, "Unable to start Wifi connected network scorer " + this, e);
                 revertToDefaultConnectedScorer();
@@ -577,6 +584,11 @@ public class WifiScoreReport {
             }
         }
         return netId;
+    }
+
+    @Nullable
+    private NetworkCapabilities getCurrentNetCapabilities() {
+        return mNetworkAgent == null ? null : mNetworkAgent.getCurrentNetworkCapabilities();
     }
 
     private int getCurrentSessionId() {
@@ -799,7 +811,7 @@ public class WifiScoreReport {
         // If there is already a connection, start a new session
         final int netId = getCurrentNetId();
         if (netId > 0 && !mShouldReduceNetworkScore) {
-            startConnectedNetworkScorer(netId);
+            startConnectedNetworkScorer(netId, mIsUserSelected);
         }
         return true;
     }
@@ -816,22 +828,53 @@ public class WifiScoreReport {
     }
 
     /**
+     * If this connection is not going to be the default route on the device when cellular is
+     * present, don't send this connection to external scorer for scoring (since scoring only makes
+     * sense if we need to score wifi vs cellular to determine the default network).
+     *
+     * Hence, we ignore local only or restricted wifi connections.
+     * @return true if the connection is local only or restricted, false otherwise.
+     */
+    private boolean isLocalOnlyOrRestrictedConnection() {
+        final NetworkCapabilities nc = getCurrentNetCapabilities();
+        if (nc == null) return false;
+        if (SdkLevel.isAtLeastS()) {
+            // restricted connection support only added in S.
+            if (nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_OEM_PAID)
+                    || nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_OEM_PRIVATE)) {
+                // restricted connection.
+                Log.v(TAG, "Restricted connection, ignore.");
+                return true;
+            }
+        }
+        if (!nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+            // local only connection.
+            Log.v(TAG, "Local only connection, ignore.");
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Start the registered Wi-Fi connected network scorer.
      * @param netId identifies the current android.net.Network
      */
-    public void startConnectedNetworkScorer(int netId) {
+    public void startConnectedNetworkScorer(int netId, boolean isUserSelected) {
+        mIsUserSelected = isUserSelected;
         final int sessionId = getCurrentSessionId();
         if (mWifiConnectedNetworkScorerHolder == null
                 || netId != getCurrentNetId()
+                || isLocalOnlyOrRestrictedConnection()
                 || sessionId == INVALID_SESSION_ID) {
             Log.w(TAG, "Cannot start external scoring"
                     + " netId=" + netId
                     + " currentNetId=" + getCurrentNetId()
+                    + " currentNetCapabilities=" + getCurrentNetCapabilities()
                     + " sessionId=" + sessionId);
             return;
         }
         mWifiInfo.setScore(ConnectedScore.WIFI_MAX_SCORE);
-        mWifiConnectedNetworkScorerHolder.startSession(sessionId);
+        mWifiConnectedNetworkScorerHolder.startSession(sessionId, mIsUserSelected);
         mWifiInfoNoReset.setBSSID(mWifiInfo.getBSSID());
         mWifiInfoNoReset.setSSID(mWifiInfo.getWifiSsid());
         mWifiInfoNoReset.setRssi(mWifiInfo.getRssi());
@@ -865,7 +908,7 @@ public class WifiScoreReport {
     /**
      * Set NetworkAgent
      */
-    public void setNetworkAgent(NetworkAgent agent) {
+    public void setNetworkAgent(WifiNetworkAgent agent) {
         // if mNetworkAgent was null when setShouldReduceNetworkScore() was called, the score wasn't
         // sent. Send it now that the NetworkAgent has been set.
         if (mNetworkAgent == null && agent != null && mShouldReduceNetworkScore) {

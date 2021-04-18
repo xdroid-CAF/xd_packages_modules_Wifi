@@ -37,10 +37,13 @@ import android.net.wifi.ISuggestionConnectionStatusListener;
 import android.net.wifi.ISuggestionUserApprovalStatusListener;
 import android.net.wifi.ITrafficStateCallback;
 import android.net.wifi.IWifiConnectedNetworkScorer;
+import android.net.wifi.IWifiVerboseLoggingStatusChangedListener;
 import android.net.wifi.ScanResult;
 import android.net.wifi.SoftApConfiguration;
+import android.net.wifi.WifiAvailableChannel;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.net.wifi.WifiNetworkSuggestion;
 
 import android.os.Messenger;
@@ -60,7 +63,7 @@ interface IWifiManager
 
     oneway void getWifiActivityEnergyInfoAsync(in IOnWifiActivityEnergyInfoListener listener);
 
-    ParceledListSlice getConfiguredNetworks(String packageName, String featureId);
+    ParceledListSlice getConfiguredNetworks(String packageName, String featureId, boolean callerNetworksOnly);
 
     ParceledListSlice getPrivilegedConfiguredNetworks(String packageName, String featureId);
 
@@ -72,19 +75,21 @@ interface IWifiManager
 
     int addOrUpdateNetwork(in WifiConfiguration config, String packageName);
 
+    WifiManager.AddNetworkResult addOrUpdateNetworkPrivileged(in WifiConfiguration config, String packageName);
+
     boolean addOrUpdatePasspointConfiguration(in PasspointConfiguration config, String packageName);
 
     boolean removePasspointConfiguration(in String fqdn, String packageName);
 
     List<PasspointConfiguration> getPasspointConfigurations(in String packageName);
 
-    List<WifiConfiguration> getWifiConfigsForPasspointProfiles(in List<String> fqdnList);
-
     void queryPasspointIcon(long bssid, String fileName);
 
     int matchProviderWithCurrentNetwork(String fqdn);
 
     boolean removeNetwork(int netId, String packageName);
+
+    boolean removeNonCallerConfiguredNetworks(String packageName);
 
     boolean enableNetwork(int netId, boolean disableOthers, String packageName);
 
@@ -117,6 +122,12 @@ interface IWifiManager
     int getWifiEnabledState();
 
     String getCountryCode();
+
+    void setOverrideCountryCode(String country);
+
+    void clearOverrideCountryCode();
+
+    void setDefaultCountryCode(String country);
 
     boolean is24GHzBandSupported();
 
@@ -224,6 +235,10 @@ interface IWifiManager
 
     void unregisterSoftApCallback(in ISoftApCallback callback);
 
+    void addWifiVerboseLoggingStatusChangedListener(in IWifiVerboseLoggingStatusChangedListener listener);
+
+    void removeWifiVerboseLoggingStatusChangedListener(in IWifiVerboseLoggingStatusChangedListener listener);
+
     void addOnWifiUsabilityStatsListener(in IOnWifiUsabilityStatsListener listener);
 
     void removeOnWifiUsabilityStatsListener(in IOnWifiUsabilityStatsListener listener);
@@ -293,15 +308,13 @@ interface IWifiManager
 
     boolean isScanThrottleEnabled();
 
-    Map getAllMatchingPasspointProfilesForScanResults(in List<ScanResult> scanResult);
-
     void setAutoWakeupEnabled(boolean enable);
 
     boolean isAutoWakeupEnabled();
 
-    void startTemporarilyDisablingAllNonCarrierMergedWifi(int subId);
+    void startRestrictingAutoJoinToSubscriptionId(int subId);
 
-    void stopTemporarilyDisablingAllNonCarrierMergedWifi();
+    void stopRestrictingAutoJoinToSubscriptionId();
 
     void setCarrierNetworkOffloadEnabled(int subscriptionId, boolean merged, boolean enabled);
 
@@ -311,7 +324,7 @@ interface IWifiManager
 
     void unregisterSubsystemRestartCallback(in ISubsystemRestartCallback callback);
 
-    void restartWifiSubsystem(String reason);
+    void restartWifiSubsystem();
 
     void addSuggestionUserApprovalStatusListener(in ISuggestionUserApprovalStatusListener listener, String packageName);
 
@@ -322,6 +335,12 @@ interface IWifiManager
     void removeAppState(int targetAppUid, String targetApppackageName);
 
     boolean setWifiScoringEnabled(boolean enabled);
+
+    void flushPasspointAnqpCache(String packageName);
+
+    List getAllMatchingWifiConfigsForPasspoint(in List<ScanResult> scanResult);
+
+    List<WifiAvailableChannel> getUsableChannels(int band, int mode, int filter);
 
     int getSoftApWifiStandard();
 

@@ -18,6 +18,7 @@ package android.net.wifi;
 
 import static com.android.internal.util.Preconditions.checkNotNull;
 
+import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -36,6 +37,8 @@ import android.text.TextUtils;
 
 import com.android.modules.utils.build.SdkLevel;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -50,6 +53,24 @@ import java.util.Objects;
  * {@link WifiManager#addNetworkSuggestions(List)}.
  */
 public final class WifiNetworkSuggestion implements Parcelable {
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = {"RANDOMIZATION_"}, value = {
+            RANDOMIZATION_PERSISTENT,
+            RANDOMIZATION_NON_PERSISTENT})
+    public @interface MacRandomizationSetting {}
+    /**
+     * Generate a randomized MAC from a secret seed and information from the Wi-Fi configuration
+     * (SSID or Passpoint profile) and reuse it for all connections to this network. The
+     * randomized MAC address for this network will stay the same for each subsequent association
+     * until the device undergoes factory reset.
+     */
+    public static final int RANDOMIZATION_PERSISTENT = 0;
+    /**
+     * With this option, the randomized MAC address will periodically get re-randomized, and
+     * the randomized MAC address will change if the suggestion is removed and then added back.
+     */
+    public static final int RANDOMIZATION_NON_PERSISTENT = 1;
     /**
      * Builder used to create {@link WifiNetworkSuggestion} objects.
      */
@@ -192,9 +213,15 @@ public final class WifiNetworkSuggestion implements Parcelable {
         private boolean mIsCarrierMerged;
 
         /**
-         * Whether this network will use enhanced MAC randomization.
+         * The MAC randomization strategy.
          */
-        private boolean mIsEnhancedMacRandomizationEnabled;
+        @MacRandomizationSetting
+        private int mMacRandomizationSetting;
+
+        /**
+         * The SAE Hash-to-Element only mode.
+         */
+        private boolean mSaeH2eOnlyMode;
 
         public Builder() {
             mSsid = null;
@@ -221,8 +248,9 @@ public final class WifiNetworkSuggestion implements Parcelable {
             mIsNetworkOemPrivate = false;
             mIsCarrierMerged = false;
             mPriorityGroup = 0;
-            mIsEnhancedMacRandomizationEnabled = false;
+            mMacRandomizationSetting = RANDOMIZATION_PERSISTENT;
             mSubscriptionId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+            mSaeH2eOnlyMode = false;
         }
 
         /**
@@ -377,6 +405,9 @@ public final class WifiNetworkSuggestion implements Parcelable {
          */
         public @NonNull Builder setWpa3EnterpriseStandardModeConfig(
                 @NonNull WifiEnterpriseConfig enterpriseConfig) {
+            if (!SdkLevel.isAtLeastS()) {
+                throw new UnsupportedOperationException();
+            }
             checkNotNull(enterpriseConfig);
             if (enterpriseConfig.isTlsBasedEapMethod()
                     && !enterpriseConfig.isMandatoryParameterSetForServerCertValidation()) {
@@ -403,6 +434,9 @@ public final class WifiNetworkSuggestion implements Parcelable {
          */
         public @NonNull Builder setWpa3Enterprise192BitModeConfig(
                 @NonNull WifiEnterpriseConfig enterpriseConfig) {
+            if (!SdkLevel.isAtLeastS()) {
+                throw new UnsupportedOperationException();
+            }
             checkNotNull(enterpriseConfig);
             if (enterpriseConfig.getEapMethod() != WifiEnterpriseConfig.Eap.TLS) {
                 throw new IllegalArgumentException("The 192-bit mode network type must be TLS");
@@ -490,12 +524,22 @@ public final class WifiNetworkSuggestion implements Parcelable {
         }
 
         /**
-         * By default all Suggestions are considered for connection. A suggesting application may
-         * provide priorities for Suggestions. Only the currently visible Suggestions with the
-         * highest priority (0 being the lowest) are considered for connection. A suggesting
-         * application may further assign a group number for a Suggestion - only the currently
-         * visible Suggestions with the highest priority within a priority group are considered for
-         * connection.
+         * Suggested networks are considered as part of a pool of all suggested networks and other
+         * networks (e.g. saved networks) - one of which will be selected.
+         * <ul>
+         * <li> Any app can suggest any number of networks. </li>
+         * <li> Priority: only the highest priority (0 being the lowest) currently visible suggested
+         * network or networks (multiple suggested networks may have the same priority) are added to
+         * the network selection pool.</li>
+         * </ul>
+         * <p>
+         * However, this restricts a suggesting app to have a single group of networks which can be
+         * prioritized. In some circumstances multiple groups are useful: for instance, suggesting
+         * networks for 2 different SIMs - each of which may have its own priority order.
+         * <p>
+         * Priority group: creates a separate priority group. Only the highest priority, currently
+         * visible suggested network or networks, within each priority group are included in the
+         * network selection pool.
          * <p>
          * Specify an arbitrary integer only used as the priority group. Use with
          * {@link #setPriority(int)}.
@@ -503,7 +547,7 @@ public final class WifiNetworkSuggestion implements Parcelable {
          * @param priorityGroup priority group id, if not set default is 0.
          * @return Instance of {@link Builder} to enable chaining of the builder method.
          */
-        public @NonNull Builder setPriorityGroup(int priorityGroup) {
+        public @NonNull Builder setPriorityGroup(@IntRange(from = 0) int priorityGroup) {
             if (!SdkLevel.isAtLeastS()) {
                 throw new UnsupportedOperationException();
             }
@@ -563,25 +607,25 @@ public final class WifiNetworkSuggestion implements Parcelable {
          * <p>
          * Suggested networks will never use the device (factory) MAC address to associate to the
          * network - instead they use a locally generated random MAC address. This method controls
-         * the strategy for generating the random MAC address:
-         * <li> Persisted MAC randomization (false - the default): generates the MAC address from a
-         * secret seed and information from the Wi-Fi configuration (SSID or Passpoint profile).
-         * This means that the same generated MAC address will be used for each subsequent
-         * association. </li>
-         * <li> Enhanced MAC randomization (true): periodically generates a new MAC
-         * address for new connections. Under this option, the randomized MAC address should change
-         * if the suggestion is removed and then added back. </li>
+         * the strategy for generating the random MAC address. If not set, defaults to
+         * {@link #RANDOMIZATION_PERSISTENT}.
          *
-         * @param enabled {@code true} to periodically change the randomized MAC address.
-         *                {@code false} to use the same randomized MAC for all connections to this
-         *                            network.
+         * @param macRandomizationSetting - one of {@code RANDOMIZATION_*} values
          * @return Instance of {@link Builder} to enable chaining of the builder method.
          */
-        public @NonNull Builder setIsEnhancedMacRandomizationEnabled(boolean enabled) {
+        public @NonNull Builder setMacRandomizationSetting(
+                @MacRandomizationSetting int macRandomizationSetting) {
             if (!SdkLevel.isAtLeastS()) {
                 throw new UnsupportedOperationException();
             }
-            mIsEnhancedMacRandomizationEnabled = enabled;
+            switch (macRandomizationSetting) {
+                case RANDOMIZATION_PERSISTENT:
+                case RANDOMIZATION_NON_PERSISTENT:
+                    mMacRandomizationSetting = macRandomizationSetting;
+                    break;
+                default:
+                    throw new IllegalArgumentException();
+            }
             return this;
         }
 
@@ -620,13 +664,6 @@ public final class WifiNetworkSuggestion implements Parcelable {
         }
 
         /**
-         * By default all Suggestions are considered for connection. A suggesting application may
-         * provide priorities for Suggestions. Only the currently visible Suggestions with the
-         * highest priority (0 being the lowest) are considered for connection. A suggesting
-         * application may further assign a group number for a Suggestion - only the currently
-         * visible Suggestions with the highest priority within a priority group are considered for
-         * connection.
-         * <p>
          * Specify the priority of this network among other network suggestions provided by the same
          * app and within the same priority group, see {@link #setPriorityGroup(int)}. Priorities
          * have no impact on suggestions by other apps or suggestions from the same app using a
@@ -739,13 +776,13 @@ public final class WifiNetworkSuggestion implements Parcelable {
          * network configuration of the device. This network is typically only available to system
          * apps.
          * <li>On devices which do not support concurrent connection (indicated via
-         * {@link WifiManager#isMultiStaConcurrencySupported()}, Wi-Fi network selection process may
-         * use this information to influence priority of the suggested network for Wi-Fi network
-         * selection (most likely to reduce it).
-         * <li>On devices which support more than 1 concurrent connections (indicated via
-         * {@link WifiManager#isMultiStaConcurrencySupported()}, these OEM paid networks will be
-         * brought up as a secondary concurrent connection (primary connection will be used
-         * for networks available to the user and all apps.
+         * {@link WifiManager#isStaConcurrencyForRestrictedConnectionsSupported()}), Wi-Fi
+         * network selection process may use this information to influence priority of the
+         * suggested network for Wi-Fi network selection (most likely to reduce it).
+         * <li>On devices which support concurrent connections (indicated via
+         * {@link WifiManager#isStaConcurrencyForRestrictedConnectionsSupported()}), these
+         * OEM paid networks may be brought up as a secondary concurrent connection (primary
+         * connection will be used for networks available to the user and all apps.
          * <p>
          * <li> An OEM paid network's credentials may not be shared with the user using
          * {@link #setCredentialSharedWithUser(boolean)}.</li>
@@ -781,13 +818,13 @@ public final class WifiNetworkSuggestion implements Parcelable {
          * network configuration of the device. This network is typically only available to system
          * apps.
          * <li>On devices which do not support concurrent connection (indicated via
-         * {@link WifiManager#isMultiStaConcurrencySupported()}, Wi-Fi network selection process may
-         * use this information to influence priority of the suggested network for Wi-Fi network
-         * selection (most likely to reduce it).
-         * <li>On devices which support more than 1 concurrent connections (indicated via
-         * {@link WifiManager#isMultiStaConcurrencySupported()}, these OEM private networks will be
-         * brought up as a secondary concurrent connection (primary connection will be used
-         * for networks available to the user and all apps.
+         * {@link WifiManager#isStaConcurrencyForRestrictedConnectionsSupported()}), Wi-Fi
+         * network selection process may use this information to influence priority of the suggested
+         * network for Wi-Fi network selection (most likely to reduce it).
+         * <li>On devices which support concurrent connections (indicated via
+         * {@link WifiManager#isStaConcurrencyForRestrictedConnectionsSupported()}), these OEM
+         * private networks may be brought up as a secondary concurrent connection (primary
+         * connection will be used for networks available to the user and all apps.
          * <p>
          * <li> An OEM private network's credentials may not be shared with the user using
          * {@link #setCredentialSharedWithUser(boolean)}.</li>
@@ -819,6 +856,10 @@ public final class WifiNetworkSuggestion implements Parcelable {
          * Wi-Fi network is treated as part of the mobile carrier network. Such configuration may
          * impact the user interface and data usage accounting.
          * <p>
+         * Only carriers with the
+         * {@link android.telephony.CarrierConfigManager#KEY_CARRIER_PROVISIONS_WIFI_MERGED_NETWORKS_BOOL}
+         * flag set to {@code true} may use this API.
+         * <p>
          * <li>A suggestion marked as carrier merged must be metered enterprise network with a valid
          * subscription Id set.
          * @see #setIsMetered(boolean)
@@ -842,6 +883,28 @@ public final class WifiNetworkSuggestion implements Parcelable {
             return this;
         }
 
+        /**
+         * Specifies whether the suggestion represents an SAE network which only
+         * accepts Hash-to-Element mode.
+         * If this is enabled, Hunting & Pecking mode is disabled and only Hash-to-Element
+         * mode is used for this network.
+         * This is only valid for an SAE network which is configured using the
+         * {@link #setWpa3Passphrase}.
+         * Before calling this API, the application should check Hash-to-Element support using
+         * {@link WifiManager#isWpa3SaeH2eSupported()}.
+         *
+         * @param enable Boolean indicating whether the network only accepts Hash-to-Element mode,
+         *        default is false.
+         * @return Instance of {@link Builder} to enable chaining of the builder method.
+         */
+        public @NonNull Builder setIsWpa3SaeH2eOnlyModeEnabled(boolean enable) {
+            if (!SdkLevel.isAtLeastS()) {
+                throw new UnsupportedOperationException();
+            }
+            mSaeH2eOnlyMode = enable;
+            return this;
+        }
+
         private void setSecurityParamsInWifiConfiguration(
                 @NonNull WifiConfiguration configuration) {
             if (!TextUtils.isEmpty(mWpa2PskPassphrase)) { // WPA-PSK network.
@@ -852,6 +915,7 @@ public final class WifiNetworkSuggestion implements Parcelable {
                 configuration.setSecurityParams(WifiConfiguration.SECURITY_TYPE_SAE);
                 // WifiConfiguration.preSharedKey needs quotes around ASCII password.
                 configuration.preSharedKey = "\"" + mWpa3SaePassphrase + "\"";
+                if (mSaeH2eOnlyMode) configuration.enableSaeH2eOnlyMode(mSaeH2eOnlyMode);
             } else if (mWpa2EnterpriseConfig != null) { // WPA-EAP network
                 configuration.setSecurityParams(WifiConfiguration.SECURITY_TYPE_EAP);
                 configuration.enterpriseConfig = mWpa2EnterpriseConfig;
@@ -911,8 +975,9 @@ public final class WifiNetworkSuggestion implements Parcelable {
             wifiConfiguration.oemPaid = mIsNetworkOemPaid;
             wifiConfiguration.oemPrivate = mIsNetworkOemPrivate;
             wifiConfiguration.carrierMerged = mIsCarrierMerged;
-            wifiConfiguration.macRandomizationSetting = mIsEnhancedMacRandomizationEnabled
-                    ? WifiConfiguration.RANDOMIZATION_ENHANCED
+            wifiConfiguration.macRandomizationSetting =
+                    mMacRandomizationSetting == RANDOMIZATION_NON_PERSISTENT
+                    ? WifiConfiguration.RANDOMIZATION_NON_PERSISTENT
                     : WifiConfiguration.RANDOMIZATION_PERSISTENT;
             wifiConfiguration.subscriptionId = mSubscriptionId;
             return wifiConfiguration;
@@ -953,8 +1018,9 @@ public final class WifiNetworkSuggestion implements Parcelable {
             mPasspointConfiguration.setOemPrivate(mIsNetworkOemPrivate);
             mPasspointConfiguration.setOemPaid(mIsNetworkOemPaid);
             mPasspointConfiguration.setCarrierMerged(mIsCarrierMerged);
-            wifiConfiguration.macRandomizationSetting = mIsEnhancedMacRandomizationEnabled
-                    ? WifiConfiguration.RANDOMIZATION_ENHANCED
+            wifiConfiguration.macRandomizationSetting =
+                    mMacRandomizationSetting == RANDOMIZATION_NON_PERSISTENT
+                    ? WifiConfiguration.RANDOMIZATION_NON_PERSISTENT
                     : WifiConfiguration.RANDOMIZATION_PERSISTENT;
             return wifiConfiguration;
         }
@@ -1025,7 +1091,7 @@ public final class WifiNetworkSuggestion implements Parcelable {
                 }
                 wifiConfiguration = buildWifiConfigurationForPasspoint();
                 mPasspointConfiguration.setEnhancedMacRandomizationEnabled(
-                        mIsEnhancedMacRandomizationEnabled);
+                        mMacRandomizationSetting == RANDOMIZATION_NON_PERSISTENT);
             } else {
                 if (mSsid == null) {
                     throw new IllegalStateException("setSsid should be invoked for suggestion");
@@ -1038,6 +1104,11 @@ public final class WifiNetworkSuggestion implements Parcelable {
                         || mBssid.equals(WifiManager.ALL_ZEROS_MAC_ADDRESS))) {
                     throw new IllegalStateException("invalid bssid for suggestion");
                 }
+                if (TextUtils.isEmpty(mWpa3SaePassphrase) && mSaeH2eOnlyMode) {
+                    throw new IllegalStateException(
+                            "Hash-to-Element only mode is only allowed for the SAE network");
+                }
+
                 wifiConfiguration = buildWifiConfiguration();
                 if (wifiConfiguration.isOpenNetwork()) {
                     if (mIsSharedWithUserSet && mIsSharedWithUser) {
@@ -1420,6 +1491,7 @@ public final class WifiNetworkSuggestion implements Parcelable {
     /**
      * @see Builder#setPriorityGroup(int)
      */
+    @IntRange(from = 0)
     public int getPriorityGroup() {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();

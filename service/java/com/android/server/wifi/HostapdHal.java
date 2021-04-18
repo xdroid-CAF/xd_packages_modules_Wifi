@@ -991,7 +991,7 @@ public class HostapdHal {
                     }
                     acsChannelRange.start = start;
                     acsChannelRange.end = end;
-                } else {
+                } else if (!TextUtils.isEmpty(channelRange)) {
                     acsChannelRange.start = Integer.parseInt(channelRange.trim());
                     acsChannelRange.end = acsChannelRange.start;
                 }
@@ -1045,21 +1045,24 @@ public class HostapdHal {
                 channelListStr = mContext.getResources().getString(
                         R.string.config_wifiSoftap2gChannelList);
                 if (TextUtils.isEmpty(channelListStr)) {
-                    channelListStr = "1-14";
+                    channelListStr = ScanResult.BAND_24_GHZ_FIRST_CH_NUM + "-"
+                            + ScanResult.BAND_24_GHZ_LAST_CH_NUM;
                 }
                 break;
             case SoftApConfiguration.BAND_5GHZ:
                 channelListStr = mContext.getResources().getString(
                         R.string.config_wifiSoftap5gChannelList);
                 if (TextUtils.isEmpty(channelListStr)) {
-                    channelListStr = "34-173";
+                    channelListStr = ScanResult.BAND_5_GHZ_FIRST_CH_NUM + "-"
+                            + ScanResult.BAND_5_GHZ_LAST_CH_NUM;
                 }
                 break;
             case SoftApConfiguration.BAND_6GHZ:
                 channelListStr = mContext.getResources().getString(
                         R.string.config_wifiSoftap6gChannelList);
                 if (TextUtils.isEmpty(channelListStr)) {
-                    channelListStr = "1-254";
+                    channelListStr = ScanResult.BAND_6_GHZ_FIRST_CH_NUM + "-"
+                            + ScanResult.BAND_6_GHZ_LAST_CH_NUM;
                 }
                 break;
             default:
@@ -1084,7 +1087,7 @@ public class HostapdHal {
                     }
                     acsFrequencyRange.start = ApConfigUtil.convertChannelToFrequency(start, band);
                     acsFrequencyRange.end = ApConfigUtil.convertChannelToFrequency(end, band);
-                } else {
+                } else if (!TextUtils.isEmpty(channelRange)) {
                     int channel = Integer.parseInt(channelRange.trim());
                     acsFrequencyRange.start = ApConfigUtil.convertChannelToFrequency(channel, band);
                     acsFrequencyRange.end = acsFrequencyRange.start;

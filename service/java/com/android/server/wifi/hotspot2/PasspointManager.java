@@ -289,7 +289,7 @@ public class PasspointManager {
     private void onUserConnectChoiceSet(List<WifiConfiguration> networks, String choiceKey,
             int rssi) {
         for (WifiConfiguration config : networks) {
-            PasspointProvider provider = mProviders.get(config.getProfileKey());
+            PasspointProvider provider = mProviders.get(config.getProfileKeyInternal());
             if (provider != null) {
                 provider.setUserConnectChoice(choiceKey, rssi);
             }
@@ -401,7 +401,7 @@ public class PasspointManager {
     private void updateWifiConfigInWcmIfPresent(
             WifiConfiguration newConfig, int uid, String packageName, boolean isFromSuggestion) {
         WifiConfiguration configInWcm =
-                mWifiConfigManager.getConfiguredNetwork(newConfig.getProfileKey());
+                mWifiConfigManager.getConfiguredNetwork(newConfig.getProfileKeyInternal());
         if (configInWcm == null) return;
         // suggestion != saved
         if (isFromSuggestion != configInWcm.fromWifiNetworkSuggestion) return;
@@ -517,7 +517,7 @@ public class PasspointManager {
             // New profile changes the credential, remove the related WifiConfig.
             if (!old.equals(newProvider)) {
                 mWifiConfigManager.removePasspointConfiguredNetwork(
-                        newProvider.getWifiConfig().getProfileKey());
+                        newProvider.getWifiConfig().getProfileKeyInternal());
             } else {
                 // If there is a config cached in WifiConfigManager, update it with new info.
                 updateWifiConfigInWcmIfPresent(
@@ -561,7 +561,7 @@ public class PasspointManager {
         String packageName = provider.getPackageName();
         // Remove any configs corresponding to the profile in WifiConfigManager.
         mWifiConfigManager.removePasspointConfiguredNetwork(
-                provider.getWifiConfig().getProfileKey());
+                provider.getWifiConfig().getProfileKeyInternal());
         String uniqueId = provider.getConfig().getUniqueId();
         mProviders.remove(uniqueId);
         mWifiConfigManager.removeConnectChoiceFromAllNetworks(uniqueId);
@@ -709,7 +709,7 @@ public class PasspointManager {
                                     : UserActionEvent.EVENT_CONFIGURE_MAC_RANDOMIZATION_OFF,
                             provider.isFromSuggestion(), true);
                     mWifiConfigManager.removePasspointConfiguredNetwork(
-                            provider.getWifiConfig().getProfileKey());
+                            provider.getWifiConfig().getProfileKeyInternal());
                 }
                 found = true;
             }
@@ -1038,7 +1038,8 @@ public class PasspointManager {
                     type = WifiManager.PASSPOINT_ROAMING_NETWORK;
                 }
                 Map<Integer, List<ScanResult>> scanResultsPerNetworkType =
-                        configs.computeIfAbsent(config.getProfileKey(), k -> new HashMap<>());
+                        configs.computeIfAbsent(config.getProfileKeyInternal(),
+                                k -> new HashMap<>());
                 List<ScanResult> matchingScanResults = scanResultsPerNetworkType.computeIfAbsent(
                         type, k -> new ArrayList<>());
                 matchingScanResults.add(scanResult);
@@ -1139,9 +1140,12 @@ public class PasspointManager {
      * An empty list will be returned when no match is found.
      *
      * @param idList a list of unique identifiers
+     * @param isFromWifiConfigManagerOnly true will only return configs already added into
+     *                                    WifiConfigManager, false will return all matched ones.
      * @return List of {@link WifiConfiguration} converted from {@link PasspointProvider}
      */
-    public List<WifiConfiguration> getWifiConfigsForPasspointProfiles(List<String> idList) {
+    public List<WifiConfiguration> getWifiConfigsForPasspointProfiles(List<String> idList,
+            boolean isFromWifiConfigManagerOnly) {
         if (mProviders.isEmpty()) {
             return Collections.emptyList();
         }
@@ -1169,6 +1173,12 @@ public class PasspointManager {
                     && !mWifiInjector.getWifiNetworkSuggestionsManager()
                     .isPasspointSuggestionSharedWithUser(config)) {
                 continue;
+            }
+            if (isFromWifiConfigManagerOnly) {
+                config = mWifiConfigManager.getConfiguredNetwork(config.getProfileKey());
+                if (config == null) {
+                    continue;
+                }
             }
             configs.add(config);
         }
@@ -1499,7 +1509,8 @@ public class PasspointManager {
             return;
         }
 
-        blockProvider(config.getProfileKey(), event.getBssid(), event.isEss(), event.getDelay());
+        blockProvider(config.getProfileKeyInternal(), event.getBssid(), event.isEss(),
+                event.getDelay());
     }
 
     /**
@@ -1524,7 +1535,7 @@ public class PasspointManager {
         if (!configuration.isPasspoint()) {
             return;
         }
-        PasspointProvider provider = mProviders.get(configuration.getProfileKey());
+        PasspointProvider provider = mProviders.get(configuration.getProfileKeyInternal());
         if (provider != null) {
             provider.setAnonymousIdentity(configuration.enterpriseConfig.getAnonymousIdentity());
             mWifiConfigManager.saveToStore(true);
@@ -1561,7 +1572,7 @@ public class PasspointManager {
                     + " from BSSID: " + Utils.macToString(event.getBssid()));
 
             // Block this provider for an hour, this unlikely issue may be resolved shortly
-            blockProvider(config.getProfileKey(), event.getBssid(), true, oneHourInSeconds);
+            blockProvider(config.getProfileKeyInternal(), event.getBssid(), true, oneHourInSeconds);
             return null;
         }
         // Reject URLs that are not HTTPS
@@ -1570,11 +1581,41 @@ public class PasspointManager {
                     + " from BSSID: " + Utils.macToString(event.getBssid()));
 
             // Block this provider for 24 hours, it is unlikely to be changed
-            blockProvider(config.getProfileKey(), event.getBssid(), true, twentyFourHoursInSeconds);
+            blockProvider(config.getProfileKeyInternal(), event.getBssid(), true,
+                    twentyFourHoursInSeconds);
             return null;
         }
         Log.i(TAG, "Captive network, Terms and Conditions URL: " + termsAndConditionsUrl
                 + " from BSSID: " + Utils.macToString(event.getBssid()));
         return termsAndConditionsUrl;
+    }
+
+    /**
+     * Returns a list of all matching WifiConfigurations for a given list of ScanResult.
+     * @param scanResults The list of scan results
+     * @param isFromWifiConfigManagerOnly true will only return configs already added into
+     *                                    WifiConfigManager, false will return all matched ones.
+     * @return List that consists of {@link WifiConfiguration} and corresponding scanResults per
+     * network type({@link WifiManager#PASSPOINT_HOME_NETWORK} and
+     * {@link WifiManager#PASSPOINT_ROAMING_NETWORK}).
+     */
+    public List<Pair<WifiConfiguration, Map<Integer, List<ScanResult>>>> getAllMatchingWifiConfigs(
+            @NonNull List<ScanResult> scanResults, boolean isFromWifiConfigManagerOnly) {
+        List<Pair<WifiConfiguration, Map<Integer, List<ScanResult>>>> configs = new ArrayList<>();
+        Map<String, Map<Integer, List<ScanResult>>> results =
+                getAllMatchingPasspointProfilesForScanResults(scanResults);
+        if (results.isEmpty()) {
+            return configs;
+        }
+        List<WifiConfiguration> wifiConfigurations = getWifiConfigsForPasspointProfiles(
+                new ArrayList<>(results.keySet()), isFromWifiConfigManagerOnly);
+        for (WifiConfiguration configuration : wifiConfigurations) {
+            Map<Integer, List<ScanResult>> scanResultsPerNetworkType =
+                    results.get(configuration.getProfileKeyInternal());
+            if (scanResultsPerNetworkType != null) {
+                configs.add(Pair.create(configuration, scanResultsPerNetworkType));
+            }
+        }
+        return configs;
     }
 }

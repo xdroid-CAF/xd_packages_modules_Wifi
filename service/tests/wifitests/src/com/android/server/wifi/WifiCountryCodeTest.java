@@ -21,6 +21,7 @@ import static com.android.server.wifi.ActiveModeManager.ROLE_CLIENT_SECONDARY_LO
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doAnswer;
 
 import android.content.Context;
 import android.telephony.TelephonyManager;
@@ -47,6 +48,7 @@ import java.util.Locale;
 public class WifiCountryCodeTest extends WifiBaseTest {
 
     private static final String TAG = "WifiCountryCodeTest";
+    private static final String TEST_COUNTRY_CODE = "JP";
     private String mDefaultCountryCode = "US";
     private String mTelephonyCountryCode = "JP";
     private boolean mRevertCountryCodeOnCellularLoss = true;
@@ -56,12 +58,17 @@ public class WifiCountryCodeTest extends WifiBaseTest {
     @Mock ActiveModeWarden mActiveModeWarden;
     @Mock ConcreteClientModeManager mClientModeManager;
     @Mock ClientModeImplMonitor mClientModeImplMonitor;
+    @Mock WifiNative mWifiNative;
     private WifiCountryCode mWifiCountryCode;
 
     @Captor
     private ArgumentCaptor<ActiveModeWarden.ModeChangeCallback> mModeChangeCallbackCaptor;
     @Captor
     private ArgumentCaptor<ClientModeImplListener> mClientModeImplListenerCaptor;
+    @Captor
+    private ArgumentCaptor<WifiCountryCode.ChangeListener> mChangeListenerCaptor;
+    @Captor
+    private ArgumentCaptor<String> mSetCountryCodeCaptor;
 
     /**
      * Setup test.
@@ -75,6 +82,13 @@ public class WifiCountryCodeTest extends WifiBaseTest {
         when(mContext.getSystemService(Context.TELEPHONY_SERVICE))
                 .thenReturn(mTelephonyManager);
 
+        doAnswer((invocation) -> {
+            mChangeListenerCaptor.getValue()
+                    .onDriverCountryCodeChanged(mSetCountryCodeCaptor.getValue());
+            return true;
+        }).when(mClientModeManager).setCountryCode(
+                    mSetCountryCodeCaptor.capture());
+
         createWifiCountryCode();
     }
 
@@ -86,11 +100,14 @@ public class WifiCountryCodeTest extends WifiBaseTest {
                 mContext,
                 mActiveModeWarden,
                 mClientModeImplMonitor,
+                mWifiNative,
                 mDefaultCountryCode);
         verify(mActiveModeWarden, atLeastOnce()).registerModeChangeCallback(
                     mModeChangeCallbackCaptor.capture());
         verify(mClientModeImplMonitor, atLeastOnce()).registerListener(
                 mClientModeImplListenerCaptor.capture());
+        verify(mWifiNative, atLeastOnce()).registerCountryCodeEventListener(
+                mChangeListenerCaptor.capture());
     }
 
     /**
@@ -128,7 +145,7 @@ public class WifiCountryCodeTest extends WifiBaseTest {
      */
     @Test
     public void useTelephonyCountryCodeOnChange() throws Exception {
-        mWifiCountryCode.setCountryCodeAndUpdate(mTelephonyCountryCode);
+        mWifiCountryCode.setTelephonyCountryCodeAndUpdate(mTelephonyCountryCode);
         assertEquals(null, mWifiCountryCode.getCountryCodeSentToDriver());
         // Supplicant started.
         mModeChangeCallbackCaptor.getValue().onActiveModeManagerAdded(mClientModeManager);
@@ -154,7 +171,7 @@ public class WifiCountryCodeTest extends WifiBaseTest {
         assertEquals(mDefaultCountryCode, mWifiCountryCode.getCountryCodeSentToDriver());
 
         // Telephony country code arrives.
-        mWifiCountryCode.setCountryCodeAndUpdate(mTelephonyCountryCode);
+        mWifiCountryCode.setTelephonyCountryCodeAndUpdate(mTelephonyCountryCode);
         // Wifi get L2 connected.
         mClientModeImplListenerCaptor.getValue().onConnectionStart(mClientModeManager);
 
@@ -179,7 +196,7 @@ public class WifiCountryCodeTest extends WifiBaseTest {
         assertEquals(mDefaultCountryCode, mWifiCountryCode.getCountryCodeSentToDriver());
 
         // Telephony country code arrives.
-        mWifiCountryCode.setCountryCodeAndUpdate(mTelephonyCountryCode);
+        mWifiCountryCode.setTelephonyCountryCodeAndUpdate(mTelephonyCountryCode);
         // Wifi get L2 connected.
         mClientModeImplListenerCaptor.getValue().onConnectionStart(mClientModeManager);
 
@@ -190,7 +207,7 @@ public class WifiCountryCodeTest extends WifiBaseTest {
         mModeChangeCallbackCaptor.getValue().onActiveModeManagerRemoved(mClientModeManager);
 
         // Send Telephony country code again - should be ignored.
-        mWifiCountryCode.setCountryCodeAndUpdate(mTelephonyCountryCode);
+        mWifiCountryCode.setTelephonyCountryCodeAndUpdate(mTelephonyCountryCode);
         verify(mClientModeManager, times(3)).setCountryCode(anyString());
         assertEquals(mTelephonyCountryCode, mWifiCountryCode.getCountryCodeSentToDriver());
 
@@ -209,7 +226,7 @@ public class WifiCountryCodeTest extends WifiBaseTest {
         // Wifi get L2 connected.
         mClientModeImplListenerCaptor.getValue().onConnectionStart(mClientModeManager);
         // Telephony country code arrives.
-        mWifiCountryCode.setCountryCodeAndUpdate(mTelephonyCountryCode);
+        mWifiCountryCode.setTelephonyCountryCodeAndUpdate(mTelephonyCountryCode);
         // Telephony coutry code won't be applied at this time.
         assertEquals(mDefaultCountryCode, mWifiCountryCode.getCountryCodeSentToDriver());
 
@@ -231,7 +248,7 @@ public class WifiCountryCodeTest extends WifiBaseTest {
         // Wifi get L2 connected on the primary.
         mClientModeImplListenerCaptor.getValue().onConnectionStart(mClientModeManager);
         // Telephony country code arrives.
-        mWifiCountryCode.setCountryCodeAndUpdate(mTelephonyCountryCode);
+        mWifiCountryCode.setTelephonyCountryCodeAndUpdate(mTelephonyCountryCode);
         // Telephony country code won't be applied at this time.
         assertEquals(mDefaultCountryCode, mWifiCountryCode.getCountryCodeSentToDriver());
 
@@ -270,10 +287,10 @@ public class WifiCountryCodeTest extends WifiBaseTest {
     @Test
     public void resetCountryCodeWhenOutOfService() throws Exception {
         assertEquals(mDefaultCountryCode, mWifiCountryCode.getCountryCode());
-        mWifiCountryCode.setCountryCodeAndUpdate(mTelephonyCountryCode);
+        mWifiCountryCode.setTelephonyCountryCodeAndUpdate(mTelephonyCountryCode);
         assertEquals(mTelephonyCountryCode, mWifiCountryCode.getCountryCode());
         // Out of service.
-        mWifiCountryCode.setCountryCodeAndUpdate("");
+        mWifiCountryCode.setTelephonyCountryCodeAndUpdate("");
         assertEquals(mDefaultCountryCode, mWifiCountryCode.getCountryCode());
     }
 
@@ -292,10 +309,10 @@ public class WifiCountryCodeTest extends WifiBaseTest {
         createWifiCountryCode();
 
         assertEquals(mDefaultCountryCode, mWifiCountryCode.getCountryCode());
-        mWifiCountryCode.setCountryCodeAndUpdate(mTelephonyCountryCode);
+        mWifiCountryCode.setTelephonyCountryCodeAndUpdate(mTelephonyCountryCode);
         assertEquals(mTelephonyCountryCode, mWifiCountryCode.getCountryCode());
         // Out of service.
-        mWifiCountryCode.setCountryCodeAndUpdate("");
+        mWifiCountryCode.setTelephonyCountryCodeAndUpdate("");
         assertEquals(mTelephonyCountryCode, mWifiCountryCode.getCountryCode());
     }
 
@@ -321,7 +338,7 @@ public class WifiCountryCodeTest extends WifiBaseTest {
         verify(mClientModeManager).setCountryCode(oemCountryCodeUpper);
 
         // Now trigger a country code change using the telephony country code.
-        mWifiCountryCode.setCountryCodeAndUpdate(telephonyCountryCodeLower);
+        mWifiCountryCode.setTelephonyCountryCodeAndUpdate(telephonyCountryCodeLower);
         verify(mClientModeManager).setCountryCode(telephonyCountryCodeUpper);
     }
     /**
@@ -345,5 +362,31 @@ public class WifiCountryCodeTest extends WifiBaseTest {
         assertTrue(dumpCountryCodeStr.contains("mDriverCountryTimestamp"));
         assertTrue(dumpCountryCodeStr.contains("mReadyTimestamp"));
         assertTrue(dumpCountryCodeStr.contains("mReady"));
+    }
+
+    /**
+     * Test set Default country code
+     * @throws Exception
+     */
+    @Test
+    public void setDefaultCountryCode() throws Exception {
+        // Supplicant started.
+        mModeChangeCallbackCaptor.getValue().onActiveModeManagerAdded(mClientModeManager);
+        mWifiCountryCode.setDefaultCountryCode(TEST_COUNTRY_CODE);
+        verify(mClientModeManager).setCountryCode(eq(TEST_COUNTRY_CODE));
+        assertEquals(TEST_COUNTRY_CODE, mWifiCountryCode.getCountryCodeSentToDriver());
+    }
+
+    /**
+     * Test is valid country code
+     * @throws Exception
+     */
+    @Test
+    public void testValidCountryCode() throws Exception {
+        assertEquals(WifiCountryCode.isValid(null), false);
+        assertEquals(WifiCountryCode.isValid("JPUS"), false);
+        assertEquals(WifiCountryCode.isValid("JP"), true);
+        assertEquals(WifiCountryCode.isValid("00"), true);
+        assertEquals(WifiCountryCode.isValid("0U"), true);
     }
 }

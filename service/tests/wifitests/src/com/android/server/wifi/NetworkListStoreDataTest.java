@@ -31,6 +31,7 @@ import android.util.Xml;
 import androidx.test.filters.SmallTest;
 
 import com.android.internal.util.FastXmlSerializer;
+import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.util.ScanResultUtil;
 import com.android.server.wifi.util.WifiConfigStoreEncryptionUtil;
 import com.android.server.wifi.util.XmlUtilTest;
@@ -80,6 +81,7 @@ public class NetworkListStoreDataTest extends WifiBaseTest {
                     + "<byte-array name=\"AllowedSuiteBCiphers\" num=\"0\"></byte-array>\n"
                     + "<boolean name=\"Shared\" value=\"%s\" />\n"
                     + "<boolean name=\"AutoJoinEnabled\" value=\"true\" />\n"
+                    + "<int name=\"DeletionPriority\" value=\"0\" />\n"
                     + "<SecurityParamsList>\n"
                     + "<SecurityParams>\n"
                     + "<int name=\"SecurityType\" value=\"0\" />\n"
@@ -155,6 +157,7 @@ public class NetworkListStoreDataTest extends WifiBaseTest {
                     + "<byte-array name=\"AllowedSuiteBCiphers\" num=\"0\"></byte-array>\n"
                     + "<boolean name=\"Shared\" value=\"%s\" />\n"
                     + "<boolean name=\"AutoJoinEnabled\" value=\"true\" />\n"
+                    + "<int name=\"DeletionPriority\" value=\"0\" />\n"
                     + "<SecurityParamsList>\n"
                     + "<SecurityParams>\n"
                     + "<int name=\"SecurityType\" value=\"3\" />\n"
@@ -230,8 +233,11 @@ public class NetworkListStoreDataTest extends WifiBaseTest {
                     + "<string name=\"WapiCertSuite\"></string>\n"
                     + "<boolean name=\"AppInstalledRootCaCert\" value=\"false\" />\n"
                     + "<boolean name=\"AppInstalledPrivateKey\" value=\"false\" />\n"
+                    + "<null name=\"KeyChainAlias\" />\n"
+                    + (SdkLevel.isAtLeastS()
+                    ? "<string name=\"DecoratedIdentityPrefix\"></string>\n" : "")
                     + "</WifiEnterpriseConfiguration>\n"
-                    + "</Network>\n";
+                    + "</Network>\n";;
 
     private static final String SINGLE_SAE_NETWORK_DATA_XML_STRING_FORMAT =
             "<Network>\n"
@@ -253,6 +259,7 @@ public class NetworkListStoreDataTest extends WifiBaseTest {
                     + "<byte-array name=\"AllowedSuiteBCiphers\" num=\"0\"></byte-array>\n"
                     + "<boolean name=\"Shared\" value=\"%s\" />\n"
                     + "<boolean name=\"AutoJoinEnabled\" value=\"true\" />\n"
+                    + "<int name=\"DeletionPriority\" value=\"0\" />\n"
                     + "<SecurityParamsList>\n"
                     + "<SecurityParams>\n"
                     + "<int name=\"SecurityType\" value=\"4\" />\n"
@@ -329,6 +336,7 @@ public class NetworkListStoreDataTest extends WifiBaseTest {
                     + "<byte-array name=\"AllowedSuiteBCiphers\" num=\"0\"></byte-array>\n"
                     + "<boolean name=\"Shared\" value=\"%s\" />\n"
                     + "<boolean name=\"AutoJoinEnabled\" value=\"true\" />\n"
+                    + "<int name=\"DeletionPriority\" value=\"0\" />\n"
                     + "<boolean name=\"Trusted\" value=\"true\" />\n"
                     + "<null name=\"BSSID\" />\n"
                     + "<int name=\"Status\" value=\"2\" />\n"
@@ -531,7 +539,7 @@ public class NetworkListStoreDataTest extends WifiBaseTest {
                 networkList.get(2));
         byte[] serializedData = serializeData();
         assertEquals(new String(expectedData, StandardCharsets.UTF_8),
-                new String(serializeData(), StandardCharsets.UTF_8));
+                new String(serializedData, StandardCharsets.UTF_8));
     }
 
     /**

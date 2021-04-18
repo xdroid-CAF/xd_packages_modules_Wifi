@@ -195,6 +195,14 @@
     <!-- Integer duration after connection that a user-selected network is considered sufficient (milliseconds) -->
     <integer translatable="false" name="config_wifiSufficientDurationAfterUserSelectionMilliseconds">60000</integer>
 
+    <!-- Boolean indicating whether the wifi module should always scan the 6Ghz Preferred Scanning
+         Channels when performing full connectivity scans.
+         If set to true, the wifi module will scan 6Ghz PSC channels in addition to the 2.4Ghz,
+         5Ghz, and 6Ghz channels co-located with 2.4/5Ghz APs when doing full connectivity scans.
+         If set to false, the wifi module will only scan the 2.4Ghz, 5Ghz,
+         and 6Ghz channels co-located with 2.4/5Ghz APs when doing full connectivity scans.-->
+    <bool translatable="false" name="config_wifiEnable6ghzPscScanning">true</bool>
+
     <!-- Boolean indicating performing a partial initial scan is enabled -->
     <bool translatable="false" name="config_wifiEnablePartialInitialScan">false</bool>
 
@@ -208,8 +216,21 @@
     <!-- Boolean indicating whether single radio chain scan results are to be used for network selection -->
     <bool translatable="false" name="config_wifi_framework_use_single_radio_chain_scan_results_network_selection">true</bool>
 
-    <!-- Boolean indicating that wifi only link configuratios that have exact same credentials (i.e PSK) -->
+    <!-- Boolean indicating that wifi may link networks whose gateways have not yet been determined -->
+    <bool translatable="false" name="config_wifiAllowLinkingUnknownDefaultGatewayConfigurations">true</bool>
+
+    <!-- Boolean indicating that enable roaming between linked networks -->
+    <bool translatable="false" name="config_wifiEnableLinkedNetworkRoaming">false</bool>
+
+    <!-- Boolean indicating that only configurations that have the same pre-shared key will be linked -->
     <bool translatable="false" name="config_wifi_only_link_same_credential_configurations">true</bool>
+
+    <!-- Boolean indicating whether framework needs to set the tx power limit for meeting SAR requirements -->
+    <bool translatable="false" name="config_wifi_framework_enable_sar_tx_power_limit">false</bool>
+
+    <!-- Boolean indicating whether framework should use detection of softAP mode to set the tx
+         power limit for meeting SAR requirements -->
+    <bool translatable="false" name="config_wifi_framework_enable_soft_ap_sar_tx_power_limit">false</bool>
 
     <!-- Boolean indicating that softap passphrase need to enable ASCII encodable check -->
     <bool translatable="false" name="config_wifiSoftapPassphraseAsciiEncodableCheck">true</bool>
@@ -305,9 +326,15 @@
     <!-- Duration in minutes a recent failure should be displayed in the wifi picker UI. -->
     <integer translatable="false" name="config_wifiRecentFailureReasonExpirationMinutes">30</integer>
 
-    <!-- Duration in minutes that all non-carrier-merged wifi becomes disabled when
-    WifiManager#startTemporarilyDisablingAllNonCarrierMergedWifi is called. -->
-    <integer translatable="false" name="config_wifiAllNonCarrierMergedWifiDisableDurationMinutes">30</integer>
+    <!-- The minimum duration in minutes that all non-carrier-merged wifi becomes disabled when
+    WifiManager#startRestrictingAutoJoinToSubscriptionId is called. -->
+    <integer translatable="false"
+             name="config_wifiAllNonCarrierMergedWifiMinDisableDurationMinutes">30</integer>
+
+    <!-- The maximum duration in minutes that all non-carrier-merged wifi becomes disabled when
+    WifiManager#startRestrictingAutoJoinToSubscriptionId is called. -->
+    <integer translatable="false"
+             name="config_wifiAllNonCarrierMergedWifiMaxDisableDurationMinutes">480</integer>
 
     <!-- Indicates that wifi link probing is supported on this device -->
     <bool translatable="false" name="config_wifi_link_probing_supported">false</bool>
@@ -576,6 +603,8 @@
     <!-- A value to indicate the duration (in ms) to disable a network from auto-connect based on
     Carrier requirement. -1 represents disabling a network permanently -->
     <integer translatable="false" name="config_wifiDisableReasonAuthenticationFailureCarrierSpecificDurationMs">-1</integer>
+    <!-- Flush ANQP cache on Wi-Fi toggle off event -->
+    <bool translatable="false" name="config_wifiFlushAnqpCacheOnWifiToggleOffEvent">true</bool>
 
     <!-- Enable Aware NDP interface selection on interface that already has network set up.
      Note: the default AOSP Android does not support multiple networks on the same Aware NDI.
@@ -589,6 +618,21 @@
 
     <!-- A value to decide when NetworkCapabilities are updated to reflect the latest link
     bandwidth. If the bandwidth change is above this value, NetworkCapabilities are updated -->
-    <integer translatable="false" name="config_wifiLinkBandwidthUpdateThresholdPercent">40</integer>
+    <integer translatable="false" name="config_wifiLinkBandwidthUpdateThresholdPercent">15</integer>
 
+    <!-- Whether we should apply APF filters on non primary STA connections when STA + STA is active.
+         Defaults to false since most wifi chips cannot support concurrent APF filter set needed for STA + STA-->
+    <bool translatable="false" name="config_wifiEnableApfOnNonPrimarySta">false</bool>
+
+    <!-- Whether to use the explicit vendor HAL API: IWifiStaIface.setRoamingState for disabling fw roaming (only needed if
+         setting the bssid on the connection alone does not disable fw roaming on this chip) -->
+    <bool translatable="false" name="config_wifiUseHalApiToDisableFwRoaming">false</bool>
+
+    <!-- Indicates that SAE Hash-to-Element is supported on this device -->
+    <bool translatable="false" name="config_wifiSaeH2eSupported">false</bool>
+
+    <!-- Enable aggregation of Wifi link layer radio stats from all radios.
+         Defaults to true so that all full DBS capable devices report stats correctly in STA mode.
+         If false, fetch radio stats only from Radio 0. -->
+    <bool translatable="false" name="config_wifiLinkLayerAllRadiosStatsAggregationEnabled">true</bool>
 </resources>

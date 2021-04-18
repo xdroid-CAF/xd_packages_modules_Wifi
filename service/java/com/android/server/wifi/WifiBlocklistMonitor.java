@@ -43,6 +43,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -109,11 +110,10 @@ public class WifiBlocklistMonitor {
     private boolean mFailureCountDisableThresholdArrayInitialized = false;
     private static final long ABNORMAL_DISCONNECT_RESET_TIME_MS = TimeUnit.HOURS.toMillis(3);
     private static final int MIN_RSSI_DIFF_TO_UNBLOCK_BSSID = 5;
-    /**
-     * Maximum number of blocked BSSIDs per SSID used for calcualting the duration of temporarily
-     * disabling a network.
-     */
-    private static final int MAX_BLOCKED_BSSID_PER_NETWORK = 10;
+    @VisibleForTesting
+    public static final int NUM_CONSECUTIVE_FAILURES_PER_NETWORK_EXP_BACKOFF = 5;
+    @VisibleForTesting
+    public static final long WIFI_CONFIG_MAX_DISABLE_DURATION_MILLIS = TimeUnit.HOURS.toMillis(18);
     private static final String TAG = "WifiBlocklistMonitor";
 
     private final Context mContext;
@@ -134,10 +134,15 @@ public class WifiBlocklistMonitor {
     // Internal logger to make sure imporatant logs do not get lost.
     private BssidBlocklistMonitorLogger mBssidBlocklistMonitorLogger =
             new BssidBlocklistMonitorLogger(60);
+
+    // Map of ssid to Allowlist SSIDs
+    private Map<String, List<String>> mSsidAllowlistMap = new ArrayMap<>();
+
     /**
      * Verbose logging flag. Toggled by developer options.
      */
     private boolean mVerboseLoggingEnabled = false;
+
 
     private Map<Integer, BssidDisableReason> buildBssidDisableReasons() {
         Map<Integer, BssidDisableReason> result = new ArrayMap<>();
@@ -378,6 +383,7 @@ public class WifiBlocklistMonitor {
             // To rule out potential device side issues, don't add to blocklist if
             // WifiLastResortWatchdog is still not triggered
             if (shouldWaitForWatchdogToTriggerFirst(bssid, reasonCode)) {
+                localLog("Ignoring failure to wait for watchdog to trigger first.");
                 return false;
             }
             int baseBlockDurationMs = getBaseBlockDurationForReason(reasonCode);
@@ -711,6 +717,28 @@ public class WifiBlocklistMonitor {
             bssidBlocklist = new ArrayList<String>(bssidBlocklist.subList(0,
                     fwMaxBlocklistSize));
         }
+
+        // Collect all the allowed SSIDs
+        Set<String> allowedSsidSet = new HashSet<>();
+        for (String ssid : ssids) {
+            List<String> allowedSsidsForSsid = mSsidAllowlistMap.get(ssid);
+            if (allowedSsidsForSsid != null) {
+                allowedSsidSet.addAll(allowedSsidsForSsid);
+            }
+        }
+        ArrayList<String> ssidAllowlist = new ArrayList<>(allowedSsidSet);
+        int allowlistSize = ssidAllowlist.size();
+        int maxAllowlistSize = mConnectivityHelper.getMaxNumAllowlistSsid();
+        if (maxAllowlistSize <= 0) {
+            Log.wtf(TAG, "Invalid max SSID allowlist size:  " + maxAllowlistSize);
+            return;
+        }
+        if (allowlistSize > maxAllowlistSize) {
+            ssidAllowlist = new ArrayList<>(ssidAllowlist.subList(0, maxAllowlistSize));
+            localLog("Trim down SSID allowlist size from " + allowlistSize + " to "
+                    + ssidAllowlist.size());
+        }
+
         // plumb down to HAL
         String message = "set firmware roaming configurations. "
                 + "bssidBlocklist=";
@@ -719,8 +747,7 @@ public class WifiBlocklistMonitor {
         } else {
             message += String.join(", ", bssidBlocklist);
         }
-        if (!mConnectivityHelper.setFirmwareRoamingConfiguration(bssidBlocklist,
-                new ArrayList<String>())) {  // TODO(b/36488259): SSID whitelist management.
+        if (!mConnectivityHelper.setFirmwareRoamingConfiguration(bssidBlocklist, ssidAllowlist)) {
             Log.e(TAG, "Failed to " + message);
             mBssidBlocklistMonitorLogger.log("Failed to " + message);
         } else {
@@ -906,12 +933,12 @@ public class WifiBlocklistMonitor {
         int duration = mContext.getResources().getInteger(
                 R.integer.config_wifiDisableReasonAuthenticationFailureCarrierSpecificDurationMs);
         DisableReasonInfo disableReasonInfo = new DisableReasonInfo(
-                "NETWORK_SELECTION_DISABLED_AUTHENTICATION_FAILURE_CARRIER_SPECIFIC",
+                "NETWORK_SELECTION_DISABLED_AUTHENTICATION_PRIVATE_EAP_ERROR",
                 mContext.getResources().getInteger(R.integer
                         .config_wifiDisableReasonAuthenticationFailureCarrierSpecificThreshold),
                 duration);
         mDisableReasonInfo.put(
-                NetworkSelectionStatus.DISABLED_AUTHENTICATION_FAILURE_CARRIER_SPECIFIC,
+                NetworkSelectionStatus.DISABLED_AUTHENTICATION_PRIVATE_EAP_ERROR,
                 disableReasonInfo);
     }
 
@@ -925,11 +952,16 @@ public class WifiBlocklistMonitor {
             long timeDifferenceMs =
                     mClock.getElapsedSinceBootMillis() - networkStatus.getDisableTime();
             int disableReason = networkStatus.getNetworkSelectionDisableReason();
-            int blockedBssids = Math.min(MAX_BLOCKED_BSSID_PER_NETWORK,
-                    updateAndGetNumBlockedBssidsForSsid(config.SSID));
             long disableTimeoutMs = (long) getNetworkSelectionDisableTimeoutMillis(disableReason);
-            if (blockedBssids > 1) {
-                disableTimeoutMs *= Math.pow(2.0, blockedBssids - 1.0);
+            int exponentialBackoffCount = mWifiScoreCard.lookupNetwork(config.SSID)
+                    .getRecentStats().getCount(WifiScoreCard.CNT_CONSECUTIVE_CONNECTION_FAILURE)
+                    - NUM_CONSECUTIVE_FAILURES_PER_NETWORK_EXP_BACKOFF;
+            for (int i = 0; i < exponentialBackoffCount; i++) {
+                disableTimeoutMs *= 2;
+                if (disableTimeoutMs > WIFI_CONFIG_MAX_DISABLE_DURATION_MILLIS) {
+                    disableTimeoutMs = WIFI_CONFIG_MAX_DISABLE_DURATION_MILLIS;
+                    break;
+                }
             }
             if (timeDifferenceMs >= disableTimeoutMs) {
                 return true;
@@ -1010,7 +1042,7 @@ public class WifiBlocklistMonitor {
         } else {
             setNetworkSelectionPermanentlyDisabled(config, reason);
         }
-        localLog("setNetworkSelectionStatus: configKey=" + config.getProfileKey()
+        localLog("setNetworkSelectionStatus: configKey=" + config.getProfileKeyInternal()
                 + " networkStatus=" + networkStatus.getNetworkStatusString() + " disableReason="
                 + networkStatus.getNetworkSelectionDisableReasonString());
     }
@@ -1022,7 +1054,7 @@ public class WifiBlocklistMonitor {
         NetworkSelectionStatus status = config.getNetworkSelectionStatus();
         if (status.getNetworkSelectionStatus()
                 != NetworkSelectionStatus.NETWORK_SELECTION_ENABLED) {
-            localLog("setNetworkSelectionEnabled: configKey=" + config.getProfileKey()
+            localLog("setNetworkSelectionEnabled: configKey=" + config.getProfileKeyInternal()
                     + " old networkStatus=" + status.getNetworkStatusString()
                     + " disableReason=" + status.getNetworkSelectionDisableReasonString());
         }
@@ -1097,5 +1129,12 @@ public class WifiBlocklistMonitor {
         } else {
             return info.mDisableTimeoutMillis;
         }
+    }
+
+    /**
+     * Sets the allowlist ssids for the given ssid
+     */
+    public void setAllowlistSsids(@NonNull String ssid, @NonNull List<String> ssidAllowlist) {
+        mSsidAllowlistMap.put(ssid, ssidAllowlist);
     }
 }

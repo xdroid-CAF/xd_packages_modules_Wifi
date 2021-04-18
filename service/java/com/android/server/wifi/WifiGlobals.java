@@ -53,6 +53,13 @@ public class WifiGlobals {
     private final boolean mIsOweUpgradeEnabled;
     // This is read from the overlay, cache it after boot up.
     private final boolean mIsWpa3EnterpriseUpgradeEnabled;
+    // This is read from the overlay, cache it after boot up.
+    private final boolean mFlushAnqpCacheOnWifiToggleOffEvent;
+    // This is read from the overlay, cache it after boot up.
+    private final boolean mIsWpa3SaeH2eSupported;
+
+    // This is set by WifiManager#setVerboseLoggingEnabled(int).
+    private boolean mIsShowKeyVerboseLoggingModeEnabled = false;
 
     public WifiGlobals(Context context) {
         mContext = context;
@@ -65,6 +72,10 @@ public class WifiGlobals {
                 .getBoolean(R.bool.config_wifiOweUpgradeEnabled);
         mIsWpa3EnterpriseUpgradeEnabled = mContext.getResources()
                 .getBoolean(R.bool.config_wifiWpa3EnterpriseUpgradeEnabled);
+        mFlushAnqpCacheOnWifiToggleOffEvent = mContext.getResources()
+                .getBoolean(R.bool.config_wifiFlushAnqpCacheOnWifiToggleOffEvent);
+        mIsWpa3SaeH2eSupported = mContext.getResources()
+                .getBoolean(R.bool.config_wifiSaeH2eSupported);
     }
 
     /** Get the interval between RSSI polls, in milliseconds. */
@@ -162,6 +173,34 @@ public class WifiGlobals {
         return mIsWpa3EnterpriseUpgradeEnabled;
     }
 
+    /**
+     * Help method to check if the setting to flush ANQP cache when Wi-Fi is toggled off.
+     *
+     * @return boolean true to flush ANQP cache on Wi-Fi toggle off event, false otherwise.
+     */
+    public boolean flushAnqpCacheOnWifiToggleOffEvent() {
+        return mFlushAnqpCacheOnWifiToggleOffEvent;
+    }
+
+    /*
+     * Help method to check if WPA3 SAE Hash-to-Element is supported on this device.
+     *
+     * @return boolean true if supported;otherwise false.
+     */
+    public boolean isWpa3SaeH2eSupported() {
+        return mIsWpa3SaeH2eSupported;
+    }
+
+    /** Set if show key verbose logging mode is enabled. */
+    public void setShowKeyVerboseLoggingModeEnabled(boolean enable) {
+        mIsShowKeyVerboseLoggingModeEnabled = enable;
+    }
+
+    /** Check if show key verbose logging mode is enabled. */
+    public boolean getShowKeyVerboseLoggingModeEnabled() {
+        return mIsShowKeyVerboseLoggingModeEnabled;
+    }
+
     /** Dump method for debugging */
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("Dump of WifiGlobals");
@@ -172,5 +211,7 @@ public class WifiGlobals {
         pw.println("mIsWpa3SaeUpgradeOffloadEnabled=" + mIsWpa3SaeUpgradeOffloadEnabled);
         pw.println("mIsOweUpgradeEnabled=" + mIsOweUpgradeEnabled);
         pw.println("mIsWpa3EnterpriseUpgradeEnabled=" + mIsWpa3EnterpriseUpgradeEnabled);
+        pw.println("mFlushAnqpCacheOnWifiToggleOffEvent=" + mFlushAnqpCacheOnWifiToggleOffEvent);
+        pw.println("mIsWpa3SaeH2eSupported=" + mIsWpa3SaeH2eSupported);
     }
 }

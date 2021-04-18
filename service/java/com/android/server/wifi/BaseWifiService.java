@@ -35,10 +35,13 @@ import android.net.wifi.ISuggestionUserApprovalStatusListener;
 import android.net.wifi.ITrafficStateCallback;
 import android.net.wifi.IWifiConnectedNetworkScorer;
 import android.net.wifi.IWifiManager;
+import android.net.wifi.IWifiVerboseLoggingStatusChangedListener;
 import android.net.wifi.ScanResult;
 import android.net.wifi.SoftApConfiguration;
+import android.net.wifi.WifiAvailableChannel;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.net.wifi.WifiNetworkSuggestion;
 import android.net.wifi.hotspot2.IProvisioningCallback;
 import android.net.wifi.hotspot2.OsuProvider;
@@ -46,6 +49,7 @@ import android.net.wifi.hotspot2.PasspointConfiguration;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.WorkSource;
+import android.util.Pair;
 
 import com.android.modules.utils.ParceledListSlice;
 
@@ -82,8 +86,14 @@ public class BaseWifiService extends IWifiManager.Stub {
         throw new UnsupportedOperationException();
     }
 
-    @Override
+    @Deprecated
     public ParceledListSlice getConfiguredNetworks(String packageName, String featureId) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public ParceledListSlice getConfiguredNetworks(String packageName, String featureId,
+            boolean callerNetworksOnly) {
         throw new UnsupportedOperationException();
     }
 
@@ -116,6 +126,12 @@ public class BaseWifiService extends IWifiManager.Stub {
     }
 
     @Override
+    public WifiManager.AddNetworkResult addOrUpdateNetworkPrivileged(WifiConfiguration config,
+            String packageName) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public boolean addOrUpdatePasspointConfiguration(
             PasspointConfiguration config, String packageName) {
         throw new UnsupportedOperationException();
@@ -131,7 +147,10 @@ public class BaseWifiService extends IWifiManager.Stub {
         throw new UnsupportedOperationException();
     }
 
-    @Override
+    /**
+     * @deprecated
+     */
+    @Deprecated
     public List<WifiConfiguration> getWifiConfigsForPasspointProfiles(List<String> fqdnList) {
         throw new UnsupportedOperationException();
     }
@@ -148,6 +167,11 @@ public class BaseWifiService extends IWifiManager.Stub {
 
     @Override
     public boolean removeNetwork(int netId, String packageName) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean removeNonCallerConfiguredNetworks(String packageName) {
         throw new UnsupportedOperationException();
     }
 
@@ -232,7 +256,7 @@ public class BaseWifiService extends IWifiManager.Stub {
     }
 
     @Override
-    public void restartWifiSubsystem(String reason) {
+    public void restartWifiSubsystem() {
         throw new UnsupportedOperationException();
     }
 
@@ -247,12 +271,32 @@ public class BaseWifiService extends IWifiManager.Stub {
     }
 
     @Override
+    public void setOverrideCountryCode(@NonNull String countryCode) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void clearOverrideCountryCode() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setDefaultCountryCode(@NonNull String countryCode) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public boolean is24GHzBandSupported() {
         throw new UnsupportedOperationException();
     }
 
     @Override
     public boolean is5GHzBandSupported() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public String getCapabilities(String capaType) {
         throw new UnsupportedOperationException();
     }
 
@@ -272,22 +316,7 @@ public class BaseWifiService extends IWifiManager.Stub {
     }
 
     @Override
-    public String getCapabilities(String capaType) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Deprecated
-    public DhcpInfo getDhcpInfo() {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public DhcpInfo getDhcpInfo(String packageName) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Deprecated
-    public void setScanAlwaysAvailable(boolean isAvailable) {
         throw new UnsupportedOperationException();
     }
 
@@ -371,18 +400,8 @@ public class BaseWifiService extends IWifiManager.Stub {
         throw new UnsupportedOperationException();
     }
 
-    @Deprecated
-    public boolean startSoftAp(WifiConfiguration wifiConfig) {
-        throw new UnsupportedOperationException();
-    }
-
     @Override
     public boolean startSoftAp(WifiConfiguration wifiConfig, String packageName) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Deprecated
-    public boolean startTetheredHotspot(SoftApConfiguration softApConfig) {
         throw new UnsupportedOperationException();
     }
 
@@ -518,14 +537,15 @@ public class BaseWifiService extends IWifiManager.Stub {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Replaced by
-     * {@link #registerNetworkRequestMatchCallback(INetworkRequestMatchCallback)}
-     * @deprecated This is no longer supported.
-     */
-    @Deprecated
-    public void registerSoftApCallback(
-            IBinder binder, ISoftApCallback callback, int callbackIdentifier) {
+    @Override
+    public void addWifiVerboseLoggingStatusChangedListener(
+            IWifiVerboseLoggingStatusChangedListener callback) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void removeWifiVerboseLoggingStatusChangedListener(
+            IWifiVerboseLoggingStatusChangedListener callback) {
         throw new UnsupportedOperationException();
     }
 
@@ -534,28 +554,8 @@ public class BaseWifiService extends IWifiManager.Stub {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Replaced by
-     * {@link #unregisterSoftApCallback(ISoftApCallback)}
-     * @deprecated This is no longer supported.
-     */
-    @Deprecated
-    public void unregisterSoftApCallback(int callbackIdentifier) {
-        throw new UnsupportedOperationException();
-    }
-
     @Override
     public void unregisterSoftApCallback(ISoftApCallback callback) {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Replaced by {@link #registerTrafficStateCallback(ITrafficStateCallback)}
-     * @deprecated This is no longer supported.
-     */
-    @Deprecated
-    public void registerTrafficStateCallback(
-            IBinder binder, ITrafficStateCallback callback, int callbackIdentifier) {
         throw new UnsupportedOperationException();
     }
 
@@ -564,43 +564,13 @@ public class BaseWifiService extends IWifiManager.Stub {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Replaced by {@link #unregisterTrafficStateCallback(ITrafficStateCallback)}
-     * @deprecated This is no longer supported.
-     */
-    @Deprecated
-    public void unregisterTrafficStateCallback(int callbackIdentifier) {
-        throw new UnsupportedOperationException();
-    }
-
     @Override
     public void unregisterTrafficStateCallback(ITrafficStateCallback callback) {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Replaced by
-     * {@link #registerNetworkRequestMatchCallback(INetworkRequestMatchCallback)}
-     * @deprecated This is no longer supported.
-     */
-    @Deprecated
-    public void registerNetworkRequestMatchCallback(
-            IBinder binder, INetworkRequestMatchCallback callback, int callbackIdentifier) {
-        throw new UnsupportedOperationException();
-    }
-
     @Override
     public void registerNetworkRequestMatchCallback(INetworkRequestMatchCallback callback) {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Replaced by
-     * {@link #unregisterNetworkRequestMatchCallback(INetworkRequestMatchCallback)}
-     * @deprecated This is no longer supported.
-     */
-    @Deprecated
-    public void unregisterNetworkRequestMatchCallback(int callbackIdentifier) {
         throw new UnsupportedOperationException();
     }
 
@@ -672,25 +642,6 @@ public class BaseWifiService extends IWifiManager.Stub {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Replaced by {@link #addOnWifiUsabilityStatsListener(IOnWifiUsabilityStatsListener)}
-     * @deprecated This is no longer supported.
-     */
-    @Deprecated
-    public void addOnWifiUsabilityStatsListener(
-            IBinder binder, IOnWifiUsabilityStatsListener listener, int listenerIdentifier) {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Replaced by {@link #removeOnWifiUsabilityStatsListener(IOnWifiUsabilityStatsListener)}
-     * @deprecated This is no longer supported.
-     */
-    @Deprecated
-    public void removeOnWifiUsabilityStatsListener(int listenerIdentifier) {
-        throw new UnsupportedOperationException();
-    }
-
     @Override
     public void addOnWifiUsabilityStatsListener(IOnWifiUsabilityStatsListener listener) {
         throw new UnsupportedOperationException();
@@ -712,12 +663,12 @@ public class BaseWifiService extends IWifiManager.Stub {
     }
 
     @Override
-    public void startTemporarilyDisablingAllNonCarrierMergedWifi(int subId) {
+    public void startRestrictingAutoJoinToSubscriptionId(int subId) {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public void stopTemporarilyDisablingAllNonCarrierMergedWifi() {
+    public void stopRestrictingAutoJoinToSubscriptionId() {
         throw new UnsupportedOperationException();
     }
 
@@ -741,34 +692,9 @@ public class BaseWifiService extends IWifiManager.Stub {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Replaced by
-     * {@link #registerSuggestionConnectionStatusListener(ISuggestionConnectionStatusListener,
-     * String, String)}
-     * @deprecated This is no longer supported.
-     */
-    @Deprecated
-    public void registerSuggestionConnectionStatusListener(IBinder binder,
-            ISuggestionConnectionStatusListener listener,
-            int listenerIdentifier, String packageName, String featureId) {
-        throw new UnsupportedOperationException();
-    }
-
     @Override
     public void registerSuggestionConnectionStatusListener(
             ISuggestionConnectionStatusListener listener, String packageName, String featureId) {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Replaced by
-     * {@link #unregisterSuggestionConnectionStatusListener(ISuggestionConnectionStatusListener,
-     * String)}
-     * @deprecated This is no longer supported.
-     */
-    @Deprecated
-    public void unregisterSuggestionConnectionStatusListener(int listenerIdentifier,
-            String packageName) {
         throw new UnsupportedOperationException();
     }
 
@@ -818,7 +744,10 @@ public class BaseWifiService extends IWifiManager.Stub {
         throw new UnsupportedOperationException();
     }
 
-    @Override
+    /**
+     * @deprecated
+     */
+    @Deprecated
     public Map<String, Map<Integer, List<ScanResult>>>
             getAllMatchingPasspointProfilesForScanResults(List<ScanResult> scanResults) {
         throw new UnsupportedOperationException();
@@ -870,4 +799,22 @@ public class BaseWifiService extends IWifiManager.Stub {
     public boolean setWifiScoringEnabled(boolean enabled) {
         throw new UnsupportedOperationException();
     }
+
+    @Override
+    public void flushPasspointAnqpCache(@NonNull String packageName) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public List<Pair<WifiConfiguration, Map<Integer, List<ScanResult>>>>
+            getAllMatchingWifiConfigsForPasspoint(@NonNull List<ScanResult> scanResults) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public List<WifiAvailableChannel> getUsableChannels(
+            int band, int mode, int filter) {
+        throw new UnsupportedOperationException();
+    }
 }
+

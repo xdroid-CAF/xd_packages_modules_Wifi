@@ -28,6 +28,7 @@ import static org.junit.Assume.assumeTrue;
 
 import android.net.wifi.WifiEnterpriseConfig.Eap;
 import android.net.wifi.WifiEnterpriseConfig.Phase2;
+import android.net.wifi.hotspot2.PasspointConfiguration;
 import android.os.Parcel;
 import android.security.Credentials;
 
@@ -52,6 +53,7 @@ public class WifiEnterpriseConfigTest {
     public static final String KEYSTORES_URI = "keystores://";
     private static final String TEST_DOMAIN_SUFFIX_MATCH = "domainSuffixMatch";
     private static final String TEST_ALT_SUBJECT_MATCH = "DNS:server.test.com";
+    private static final String TEST_DECORATED_IDENTITY_PREFIX = "androidwifi.dev!";
 
     private WifiEnterpriseConfig mEnterpriseConfig;
 
@@ -132,6 +134,16 @@ public class WifiEnterpriseConfigTest {
         assertEquals(result.length, 2);
         assertTrue(result[0] == cert0 && result[1] == cert1);
         assertTrue(mEnterpriseConfig.getClientCertificate() == cert0);
+    }
+
+    @Test
+    public void testSetGetClientKeyPairAlias() {
+        assumeTrue(SdkLevel.isAtLeastS());
+
+        final String alias = "alias";
+        mEnterpriseConfig.setClientKeyPairAlias(alias);
+        assertEquals(alias, mEnterpriseConfig.getClientKeyPairAlias());
+        assertEquals(alias, mEnterpriseConfig.getClientKeyPairAliasInternal());
     }
 
     private boolean isClientCertificateChainInvalid(X509Certificate[] clientChain) {
@@ -552,24 +564,24 @@ public class WifiEnterpriseConfigTest {
         WifiEnterpriseConfig baseConfig = new WifiEnterpriseConfig();
         baseConfig.setEapMethod(Eap.PEAP);
         baseConfig.setPhase2Method(Phase2.MSCHAPV2);
-        assertTrue(baseConfig.doesEapMethodUseServerCert());
+        assertTrue(baseConfig.isEapMethodServerCertUsed());
         assertFalse(baseConfig.isServerCertValidationEnabled());
 
         WifiEnterpriseConfig noMatchConfig = new WifiEnterpriseConfig(baseConfig);
         noMatchConfig.setCaCertificate(FakeKeys.CA_CERT0);
         // Missing match disables validation.
-        assertTrue(baseConfig.doesEapMethodUseServerCert());
+        assertTrue(baseConfig.isEapMethodServerCertUsed());
         assertFalse(baseConfig.isServerCertValidationEnabled());
 
         WifiEnterpriseConfig noCaConfig = new WifiEnterpriseConfig(baseConfig);
         noCaConfig.setDomainSuffixMatch(TEST_DOMAIN_SUFFIX_MATCH);
         // Missing CA certificate disables validation.
-        assertTrue(baseConfig.doesEapMethodUseServerCert());
+        assertTrue(baseConfig.isEapMethodServerCertUsed());
         assertFalse(baseConfig.isServerCertValidationEnabled());
 
         WifiEnterpriseConfig noValidationConfig = new WifiEnterpriseConfig();
         noValidationConfig.setEapMethod(Eap.AKA);
-        assertFalse(noValidationConfig.doesEapMethodUseServerCert());
+        assertFalse(noValidationConfig.isEapMethodServerCertUsed());
     }
 
     @Test
@@ -590,26 +602,49 @@ public class WifiEnterpriseConfigTest {
         testIsEnterpriseConfigServerCertEnabled(Eap.TTLS);
     }
 
+    @Test
+    public void testSetGetDecoratedIdentityPrefix() {
+        assumeTrue(SdkLevel.isAtLeastS());
+        WifiEnterpriseConfig config = new WifiEnterpriseConfig();
+
+        assertEquals("", config.getDecoratedIdentityPrefix());
+        config.setDecoratedIdentityPrefix(TEST_DECORATED_IDENTITY_PREFIX);
+        assertEquals(TEST_DECORATED_IDENTITY_PREFIX, config.getDecoratedIdentityPrefix());
+    }
+
+    /**
+     * Verify that the set decorated identity prefix doesn't accept a malformed input.
+     *
+     * @throws Exception
+     */
+    @Test (expected = IllegalArgumentException.class)
+    public void testSetDecoratedIdentityPrefixWithInvalidValue() {
+        assumeTrue(SdkLevel.isAtLeastS());
+        PasspointConfiguration config = new PasspointConfiguration();
+
+        config.setDecoratedIdentityPrefix(TEST_DECORATED_IDENTITY_PREFIX.replace('!', 'a'));
+    }
+
     private void testIsEnterpriseConfigServerCertEnabled(int eapMethod) {
         WifiEnterpriseConfig configWithCertAndDomainSuffixMatch = createEnterpriseConfig(eapMethod,
                 Phase2.NONE, FakeKeys.CA_CERT0, null, TEST_DOMAIN_SUFFIX_MATCH, null);
-        assertTrue(configWithCertAndDomainSuffixMatch.doesEapMethodUseServerCert());
+        assertTrue(configWithCertAndDomainSuffixMatch.isEapMethodServerCertUsed());
         assertTrue(configWithCertAndDomainSuffixMatch.isServerCertValidationEnabled());
 
         WifiEnterpriseConfig configWithCertAndAltSubjectMatch = createEnterpriseConfig(eapMethod,
                 Phase2.NONE, FakeKeys.CA_CERT0, null, null, TEST_ALT_SUBJECT_MATCH);
-        assertTrue(configWithCertAndAltSubjectMatch.doesEapMethodUseServerCert());
+        assertTrue(configWithCertAndAltSubjectMatch.isEapMethodServerCertUsed());
         assertTrue(configWithCertAndAltSubjectMatch.isServerCertValidationEnabled());
 
         WifiEnterpriseConfig configWithAliasAndDomainSuffixMatch = createEnterpriseConfig(eapMethod,
                 Phase2.NONE, null, new String[]{"alias1", "alisa2"}, TEST_DOMAIN_SUFFIX_MATCH,
                 null);
-        assertTrue(configWithAliasAndDomainSuffixMatch.doesEapMethodUseServerCert());
+        assertTrue(configWithAliasAndDomainSuffixMatch.isEapMethodServerCertUsed());
         assertTrue(configWithAliasAndDomainSuffixMatch.isServerCertValidationEnabled());
 
         WifiEnterpriseConfig configWithAliasAndAltSubjectMatch = createEnterpriseConfig(eapMethod,
                 Phase2.NONE, null, new String[]{"alias1", "alisa2"}, null, TEST_ALT_SUBJECT_MATCH);
-        assertTrue(configWithAliasAndAltSubjectMatch.doesEapMethodUseServerCert());
+        assertTrue(configWithAliasAndAltSubjectMatch.isEapMethodServerCertUsed());
         assertTrue(configWithAliasAndAltSubjectMatch.isServerCertValidationEnabled());
     }
 

@@ -402,9 +402,23 @@ public class KnownBandsChannelHelper extends ChannelHelper {
         }
 
         @Override
+        public void add6GhzPscChannels() {
+            Set<Integer> missingChannels = getMissingChannelsFromBand(WIFI_BAND_6_GHZ);
+            if (missingChannels.isEmpty()) {
+                return;
+            }
+            for (int freq : missingChannels) {
+                if ((freq - ScanResult.BAND_6_GHZ_PSC_START_MHZ)
+                        % ScanResult.BAND_6_GHZ_PSC_STEP_SIZE_MHZ == 0) {
+                    mChannels.add(freq);
+                    mAllBands |= WIFI_BAND_6_GHZ;
+                }
+            }
+        }
+
+        @Override
         public void fillBucketSettings(WifiNative.BucketSettings bucketSettings, int maxChannels) {
-            if ((mChannels.size() > maxChannels || mAllBands == mExactBands)
-                    && mAllBands != 0) {
+            if ((mChannels.size() > maxChannels || mAllBands == mExactBands) && mAllBands != 0) {
                 bucketSettings.band = mAllBands;
                 bucketSettings.num_channels = 0;
                 bucketSettings.channels = null;

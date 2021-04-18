@@ -11,5 +11,10 @@
         }
       ]
     }
+  ],
+  "mainline-presubmit": [
+    {
+      "name": "FrameworksWifiTests[com.google.android.wifi.apex]"
+    }
   ]
 }

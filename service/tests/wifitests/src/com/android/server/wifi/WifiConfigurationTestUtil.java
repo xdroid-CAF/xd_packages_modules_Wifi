@@ -31,6 +31,8 @@ import android.net.wifi.WifiEnterpriseConfig;
 import android.net.wifi.WifiSsid;
 import android.text.TextUtils;
 
+import com.android.modules.utils.build.SdkLevel;
+
 import java.net.InetAddress;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
@@ -848,6 +850,9 @@ public class WifiConfigurationTestUtil {
                 actual.getFieldValue(WifiEnterpriseConfig.PLMN_KEY));
         assertEquals(expected.getEapMethod(), actual.getEapMethod());
         assertEquals(expected.getPhase2Method(), actual.getPhase2Method());
+        if (SdkLevel.isAtLeastS()) {
+            assertEquals(expected.getClientKeyPairAlias(), actual.getClientKeyPairAlias());
+        }
     }
 
     /**
@@ -858,10 +863,10 @@ public class WifiConfigurationTestUtil {
             List<WifiConfiguration> expected, List<WifiConfiguration> actual) {
         assertEquals(expected.size(), actual.size());
         for (WifiConfiguration expectedConfiguration : expected) {
-            String expectedConfigKey = expectedConfiguration.getProfileKey();
+            String expectedConfigKey = expectedConfiguration.getProfileKeyInternal();
             boolean didCompare = false;
             for (WifiConfiguration actualConfiguration : actual) {
-                String actualConfigKey = actualConfiguration.getProfileKey();
+                String actualConfigKey = actualConfiguration.getProfileKeyInternal();
                 if (actualConfigKey.equals(expectedConfigKey)) {
                     assertConfigurationEqualForBackup(
                             expectedConfiguration, actualConfiguration);
@@ -881,10 +886,10 @@ public class WifiConfigurationTestUtil {
             List<WifiConfiguration> expected, List<WifiConfiguration> actual) {
         assertEquals(expected.size(), actual.size());
         for (WifiConfiguration expectedConfiguration : expected) {
-            String expectedConfigKey = expectedConfiguration.getProfileKey();
+            String expectedConfigKey = expectedConfiguration.getProfileKeyInternal();
             boolean didCompare = false;
             for (WifiConfiguration actualConfiguration : actual) {
-                String actualConfigKey = actualConfiguration.getProfileKey();
+                String actualConfigKey = actualConfiguration.getProfileKeyInternal();
                 if (actualConfigKey.equals(expectedConfigKey)) {
                     assertConfigurationEqualForConfigManagerAddOrUpdate(
                             expectedConfiguration, actualConfiguration);
@@ -903,10 +908,10 @@ public class WifiConfigurationTestUtil {
             List<WifiConfiguration> expected, List<WifiConfiguration> actual) {
         assertEquals(expected.size(), actual.size());
         for (WifiConfiguration expectedConfiguration : expected) {
-            String expectedConfigKey = expectedConfiguration.getProfileKey();
+            String expectedConfigKey = expectedConfiguration.getProfileKeyInternal();
             boolean didCompare = false;
             for (WifiConfiguration actualConfiguration : actual) {
-                String actualConfigKey = actualConfiguration.getProfileKey();
+                String actualConfigKey = actualConfiguration.getProfileKeyInternal();
                 if (actualConfigKey.equals(expectedConfigKey)) {
                     assertConfigurationEqualForConfigStore(
                             expectedConfiguration, actualConfiguration);

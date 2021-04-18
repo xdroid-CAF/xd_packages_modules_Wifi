@@ -43,7 +43,6 @@ public class ClientModeImplMonitor implements ClientModeImplListener {
         mListeners.remove(listener);
     }
 
-    // TODO(b/175896748): not yet triggered by ClientModeImpl
     @Override
     public void onL2Connected(@NonNull ConcreteClientModeManager clientModeManager) {
         for (ClientModeImplListener listener : mListeners) {
@@ -60,9 +59,9 @@ public class ClientModeImplMonitor implements ClientModeImplListener {
     }
 
     @Override
-    public void onL3Validated(@NonNull ConcreteClientModeManager clientModeManager) {
+    public void onInternetValidated(@NonNull ConcreteClientModeManager clientModeManager) {
         for (ClientModeImplListener listener : mListeners) {
-            listener.onL3Validated(clientModeManager);
+            listener.onInternetValidated(clientModeManager);
         }
     }
 
@@ -77,6 +76,13 @@ public class ClientModeImplMonitor implements ClientModeImplListener {
     public void onConnectionEnd(@NonNull ConcreteClientModeManager clientModeManager) {
         for (ClientModeImplListener listener : mListeners) {
             listener.onConnectionEnd(clientModeManager);
+        }
+    }
+
+    @Override
+    public void onCaptivePortalDetected(@NonNull ConcreteClientModeManager clientModeManager) {
+        for (ClientModeImplListener listener : mListeners) {
+            listener.onCaptivePortalDetected(clientModeManager);
         }
     }
 }

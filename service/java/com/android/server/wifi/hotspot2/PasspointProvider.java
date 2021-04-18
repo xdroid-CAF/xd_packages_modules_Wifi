@@ -38,6 +38,7 @@ import android.util.Base64;
 import android.util.Log;
 import android.util.Pair;
 
+import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.Clock;
 import com.android.server.wifi.IMSIParameter;
 import com.android.server.wifi.WifiCarrierInfoManager;
@@ -555,6 +556,9 @@ public class PasspointProvider {
                     String.join(";", mConfig.getAaaServerTrustedNames()));
             enterpriseConfig.setCaPath(SYSTEM_CA_STORE_PATH);
         }
+        if (SdkLevel.isAtLeastS()) {
+            enterpriseConfig.setDecoratedIdentityPrefix(mConfig.getDecoratedIdentityPrefix());
+        }
         wifiConfig.enterpriseConfig = enterpriseConfig;
         // PPS MO Credential/CheckAAAServerCertStatus node contains a flag which indicates
         // if the mobile device needs to check the AAA server certificate's revocation status
@@ -572,7 +576,7 @@ public class PasspointProvider {
         wifiConfig.trusted = mIsTrusted;
         if (mConfig.isMacRandomizationEnabled()) {
             if (mConfig.isEnhancedMacRandomizationEnabled()) {
-                wifiConfig.macRandomizationSetting = WifiConfiguration.RANDOMIZATION_ENHANCED;
+                wifiConfig.macRandomizationSetting = WifiConfiguration.RANDOMIZATION_NON_PERSISTENT;
             } else {
                 wifiConfig.macRandomizationSetting = WifiConfiguration.RANDOMIZATION_PERSISTENT;
             }
@@ -1147,7 +1151,8 @@ public class PasspointProvider {
 
     /**
      * Set the user connect choice on the passpoint network.
-     * @param choice The {@link WifiConfiguration#getProfileKey()} of the user conncet network.
+     * @param choice The {@link WifiConfiguration#getProfileKeyInternal()} of the user connect
+     *               network.
      * @param rssi The signal strength of the network.
      */
     public void setUserConnectChoice(String choice, int rssi) {

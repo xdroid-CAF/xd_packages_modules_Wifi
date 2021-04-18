@@ -36,12 +36,17 @@ import static android.net.wifi.WifiManager.STATUS_SUGGESTION_CONNECTION_FAILURE_
 import static android.net.wifi.WifiManager.WIFI_AP_STATE_ENABLED;
 import static android.net.wifi.WifiManager.WIFI_AP_STATE_ENABLING;
 import static android.net.wifi.WifiManager.WIFI_AP_STATE_FAILED;
-import static android.net.wifi.WifiManager.WIFI_FEATURE_ADDITIONAL_STA;
+import static android.net.wifi.WifiManager.WIFI_FEATURE_ADDITIONAL_STA_LOCAL_ONLY;
+import static android.net.wifi.WifiManager.WIFI_FEATURE_ADDITIONAL_STA_MBB;
+import static android.net.wifi.WifiManager.WIFI_FEATURE_ADDITIONAL_STA_RESTRICTED;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_AP_STA;
+import static android.net.wifi.WifiManager.WIFI_FEATURE_DECORATED_IDENTITY;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_DPP;
+import static android.net.wifi.WifiManager.WIFI_FEATURE_DPP_ENROLLEE_RESPONDER;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_OWE;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_P2P;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_PASSPOINT;
+import static android.net.wifi.WifiManager.WIFI_FEATURE_PASSPOINT_TERMS_AND_CONDITIONS;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_SCANNER;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_WPA3_SAE;
 import static android.net.wifi.WifiManager.WIFI_FEATURE_WPA3_SUITE_B;
@@ -62,6 +67,7 @@ import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.anyList;
 import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.argThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.inOrder;
@@ -95,6 +101,9 @@ import android.net.wifi.WifiManager.SuggestionConnectionStatusListener;
 import android.net.wifi.WifiManager.SuggestionUserApprovalStatusListener;
 import android.net.wifi.WifiManager.TrafficStateCallback;
 import android.net.wifi.WifiManager.WifiConnectedNetworkScorer;
+import android.net.wifi.WifiUsabilityStatsEntry.ContentionTimeStats;
+import android.net.wifi.WifiUsabilityStatsEntry.RadioStats;
+import android.net.wifi.WifiUsabilityStatsEntry.RateStats;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerExecutor;
@@ -270,12 +279,14 @@ public class WifiManagerTest {
                 mRunnable.run();
             }
         };
-        mCoexCallback = new CoexCallback() {
-            @Override
-            public void onCoexUnsafeChannelsChanged() {
-                mRunnable.run();
-            }
-        };
+        if (SdkLevel.isAtLeastS()) {
+            mCoexCallback = new CoexCallback() {
+                @Override
+                public void onCoexUnsafeChannelsChanged() {
+                    mRunnable.run();
+                }
+            };
+        }
         mRestartCallback = new SubsystemRestartTrackingCallback() {
             @Override
             public void onSubsystemRestarting() {
@@ -300,6 +311,7 @@ public class WifiManagerTest {
      */
     @Test
     public void testSetCoexUnsafeChannelsGoesToWifiServiceImpl() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
         Set<CoexUnsafeChannel> unsafeChannels = new HashSet<>();
         int restrictions = COEX_RESTRICTION_WIFI_DIRECT | COEX_RESTRICTION_SOFTAP
                 | COEX_RESTRICTION_WIFI_AWARE;
@@ -314,6 +326,7 @@ public class WifiManagerTest {
      */
     @Test
     public void testSetCoexUnsafeChannelsThrowsIllegalArgumentExceptionOnNullUnsafeChannels() {
+        assumeTrue(SdkLevel.isAtLeastS());
         try {
             mWifiManager.setCoexUnsafeChannels(null, 0);
             fail("expected IllegalArgumentException");
@@ -327,6 +340,7 @@ public class WifiManagerTest {
      */
     @Test
     public void testGetCoexUnsafeChannelsGoesToWifiServiceImpl() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
         Set<CoexUnsafeChannel> unsafeChannels = new HashSet<>();
         unsafeChannels.add(new CoexUnsafeChannel(WIFI_BAND_24_GHZ, 6));
         when(mWifiService.getCoexUnsafeChannels()).thenReturn(new ArrayList<>(unsafeChannels));
@@ -340,6 +354,7 @@ public class WifiManagerTest {
      */
     @Test
     public void testGetCoexRestrictionsGoesToWifiServiceImpl() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
         int restrictions = COEX_RESTRICTION_WIFI_DIRECT | COEX_RESTRICTION_SOFTAP
                 | COEX_RESTRICTION_WIFI_AWARE;
         when(mWifiService.getCoexRestrictions()).thenReturn(restrictions);
@@ -353,6 +368,7 @@ public class WifiManagerTest {
      */
     @Test(expected = IllegalArgumentException.class)
     public void testRegisterCoexCallbackWithNullCallback() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
         mWifiManager.registerCoexCallback(mExecutor, null);
     }
 
@@ -361,6 +377,7 @@ public class WifiManagerTest {
      */
     @Test(expected = IllegalArgumentException.class)
     public void testRegisterCoexCallbackWithNullExecutor() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
         mWifiManager.registerCoexCallback(null, mCoexCallback);
     }
 
@@ -369,6 +386,7 @@ public class WifiManagerTest {
      */
     @Test
     public void testAddCoexCallbackAndReceiveEvent() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
         ArgumentCaptor<ICoexCallback.Stub> callbackCaptor =
                 ArgumentCaptor.forClass(ICoexCallback.Stub.class);
         mWifiManager.registerCoexCallback(new SynchronousExecutor(), mCoexCallback);
@@ -382,6 +400,7 @@ public class WifiManagerTest {
      */
     @Test
     public void testRegisterCoexCallbackWithTheTargetExecutor() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
         ArgumentCaptor<ICoexCallback.Stub> callbackCaptor =
                 ArgumentCaptor.forClass(ICoexCallback.Stub.class);
         mWifiManager.registerCoexCallback(mExecutor, mCoexCallback);
@@ -397,6 +416,7 @@ public class WifiManagerTest {
      */
     @Test
     public void testRegisterUnregisterThenRegisterAgainWithCoexCallback() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
         ArgumentCaptor<ICoexCallback.Stub> callbackCaptor =
                 ArgumentCaptor.forClass(ICoexCallback.Stub.class);
         mWifiManager.registerCoexCallback(new SynchronousExecutor(), mCoexCallback);
@@ -414,6 +434,7 @@ public class WifiManagerTest {
      */
     @Test
     public void testUnregisterCoexCallback() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
         mWifiManager.unregisterCoexCallback(mCoexCallback);
         verify(mWifiService).unregisterCoexCallback(any());
     }
@@ -423,6 +444,7 @@ public class WifiManagerTest {
      */
     @Test(expected = IllegalArgumentException.class)
     public void testUnregisterCoexCallbackWithNullCallback() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
         mWifiManager.unregisterCoexCallback(null);
     }
 
@@ -431,9 +453,8 @@ public class WifiManagerTest {
      */
     @Test
     public void testRestartWifiSubsystem() throws Exception {
-        String reason = "some reason";
-        mWifiManager.restartWifiSubsystem(reason);
-        verify(mWifiService).restartWifiSubsystem(reason);
+        mWifiManager.restartWifiSubsystem();
+        verify(mWifiService).restartWifiSubsystem();
     }
 
     /**
@@ -1092,6 +1113,67 @@ public class WifiManagerTest {
         doThrow(new IllegalStateException()).when(mWifiService)
                 .startWatchLocalOnlyHotspot(any(ILocalOnlyHotspotCallback.class));
         mWifiManager.watchLocalOnlyHotspot(observer, mHandler);
+    }
+
+    /**
+     * Verify an IllegalArgumentException is thrown if a callback or executor is not provided.
+     */
+    @Test
+    public void testAddWifiVerboseLoggingStatusChangedListenerIllegalArguments() throws Exception {
+        try {
+            mWifiManager.addWifiVerboseLoggingStatusChangedListener(
+                    new HandlerExecutor(mHandler), null);
+            fail("expected IllegalArgumentException - null callback");
+        } catch (IllegalArgumentException expected) {
+        }
+        try {
+            WifiManager.WifiVerboseLoggingStatusChangedListener listener =
+                    new WifiManager.WifiVerboseLoggingStatusChangedListener() {
+                        @Override
+                        public void onWifiVerboseLoggingStatusChanged(boolean enabled) {
+
+                        }
+                    };
+            mWifiManager.addWifiVerboseLoggingStatusChangedListener(null, listener);
+            fail("expected IllegalArgumentException - null executor");
+        } catch (IllegalArgumentException expected) {
+        }
+    }
+
+    /**
+     * Verify the call to addWifiVerboseLoggingStatusChangedListener and
+     * removeWifiVerboseLoggingStatusChangedListener goes to WifiServiceImpl.
+     */
+    @Test
+    public void testWifiVerboseLoggingStatusChangedListenerGoesToWifiServiceImpl()
+            throws Exception {
+        WifiManager.WifiVerboseLoggingStatusChangedListener listener =
+                new WifiManager.WifiVerboseLoggingStatusChangedListener() {
+                    @Override
+                    public void onWifiVerboseLoggingStatusChanged(boolean enabled) {
+
+                    }
+                };
+        mWifiManager.addWifiVerboseLoggingStatusChangedListener(new HandlerExecutor(mHandler),
+                listener);
+        verify(mWifiService).addWifiVerboseLoggingStatusChangedListener(
+                any(IWifiVerboseLoggingStatusChangedListener.Stub.class));
+        mWifiManager.removeWifiVerboseLoggingStatusChangedListener(listener);
+        verify(mWifiService).removeWifiVerboseLoggingStatusChangedListener(
+                any(IWifiVerboseLoggingStatusChangedListener.Stub.class));
+    }
+
+    /**
+     * Verify an IllegalArgumentException is thrown if a callback is not provided.
+     */
+    @Test
+    public void testRemoveWifiVerboseLoggingStatusChangedListenerIllegalArguments()
+            throws Exception {
+        try {
+            mWifiManager.removeWifiVerboseLoggingStatusChangedListener(null);
+            fail("expected IllegalArgumentException - null callback");
+        } catch (IllegalArgumentException expected) {
+        }
     }
 
     /**
@@ -2028,22 +2110,15 @@ public class WifiManagerTest {
     }
 
     /**
-     * Check the call to getAllMatchingWifiConfigs calls getAllMatchingFqdnsForScanResults and
-     * getWifiConfigsForPasspointProfiles of WifiService in order.
+     * Check the call to getAllMatchingWifiConfigs calls getAllMatchingWifiConfigsForPasspoint of
+     * WifiService.
      */
     @Test
     public void testGetAllMatchingWifiConfigs() throws Exception {
-        Map<String, List<ScanResult>> passpointProfiles = new HashMap<>();
-        passpointProfiles.put("www.test.com_987a69bca26", new ArrayList<>());
-        when(mWifiService.getAllMatchingPasspointProfilesForScanResults(
-                any(List.class))).thenReturn(passpointProfiles);
-        InOrder inOrder = inOrder(mWifiService);
-
         mWifiManager.getAllMatchingWifiConfigs(new ArrayList<>());
-
-        inOrder.verify(mWifiService).getAllMatchingPasspointProfilesForScanResults(any(List.class));
-        inOrder.verify(mWifiService).getWifiConfigsForPasspointProfiles(any(List.class));
+        verify(mWifiService).getAllMatchingWifiConfigsForPasspoint(any(List.class));
     }
+
 
     /**
      * Check the call to getMatchingOsuProviders calls getMatchingOsuProviders of WifiService
@@ -2111,21 +2186,21 @@ public class WifiManagerTest {
     }
 
     /**
-     * Verify the call to startTemporarilyDisablingAllNonCarrierMergedWifi goes to WifiServiceImpl.
+     * Verify the call to startRestrictingAutoJoinToSubscriptionId goes to WifiServiceImpl.
      */
     @Test
-    public void testStartTemporarilyDisablingAllNonCarrierMergedWifi() throws Exception {
-        mWifiManager.startTemporarilyDisablingAllNonCarrierMergedWifi(1);
-        verify(mWifiService).startTemporarilyDisablingAllNonCarrierMergedWifi(1);
+    public void testStartRestrictAutoJoinToSubscriptionId() throws Exception {
+        mWifiManager.startRestrictingAutoJoinToSubscriptionId(1);
+        verify(mWifiService).startRestrictingAutoJoinToSubscriptionId(1);
     }
 
     /**
-     * Verify the call to stopTemporarilyDisablingAllNonCarrierMergedWifi goes to WifiServiceImpl.
+     * Verify the call to stopRestrictingAutoJoinToSubscriptionId goes to WifiServiceImpl.
      */
     @Test
     public void testStopTemporarilyDisablingAllNonCarrierMergedWifi() throws Exception {
-        mWifiManager.stopTemporarilyDisablingAllNonCarrierMergedWifi();
-        verify(mWifiService).stopTemporarilyDisablingAllNonCarrierMergedWifi();
+        mWifiManager.stopRestrictingAutoJoinToSubscriptionId();
+        verify(mWifiService).stopRestrictingAutoJoinToSubscriptionId();
     }
 
     /**
@@ -2138,10 +2213,22 @@ public class WifiManagerTest {
                 ArgumentCaptor.forClass(IOnWifiUsabilityStatsListener.Stub.class);
         mWifiManager.addOnWifiUsabilityStatsListener(mExecutor, mOnWifiUsabilityStatsListener);
         verify(mWifiService).addOnWifiUsabilityStatsListener(callbackCaptor.capture());
+        ContentionTimeStats[] contentionTimeStats = new ContentionTimeStats[4];
+        contentionTimeStats[0] = new ContentionTimeStats(1, 2, 3, 4);
+        contentionTimeStats[1] = new ContentionTimeStats(5, 6, 7, 8);
+        contentionTimeStats[2] = new ContentionTimeStats(9, 10, 11, 12);
+        contentionTimeStats[3] = new ContentionTimeStats(13, 14, 15, 16);
+        RateStats[] rateStats = new RateStats[2];
+        rateStats[0] = new RateStats(1, 3, 5, 7, 9, 11, 13, 15, 17);
+        rateStats[1] = new RateStats(2, 4, 6, 8, 10, 12, 14, 16, 18);
+        RadioStats[] radioStats = new RadioStats[2];
+        radioStats[0] = new RadioStats(0, 10, 11, 12, 13, 14, 15, 16, 17, 18);
+        radioStats[1] = new RadioStats(1, 20, 21, 22, 23, 24, 25, 26, 27, 28);
         callbackCaptor.getValue().onWifiUsabilityStats(1, true,
-                new WifiUsabilityStatsEntry(System.currentTimeMillis(), -50, 100, 10, 0, 5, 5, 100,
-                        100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 1, 100, 10, 100, 0,
-                        10, 10, true));
+                new WifiUsabilityStatsEntry(System.currentTimeMillis(), -50, 100, 10, 0, 5, 5,
+                        100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 1, 100, 10,
+                        100, 27, contentionTimeStats, rateStats, radioStats, 101, true, true, true,
+                        0, 10, 10, true));
         verify(mOnWifiUsabilityStatsListener).onWifiUsabilityStats(anyInt(), anyBoolean(),
                 any(WifiUsabilityStatsEntry.class));
     }
@@ -2214,6 +2301,21 @@ public class WifiManagerTest {
     }
 
     /**
+     * Test behavior of isEasyConnectEnrolleeResponderModeSupported
+     */
+    @Test
+    public void testIsEasyConnectEnrolleeResponderModeSupported() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
+
+        when(mWifiService.getSupportedFeatures())
+                .thenReturn(new Long(WIFI_FEATURE_DPP_ENROLLEE_RESPONDER));
+        assertTrue(mWifiManager.isEasyConnectEnrolleeResponderModeSupported());
+        when(mWifiService.getSupportedFeatures())
+                .thenReturn(new Long(~WIFI_FEATURE_DPP_ENROLLEE_RESPONDER));
+        assertFalse(mWifiManager.isEasyConnectEnrolleeResponderModeSupported());
+    }
+
+    /**
      * Test behavior of isStaApConcurrencySupported
      */
     @Test
@@ -2227,18 +2329,27 @@ public class WifiManagerTest {
     }
 
     /**
-     * Test behavior of isMultiStaConcurrencySupported
+     * Test behavior of isStaConcurrencySupported
      */
     @Test
-    public void testIsMultiStaConcurrencyOpenSupported() throws Exception {
-        assumeTrue(SdkLevel.isAtLeastS());
+    public void testIsStaConcurrencySupported() throws Exception {
+        when(mWifiService.getSupportedFeatures()).thenReturn(0L);
+        assertFalse(mWifiManager.isStaConcurrencyForLocalOnlyConnectionsSupported());
+        assertFalse(mWifiManager.isMakeBeforeBreakWifiSwitchingSupported());
+        assertFalse(mWifiManager.isStaConcurrencyForRestrictedConnectionsSupported());
 
         when(mWifiService.getSupportedFeatures())
-                .thenReturn(new Long(WIFI_FEATURE_ADDITIONAL_STA));
-        assertTrue(mWifiManager.isMultiStaConcurrencySupported());
+                .thenReturn(new Long(WIFI_FEATURE_ADDITIONAL_STA_LOCAL_ONLY));
+        assertTrue(mWifiManager.isStaConcurrencyForLocalOnlyConnectionsSupported());
+        assertFalse(mWifiManager.isMakeBeforeBreakWifiSwitchingSupported());
+        assertFalse(mWifiManager.isStaConcurrencyForRestrictedConnectionsSupported());
+
         when(mWifiService.getSupportedFeatures())
-                .thenReturn(new Long(~WIFI_FEATURE_ADDITIONAL_STA));
-        assertFalse(mWifiManager.isMultiStaConcurrencySupported());
+                .thenReturn(new Long(WIFI_FEATURE_ADDITIONAL_STA_MBB
+                        | WIFI_FEATURE_ADDITIONAL_STA_RESTRICTED));
+        assertFalse(mWifiManager.isStaConcurrencyForLocalOnlyConnectionsSupported());
+        assertTrue(mWifiManager.isMakeBeforeBreakWifiSwitchingSupported());
+        assertTrue(mWifiManager.isStaConcurrencyForRestrictedConnectionsSupported());
     }
 
     /**
@@ -2255,6 +2366,25 @@ public class WifiManagerTest {
 
         // send a null config
         assertEquals(mWifiManager.addNetwork(null), -1);
+    }
+
+    /**
+     * Test {@link WifiManager#addNetworkPrivileged(WifiConfiguration)} goes to WifiService.
+     * Also verify that an IllegalArgumentException is thrown if the input is null.
+     */
+    @Test
+    public void testAddNetworkPrivileged() throws Exception {
+        WifiConfiguration configuration = new WifiConfiguration();
+        mWifiManager.addNetworkPrivileged(configuration);
+        verify(mWifiService).addOrUpdateNetworkPrivileged(configuration,
+                mContext.getOpPackageName());
+
+        // send a null config and verify an exception is thrown
+        try {
+            mWifiManager.addNetworkPrivileged(null);
+            fail("configuration is null - IllegalArgumentException is expected.");
+        } catch (IllegalArgumentException e) {
+        }
     }
 
     /**
@@ -2911,10 +3041,14 @@ public class WifiManagerTest {
                 ArgumentCaptor.forClass(IWifiConnectedNetworkScorer.Stub.class);
         verify(mWifiService).setWifiConnectedNetworkScorer(any(IBinder.class),
                 callbackCaptor.capture());
-        callbackCaptor.getValue().onStart(0);
+        callbackCaptor.getValue().onStart(new WifiConnectedSessionInfo.Builder(10)
+                .setUserSelected(true)
+                .build());
         callbackCaptor.getValue().onStop(10);
         mLooper.dispatchAll();
-        verify(mWifiConnectedNetworkScorer).onStart(0);
+        verify(mWifiConnectedNetworkScorer).onStart(
+                argThat(sessionInfo -> sessionInfo.getSessionId() == 10
+                        && sessionInfo.isUserSelected()));
         verify(mWifiConnectedNetworkScorer).onStop(10);
     }
 
@@ -3076,9 +3210,104 @@ public class WifiManagerTest {
 
     @Test
     public void testRemoveAppState() throws Exception {
-        // removeAppState is new in S, cannot be called on R
-        assumeTrue(SdkLevel.isAtLeastS());
         mWifiManager.removeAppState(TEST_UID, TEST_PACKAGE_NAME);
         verify(mWifiService).removeAppState(TEST_UID, TEST_PACKAGE_NAME);
+    }
+
+    /**
+     * Test behavior of isPasspointTermsAndConditionsSupported
+     */
+    @Test
+    public void testIsPasspointTermsAndConditionsSupported() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
+
+        when(mWifiService.getSupportedFeatures())
+                .thenReturn(new Long(WIFI_FEATURE_PASSPOINT_TERMS_AND_CONDITIONS));
+        assertTrue(mWifiManager.isPasspointTermsAndConditionsSupported());
+        when(mWifiService.getSupportedFeatures())
+                .thenReturn(new Long(~WIFI_FEATURE_PASSPOINT_TERMS_AND_CONDITIONS));
+        assertFalse(mWifiManager.isPasspointTermsAndConditionsSupported());
+    }
+
+    /**
+     * Verify the call to setOverrideCountryCode goes to WifiServiceImpl.
+     */
+    @Test
+    public void testSetOverrideCountryCode() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
+        mWifiManager.setOverrideCountryCode(TEST_COUNTRY_CODE);
+        verify(mWifiService).setOverrideCountryCode(eq(TEST_COUNTRY_CODE));
+    }
+
+    /**
+     * Verify the call to clearOverrideCountryCode goes to WifiServiceImpl.
+     */
+    @Test
+    public void testClearOverrideCountryCode() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
+        mWifiManager.clearOverrideCountryCode();
+        verify(mWifiService).clearOverrideCountryCode();
+    }
+
+    /**
+     * Verify the call to setDefaultCountryCode goes to WifiServiceImpl.
+     */
+    @Test
+    public void testSetDefaultCountryCode() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
+        mWifiManager.setDefaultCountryCode(TEST_COUNTRY_CODE);
+        verify(mWifiService).setDefaultCountryCode(eq(TEST_COUNTRY_CODE));
+    }
+
+    /**
+     * Test behavior of flushPasspointAnqpCache
+     */
+    @Test
+    public void testFlushPasspointAnqpCache() throws Exception {
+        mWifiManager.flushPasspointAnqpCache();
+        verify(mWifiService).flushPasspointAnqpCache(anyString());
+    }
+
+    /**
+     * Test behavior of isDecoratedIdentitySupported
+     */
+    @Test
+    public void testIsDecoratedIdentitySupported() throws Exception {
+        when(mWifiService.getSupportedFeatures())
+                .thenReturn(new Long(WIFI_FEATURE_DECORATED_IDENTITY));
+        assertTrue(mWifiManager.isDecoratedIdentitySupported());
+        when(mWifiService.getSupportedFeatures())
+                .thenReturn(new Long(~WIFI_FEATURE_DECORATED_IDENTITY));
+        assertFalse(mWifiManager.isDecoratedIdentitySupported());
+    }
+
+    /**
+     * Verify call to getAllowedChannels goes to WifiServiceImpl
+     */
+    @Test
+    public void testGetAllowedChannels() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
+        int band = WifiScanner.WIFI_BAND_24_5_6_GHZ;
+        int mode = WifiAvailableChannel.OP_MODE_WIFI_AWARE
+                | WifiAvailableChannel.OP_MODE_WIFI_DIRECT_GO
+                | WifiAvailableChannel.OP_MODE_WIFI_DIRECT_CLI;
+        mWifiManager.getAllowedChannels(band, mode);
+        verify(mWifiService).getUsableChannels(eq(band), eq(mode),
+                eq(WifiAvailableChannel.FILTER_REGULATORY));
+    }
+
+    /**
+     * Verify call to getUsableChannels goes to WifiServiceImpl
+     */
+    @Test
+    public void testGetUsableChannels() throws Exception {
+        assumeTrue(SdkLevel.isAtLeastS());
+        int band = WifiScanner.WIFI_BAND_BOTH_WITH_DFS;
+        int mode = WifiAvailableChannel.OP_MODE_WIFI_AWARE
+                | WifiAvailableChannel.OP_MODE_WIFI_DIRECT_CLI;
+        mWifiManager.getUsableChannels(band, mode);
+        verify(mWifiService).getUsableChannels(eq(band), eq(mode),
+                eq(WifiAvailableChannel.FILTER_CONCURRENCY
+                    | WifiAvailableChannel.FILTER_CELLULAR_COEXISTENCE));
     }
 }

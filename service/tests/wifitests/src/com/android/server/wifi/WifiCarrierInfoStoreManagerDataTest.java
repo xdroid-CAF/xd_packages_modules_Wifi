@@ -87,7 +87,7 @@ public class WifiCarrierInfoStoreManagerDataTest {
      */
     @Test
     public void verifyStoreFileId() throws Exception {
-        assertEquals(WifiConfigStore.STORE_FILE_USER_GENERAL,
+        assertEquals(WifiConfigStore.STORE_FILE_SHARED_GENERAL,
                 mWifiCarrierInfoStoreManagerData.getStoreFileId());
     }
 
@@ -119,7 +119,6 @@ public class WifiCarrierInfoStoreManagerDataTest {
         mWifiCarrierInfoStoreManagerData.deserializeData(null, 0,
                 WifiConfigStore.ENCRYPT_CREDENTIALS_CONFIG_STORE_DATA_VERSION, null);
         inOrder.verify(mDataSource).reset();
-        inOrder.verify(mDataSource).deserializeComplete();
         verifyNoMoreInteractions(mDataSource);
     }
 
@@ -127,7 +126,6 @@ public class WifiCarrierInfoStoreManagerDataTest {
     private void assertSerializeDeserialize() throws Exception {
         InOrder inOrder = inOrder(mDataSource);
         // Setup the data to serialize.
-        when(mDataSource.toSerializeImsiMap()).thenReturn(mImsiPrivacyProtectionExemptionMap);
         when(mDataSource.toSerializeMergedCarrierNetworkOffloadMap()).thenReturn(
                 mMergedCarrierOffloadMap);
         when(mDataSource.toSerializeUnmergedCarrierNetworkOffloadMap())
@@ -139,9 +137,6 @@ public class WifiCarrierInfoStoreManagerDataTest {
         // Verify the deserialized data.
         ArgumentCaptor<HashMap> deserializedMap =
                 ArgumentCaptor.forClass(HashMap.class);
-        verify(mDataSource).fromImsiMapDeserialized(deserializedMap.capture());
-        assertEquals(mImsiPrivacyProtectionExemptionMap,
-                deserializedMap.getValue());
 
         verify(mDataSource)
                 .fromMergedCarrierNetworkOffloadMapDeserialized(deserializedMap.capture());
@@ -152,7 +147,5 @@ public class WifiCarrierInfoStoreManagerDataTest {
                 .fromUnmergedCarrierNetworkOffloadMapDeserialized(deserializedMap.capture());
         assertEquals(mUnmergedCarrierOffloadMap,
                 deserializedMap.getValue());
-
-        verify(mDataSource).deserializeComplete();
     }
 }

@@ -12,6 +12,9 @@
   "mainline-presubmit": [
     {
       "name": "FrameworksWifiApiTests[com.google.android.wifi.apex]"
+    },
+    {
+      "name": "FrameworksWifiTests[com.google.android.wifi.apex]"
     }
   ]
 }

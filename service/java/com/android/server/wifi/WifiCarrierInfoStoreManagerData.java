@@ -19,7 +19,6 @@ package com.android.server.wifi;
 import android.annotation.NonNull;
 import android.util.Log;
 
-import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.wifi.util.WifiConfigStoreEncryptionUtil;
 import com.android.server.wifi.util.XmlUtil;
 
@@ -29,21 +28,16 @@ import org.xmlpull.v1.XmlSerializer;
 
 import java.io.IOException;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 
 /**
- * This class performs serialization and parsing of XML data block that contain the map of IMSI
- * protection exemption user approval info.
+ * This class performs serialization and parsing of XML data block that contain the map of carrier
+ * Wi-Fi offloading settings info.
  */
 public class WifiCarrierInfoStoreManagerData implements WifiConfigStore.StoreData {
     private static final String TAG = "WifiCarrierInfoStoreManagerData";
-    @VisibleForTesting
-    public static final String XML_TAG_SECTION_HEADER_PRE_S =
-            "ImsiPrivacyProtectionExemptionMap";
-    private static final String XML_TAG_SECTION_HEADER_AFTER_S =
+    private static final String XML_TAG_SECTION_HEADER =
             "WifiCarrierInfoStoreManagerDataStores";
-    private static final String XML_TAG_CARRIER_EXEMPTION_MAP = "CarrierExemptionMap";
     private static final String XML_TAG_MERGED_CARRIER_NETWORK_OFFLOAD_MAP =
             "MergedCarrierNetworkOffloadMap";
     private static final String XML_TAG_UNMERGED_CARRIER_NETWORK_OFFLOAD_MAP =
@@ -53,11 +47,6 @@ public class WifiCarrierInfoStoreManagerData implements WifiConfigStore.StoreDat
      * Interface define the data source for the carrier IMSI protection exemption map store data.
      */
     public interface DataSource {
-
-        /**
-         * Retrieve the IMSI protection exemption map from the data source to serialize to disk.
-         */
-        Map<Integer, Boolean> toSerializeImsiMap();
 
         /**
          * Retrieve the merged carrier network offload map from the data source to serialize to
@@ -76,10 +65,6 @@ public class WifiCarrierInfoStoreManagerData implements WifiConfigStore.StoreDat
          */
         void serializeComplete();
 
-        /**
-         * Set the IMSI protection exemption map in the data source after deserialize them from disk
-         */
-        void fromImsiMapDeserialized(Map<Integer, Boolean> imsiMap);
 
         /**
          * Set the merged carrier network offload map in the data source after deserialize them
@@ -94,11 +79,6 @@ public class WifiCarrierInfoStoreManagerData implements WifiConfigStore.StoreDat
          */
         void fromUnmergedCarrierNetworkOffloadMapDeserialized(
                 Map<Integer, Boolean> subscriptionOffloadMap);
-
-        /**
-         * Should be called when deserialize is completed.
-         */
-        void deserializeComplete();
 
         /**
          * Clear internal data structure in preparation for user switch or initial store read.
@@ -123,8 +103,6 @@ public class WifiCarrierInfoStoreManagerData implements WifiConfigStore.StoreDat
     @Override
     public void serializeData(XmlSerializer out, WifiConfigStoreEncryptionUtil encryptionUtil)
             throws XmlPullParserException, IOException {
-        XmlUtil.writeNextValue(out, XML_TAG_CARRIER_EXEMPTION_MAP,
-                integerMapToStringMap(mDataSource.toSerializeImsiMap()));
         XmlUtil.writeNextValue(out, XML_TAG_MERGED_CARRIER_NETWORK_OFFLOAD_MAP,
                 integerMapToStringMap(mDataSource.toSerializeMergedCarrierNetworkOffloadMap()));
         XmlUtil.writeNextValue(out, XML_TAG_UNMERGED_CARRIER_NETWORK_OFFLOAD_MAP,
@@ -140,7 +118,6 @@ public class WifiCarrierInfoStoreManagerData implements WifiConfigStore.StoreDat
         if (in != null) {
             parseWifiCarrierInfoStoreMaps(in, outerTagDepth);
         }
-        mDataSource.deserializeComplete();
     }
 
     private void parseWifiCarrierInfoStoreMaps(XmlPullParser in,
@@ -153,12 +130,6 @@ public class WifiCarrierInfoStoreManagerData implements WifiConfigStore.StoreDat
                 throw new XmlPullParserException("Missing value name");
             }
             switch (valueName[0]) {
-                case XML_TAG_CARRIER_EXEMPTION_MAP:
-                    if (value instanceof Map) {
-                        mDataSource.fromImsiMapDeserialized(
-                                stringMapToIntegerMap((Map<String, Boolean>) value));
-                    }
-                    break;
                 case XML_TAG_MERGED_CARRIER_NETWORK_OFFLOAD_MAP:
                     if (value instanceof Map) {
                         mDataSource.fromMergedCarrierNetworkOffloadMapDeserialized(
@@ -173,7 +144,7 @@ public class WifiCarrierInfoStoreManagerData implements WifiConfigStore.StoreDat
                     break;
                 default:
                     Log.w(TAG, "Unknown tag under "
-                            + XML_TAG_SECTION_HEADER_AFTER_S
+                            + XML_TAG_SECTION_HEADER
                             + ": " + valueName[0]);
                     break;
             }
@@ -218,20 +189,12 @@ public class WifiCarrierInfoStoreManagerData implements WifiConfigStore.StoreDat
 
     @Override
     public String getName() {
-        return XML_TAG_SECTION_HEADER_AFTER_S;
-    }
-
-    @Override
-    public HashSet<String> getSectionsToParse() {
-        return new HashSet<String>() {{
-            add(XML_TAG_SECTION_HEADER_PRE_S);
-            add(XML_TAG_SECTION_HEADER_AFTER_S);
-        }};
+        return XML_TAG_SECTION_HEADER;
     }
 
     @Override
     public int getStoreFileId() {
         // User general store.
-        return WifiConfigStore.STORE_FILE_USER_GENERAL;
+        return WifiConfigStore.STORE_FILE_SHARED_GENERAL;
     }
 }

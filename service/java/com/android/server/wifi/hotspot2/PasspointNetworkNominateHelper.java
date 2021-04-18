@@ -87,8 +87,7 @@ public class PasspointNetworkNominateHelper {
                 // If scanDetail is not Passpoint network, ignore.
                 continue;
             }
-            if (!scanDetail.getNetworkDetail().isInternet()
-                    || isApWanLinkStatusDown(scanDetail)) {
+            if (isApWanLinkStatusDown(scanDetail)) {
                 // If scanDetail has no internet connection, ignore.
                 mLocalLog.log("Ignoring no internet connection Passpoint AP: "
                         + WifiNetworkSelector.toScanId(scanDetail.getScanResult()));
@@ -196,7 +195,7 @@ public class PasspointNetworkNominateHelper {
             config.meteredHint = true;
         }
         WifiConfiguration existingNetwork = mWifiConfigManager.getConfiguredNetwork(
-                config.getProfileKey());
+                config.getProfileKeyInternal());
         if (existingNetwork != null) {
             WifiConfiguration.NetworkSelectionStatus status =
                     existingNetwork.getNetworkSelectionStatus();

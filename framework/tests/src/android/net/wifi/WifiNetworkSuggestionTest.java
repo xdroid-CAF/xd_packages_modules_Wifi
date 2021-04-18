@@ -315,6 +315,7 @@ public class WifiNetworkSuggestionTest {
      */
     @Test
     public void testWifiNetworkSuggestionBuilderForWpa3EapNetworkWithStandardApi() {
+        assumeTrue(SdkLevel.isAtLeastS());
         WifiEnterpriseConfig enterpriseConfig = new WifiEnterpriseConfig();
         enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.TLS);
         enterpriseConfig.setCaCertificate(FakeKeys.CA_CERT0);
@@ -350,6 +351,7 @@ public class WifiNetworkSuggestionTest {
      */
     @Test
     public void testWifiNetworkSuggestionBuilderForWpa3EapNetworkWithSuiteBRsaCerts() {
+        assumeTrue(SdkLevel.isAtLeastS());
         WifiEnterpriseConfig enterpriseConfig = new WifiEnterpriseConfig();
         enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.TLS);
         enterpriseConfig.setCaCertificate(FakeKeys.CA_SUITE_B_RSA3072_CERT);
@@ -388,6 +390,7 @@ public class WifiNetworkSuggestionTest {
      */
     @Test
     public void testWifiNetworkSuggestionBuilderForWpa3EapNetworkWithSuiteBEccCerts() {
+        assumeTrue(SdkLevel.isAtLeastS());
         WifiEnterpriseConfig enterpriseConfig = new WifiEnterpriseConfig();
         enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.TLS);
         enterpriseConfig.setCaCertificate(FakeKeys.CA_SUITE_B_ECDSA_CERT);
@@ -460,6 +463,7 @@ public class WifiNetworkSuggestionTest {
      */
     @Test
     public void testWifiNetworkSuggestionBuilderForWpa3SuiteBRsaEapNetworWith192BitApi() {
+        assumeTrue(SdkLevel.isAtLeastS());
         WifiEnterpriseConfig enterpriseConfig = new WifiEnterpriseConfig();
         enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.TLS);
         enterpriseConfig.setCaCertificate(FakeKeys.CA_SUITE_B_RSA3072_CERT);
@@ -530,6 +534,7 @@ public class WifiNetworkSuggestionTest {
      */
     @Test
     public void testWifiNetworkSuggestionBuilderForWpa3SuiteBEccEapNetworkWith192BitApi() {
+        assumeTrue(SdkLevel.isAtLeastS());
         WifiEnterpriseConfig enterpriseConfig = new WifiEnterpriseConfig();
         enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.TLS);
         enterpriseConfig.setCaCertificate(FakeKeys.CA_SUITE_B_ECDSA_CERT);
@@ -582,6 +587,7 @@ public class WifiNetworkSuggestionTest {
      */
     @Test (expected = IllegalArgumentException.class)
     public void testWifiNetworkSuggestionBuilderForEapNetworkWithoutMatch() {
+        assumeTrue(SdkLevel.isAtLeastS());
         WifiEnterpriseConfig enterpriseConfig = new WifiEnterpriseConfig();
         enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.TLS);
         enterpriseConfig.setPhase2Method(WifiEnterpriseConfig.Phase2.GTC);
@@ -817,6 +823,7 @@ public class WifiNetworkSuggestionTest {
      */
     @Test(expected = IllegalStateException.class)
     public void testWifiNetworkSuggestionBuilderWithBothWpa3PasphraseAndEnterprise() {
+        assumeTrue(SdkLevel.isAtLeastS());
         new WifiNetworkSuggestion.Builder()
                 .setSsid(TEST_SSID)
                 .setWpa3Passphrase(TEST_PRESHARED_KEY)
@@ -890,6 +897,7 @@ public class WifiNetworkSuggestionTest {
      */
     @Test(expected = IllegalStateException.class)
     public void testWifiNetworkSuggestionBuilderWithBothEnterpriseAndPasspointConfig() {
+        assumeTrue(SdkLevel.isAtLeastS());
         PasspointConfiguration passpointConfiguration = PasspointTestUtils.createConfig();
         new WifiNetworkSuggestion.Builder()
                 .setWpa3EnterpriseStandardModeConfig(new WifiEnterpriseConfig())
@@ -927,7 +935,7 @@ public class WifiNetworkSuggestionTest {
 
     /**
      * Verify that the macRandomizationSetting defaults to RANDOMIZATION_PERSISTENT and could be set
-     * to RANDOMIZATION_ENHANCED.
+     * to RANDOMIZATION_NON_PERSISTENT.
      */
     @Test
     public void testWifiNetworkSuggestionBuilderSetMacRandomization() {
@@ -940,16 +948,17 @@ public class WifiNetworkSuggestionTest {
         assumeTrue(SdkLevel.isAtLeastS());
         suggestion = new WifiNetworkSuggestion.Builder()
                 .setSsid(TEST_SSID)
-                .setIsEnhancedMacRandomizationEnabled(false)
+                .setMacRandomizationSetting(WifiNetworkSuggestion.RANDOMIZATION_PERSISTENT)
                 .build();
         assertEquals(WifiConfiguration.RANDOMIZATION_PERSISTENT,
                 suggestion.wifiConfiguration.macRandomizationSetting);
 
         suggestion = new WifiNetworkSuggestion.Builder()
                 .setSsid(TEST_SSID)
-                .setIsEnhancedMacRandomizationEnabled(true)
+                .setMacRandomizationSetting(
+                        WifiNetworkSuggestion.RANDOMIZATION_NON_PERSISTENT)
                 .build();
-        assertEquals(WifiConfiguration.RANDOMIZATION_ENHANCED,
+        assertEquals(WifiConfiguration.RANDOMIZATION_NON_PERSISTENT,
                 suggestion.wifiConfiguration.macRandomizationSetting);
     }
 
@@ -968,15 +977,29 @@ public class WifiNetworkSuggestionTest {
         assumeTrue(SdkLevel.isAtLeastS());
         suggestion = new WifiNetworkSuggestion.Builder()
                 .setPasspointConfig(passpointConfiguration)
-                .setIsEnhancedMacRandomizationEnabled(false)
+                .setMacRandomizationSetting(
+                        WifiNetworkSuggestion.RANDOMIZATION_PERSISTENT)
                 .build();
         assertEquals(false, suggestion.passpointConfiguration.isEnhancedMacRandomizationEnabled());
 
         suggestion = new WifiNetworkSuggestion.Builder()
                 .setPasspointConfig(passpointConfiguration)
-                .setIsEnhancedMacRandomizationEnabled(true)
+                .setMacRandomizationSetting(
+                        WifiNetworkSuggestion.RANDOMIZATION_NON_PERSISTENT)
                 .build();
         assertEquals(true, suggestion.passpointConfiguration.isEnhancedMacRandomizationEnabled());
+    }
+
+    /**
+     * Verify calling setMacRandomizationSetting with an invalid argument throws an exception.
+     */
+    @Test(expected = IllegalArgumentException.class)
+    public void testWifiNetworkSuggestionBuilderSetMacRandomizationInvalidParam() {
+        assumeTrue(SdkLevel.isAtLeastS());
+        WifiNetworkSuggestion suggestion = new WifiNetworkSuggestion.Builder()
+                .setSsid(TEST_SSID)
+                .setMacRandomizationSetting(-1234)
+                .build();
     }
 
     /**
@@ -1553,5 +1576,37 @@ public class WifiNetworkSuggestionTest {
                 .build();
 
         assertEquals(TEST_CARRIER_ID, suggestion.getCarrierId());
+    }
+
+    /**
+     * Test set and get SAE Hash-to-Element only mode for WPA3 SAE network.
+     */
+    @Test
+    public void testSetSaeH2eOnlyModeForWpa3Sae() {
+        assumeTrue(SdkLevel.isAtLeastS());
+
+        WifiNetworkSuggestion suggestion = new WifiNetworkSuggestion.Builder()
+                .setSsid(TEST_SSID)
+                .setWpa3Passphrase(TEST_PRESHARED_KEY)
+                .setIsWpa3SaeH2eOnlyModeEnabled(true)
+                .build();
+        assertTrue(suggestion.getWifiConfiguration().getSecurityParamsList()
+                .stream().anyMatch(param -> param.isSaeH2eOnlyMode()));
+    }
+
+    /**
+     * Test set and get SAE Hash-to-Element only mode for WPA2 PSK network.
+     * For non-WPA3 SAE network, enabling H2E only mode should raise
+     * IllegalStateException.
+     */
+    @Test(expected = IllegalStateException.class)
+    public void testSetSaeH2eOnlyModeForWpa2Psk() {
+        assumeTrue(SdkLevel.isAtLeastS());
+
+        WifiNetworkSuggestion suggestion = new WifiNetworkSuggestion.Builder()
+                .setSsid(TEST_SSID)
+                .setWpa2Passphrase(TEST_PRESHARED_KEY)
+                .setIsWpa3SaeH2eOnlyModeEnabled(true)
+                .build();
     }
 }

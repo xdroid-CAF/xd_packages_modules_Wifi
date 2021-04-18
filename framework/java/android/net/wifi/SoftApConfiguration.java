@@ -99,8 +99,10 @@ public final class SoftApConfiguration implements Parcelable {
      * operating country code and current radio conditions.
      * @hide
      *
-     * @deprecated The bands are a bit mask - use any combination of {@code BAND_},
-     * for instance {@code BAND_2GHZ | BAND_5GHZ | BAND_6GHZ}.
+     * @deprecated This is no longer supported. The value is fixed at
+     * (BAND_2GHZ | BAND_5GHZ | BAND_6GHZ) even if a new band is supported in the future, for
+     * instance {@code BAND_60GHZ}. The bands are a bit mask - use any combination of
+     * {@code BAND_}, for instance {@code BAND_2GHZ | BAND_5GHZ}.
      */
     @SystemApi
     public static final int BAND_ANY = BAND_2GHZ | BAND_5GHZ | BAND_6GHZ;
@@ -114,6 +116,12 @@ public final class SoftApConfiguration implements Parcelable {
             BAND_60GHZ,
     })
     public @interface BandType {}
+
+    /**
+     * All of the supported band types.
+     * @hide
+     */
+    public static int[] BAND_TYPES = {BAND_2GHZ, BAND_5GHZ, BAND_6GHZ, BAND_60GHZ};
 
     private static boolean isBandValid(@BandType int band) {
         int bandAny = BAND_2GHZ | BAND_5GHZ | BAND_6GHZ | BAND_60GHZ;
@@ -693,6 +701,14 @@ public final class SoftApConfiguration implements Parcelable {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();
         }
+        return getMacRandomizationSettingInternal();
+    }
+
+    /**
+     * @hide
+     */
+    @MacRandomizationSetting
+    public int getMacRandomizationSettingInternal() {
         return mMacRandomizationSetting;
     }
 
@@ -756,6 +772,13 @@ public final class SoftApConfiguration implements Parcelable {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();
         }
+        return isUserConfigurationInternal();
+    }
+
+    /**
+     * @hide
+     */
+    public boolean isUserConfigurationInternal() {
         return mIsUserConfiguration;
     }
 
@@ -1059,6 +1082,11 @@ public final class SoftApConfiguration implements Parcelable {
          * Use {@link WifiManager#isBridgedApConcurrencySupported()} to determine
          * whether or not concurrent APs are supported.
          *
+         * Requires the driver to support {@link SoftApCapability.SOFTAP_FEATURE_ACS_OFFLOAD}
+         * when multiple bands are configured. Otherwise,
+         * {@link WifiManager#startTetheredHotspot(SoftApConfiguration)} will report error code
+         * {@link WifiManager#SAP_START_FAILURE_UNSUPPORTED_CONFIGURATION}.
+         *
          * @param bands Array of the {@link #BandType}.
          * @return Builder for chaining.
          * @throws IllegalArgumentException when more than 2 bands are set or an invalid band type
@@ -1147,6 +1175,12 @@ public final class SoftApConfiguration implements Parcelable {
          * returns true. The driver will auto select the best channel (e.g. best performance)
          * based on environment interference. Check {@link SoftApCapability} for more detail.
          *
+         * Requires the driver to support {@link SoftApCapability.SOFTAP_FEATURE_ACS_OFFLOAD}
+         * when multiple bands are configured without specified channel value (i.e. channel is
+         * the special value 0). Otherwise,
+         * {@link WifiManager#startTetheredHotspot(SoftApConfiguration)} will report error code
+         * {@link WifiManager#SAP_START_FAILURE_UNSUPPORTED_CONFIGURATION}.
+         *
          * The API contains (band, channel) input since the 6GHz band uses the same channel
          * numbering scheme as is used in the 2.4GHz and 5GHz band. Therefore, both are needed to
          * uniquely identify individual channels.
@@ -1206,7 +1240,7 @@ public final class SoftApConfiguration implements Parcelable {
          *
          * This method requires HAL support. If the method is used to set a
          * non-zero {@code maxNumberOfClients} value then
-         * {@link WifiManager#startTetheredHotspot} will report error code
+         * {@link WifiManager#startTetheredHotspot(SoftApConfiguration)} will report error code
          * {@link WifiManager#SAP_START_FAILURE_UNSUPPORTED_CONFIGURATION}.
          *
          * <p>

@@ -100,6 +100,8 @@ public class WifiEnterpriseConfig implements Parcelable {
     public static final String EAP_ERP             = "eap_erp";
     /** @hide */
     public static final String OCSP                = "ocsp";
+    /** @hide */
+    public static final String DECORATED_IDENTITY_PREFIX_KEY = "decorated_username_prefix";
 
     /**
      * String representing the keystore OpenSSL ENGINE's ID.
@@ -249,6 +251,7 @@ public class WifiEnterpriseConfig implements Parcelable {
     private int mPhase2Method = Phase2.NONE;
     private boolean mIsAppInstalledDeviceKeyAndCert = false;
     private boolean mIsAppInstalledCaCert = false;
+    private String mKeyChainAlias;
 
     private static final String TAG = "WifiEnterpriseConfig";
 
@@ -289,6 +292,7 @@ public class WifiEnterpriseConfig implements Parcelable {
         } else {
             mClientCertificateChain = null;
         }
+        mKeyChainAlias = source.mKeyChainAlias;
         mEapMethod = source.mEapMethod;
         mPhase2Method = source.mPhase2Method;
         mIsAppInstalledDeviceKeyAndCert = source.mIsAppInstalledDeviceKeyAndCert;
@@ -337,6 +341,7 @@ public class WifiEnterpriseConfig implements Parcelable {
         ParcelUtil.writeCertificates(dest, mCaCerts);
         ParcelUtil.writePrivateKey(dest, mClientPrivateKey);
         ParcelUtil.writeCertificates(dest, mClientCertificateChain);
+        dest.writeString(mKeyChainAlias);
         dest.writeBoolean(mIsAppInstalledDeviceKeyAndCert);
         dest.writeBoolean(mIsAppInstalledCaCert);
         dest.writeInt(mOcsp);
@@ -359,6 +364,7 @@ public class WifiEnterpriseConfig implements Parcelable {
                     enterpriseConfig.mCaCerts = ParcelUtil.readCertificates(in);
                     enterpriseConfig.mClientPrivateKey = ParcelUtil.readPrivateKey(in);
                     enterpriseConfig.mClientCertificateChain = ParcelUtil.readCertificates(in);
+                    enterpriseConfig.mKeyChainAlias = in.readString();
                     enterpriseConfig.mIsAppInstalledDeviceKeyAndCert = in.readBoolean();
                     enterpriseConfig.mIsAppInstalledCaCert = in.readBoolean();
                     enterpriseConfig.mOcsp = in.readInt();
@@ -1012,6 +1018,39 @@ public class WifiEnterpriseConfig implements Parcelable {
     }
 
     /**
+     * Specify a key pair via KeyChain alias for client authentication.
+     *
+     * The alias should refer to a key pair in KeyChain that is allowed for WiFi authentication.
+     *
+     * @param alias key pair alias
+     * @see android.app.admin.DevicePolicyManager#grantKeyPairToWifiAuth(String)
+     */
+    public void setClientKeyPairAlias(@NonNull String alias) {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
+        mKeyChainAlias = alias;
+    }
+
+    /**
+     * Get KeyChain alias to use for client authentication.
+     */
+    public @Nullable String getClientKeyPairAlias() {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
+        return mKeyChainAlias;
+    }
+
+    /**
+     * Get KeyChain alias to use for client authentication without SDK check.
+     * @hide
+     */
+    public @Nullable String getClientKeyPairAliasInternal() {
+        return mKeyChainAlias;
+    }
+
+    /**
      * Get client certificate
      *
      * @return X.509 client certificate
@@ -1442,7 +1481,7 @@ public class WifiEnterpriseConfig implements Parcelable {
      * to validate the authentication server i.e. PEAP, TLS, or TTLS.
      * @return True if configuration requires a CA certification, false otherwise.
      */
-    public boolean doesEapMethodUseServerCert() {
+    public boolean isEapMethodServerCertUsed() {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();
         }
@@ -1460,7 +1499,7 @@ public class WifiEnterpriseConfig implements Parcelable {
     /**
      * Determines whether an Enterprise configuration enables server certificate validation.
      * <p>
-     * The caller can determine, along with {@link #doesEapMethodUseServerCert()}, if an
+     * The caller can determine, along with {@link #isEapMethodServerCertUsed()}, if an
      * Enterprise configuration enables server certificate validation, which is a mandatory
      * requirement for networks that use TLS based EAP methods. A configuration that does not
      * enable server certificate validation will be ignored and will not be considered for
@@ -1471,13 +1510,13 @@ public class WifiEnterpriseConfig implements Parcelable {
      * - Either alternative subject match or domain suffix match is set.
      * @return True for server certificate validation is enabled, false otherwise.
      * @throws IllegalStateException on configuration which doesn't use server certificate.
-     * @see #doesEapMethodUseServerCert()
+     * @see #isEapMethodServerCertUsed()
      */
     public boolean isServerCertValidationEnabled() {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();
         }
-        if (!doesEapMethodUseServerCert()) {
+        if (!isEapMethodServerCertUsed()) {
             throw new IllegalStateException("Configuration doesn't use server certificates for "
                     + "authentication");
         }
@@ -1549,5 +1588,40 @@ public class WifiEnterpriseConfig implements Parcelable {
             }
         }
         return false;
+    }
+
+    /**
+     * Set a prefix for a decorated identity as per RFC 7542.
+     * This prefix must contain a list of realms (could be a list of 1) delimited by a '!'
+     * character. e.g. homerealm.example.org! or proxyrealm.example.net!homerealm.example.org!
+     * A prefix of "homerealm.example.org!" will generate a decorated identity that
+     * looks like: homerealm.example.org!user@otherrealm.example.net
+     * Calling with a null parameter will clear the decorated prefix.
+     * Note: Caller must verify that the device supports this feature by calling
+     * {@link WifiManager#isDecoratedIdentitySupported()}
+     *
+     * @param decoratedIdentityPrefix The prefix to add to the outer/anonymous identity
+     */
+    public void setDecoratedIdentityPrefix(@Nullable String decoratedIdentityPrefix) {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
+        if (!TextUtils.isEmpty(decoratedIdentityPrefix) && !decoratedIdentityPrefix.endsWith("!")) {
+            throw new IllegalArgumentException(
+                    "Decorated identity prefix must be delimited by '!'");
+        }
+        setFieldValue(DECORATED_IDENTITY_PREFIX_KEY, decoratedIdentityPrefix);
+    }
+
+    /**
+     * Get the decorated identity prefix.
+     *
+     * @return The decorated identity prefix
+     */
+    public @NonNull String getDecoratedIdentityPrefix() {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
+        return getFieldValue(DECORATED_IDENTITY_PREFIX_KEY);
     }
 }

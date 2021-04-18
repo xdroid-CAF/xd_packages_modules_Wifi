@@ -420,7 +420,7 @@ public class WifiConnectivityManager {
         // We have an oem paid/private network request and device supports STA + STA, check if there
         // are oem paid/private suggestions.
         if ((mOemPaidConnectionAllowed || mOemPrivateConnectionAllowed)
-                && mActiveModeWarden.isStaStaConcurrencySupported()) {
+                && mActiveModeWarden.isStaStaConcurrencySupportedForRestrictedConnections()) {
             // Split the candidates based on whether they are oem paid/oem private or not.
             Map<Boolean, List<WifiCandidates.Candidate>> candidatesPartitioned =
                     candidates.stream()
@@ -685,7 +685,7 @@ public class WifiConnectivityManager {
             boolean isFullBandScanResults = false;
             if (results != null && results.length > 0) {
                 isFullBandScanResults =
-                        WifiScanner.isFullBandScan(results[0].getBandsScannedInternal(), true);
+                        WifiScanner.isFullBandScan(results[0].getScannedBandsInternal(), true);
             }
             // Full band scan results only.
             if (mWaitForFullBandScanResults) {
@@ -1159,7 +1159,10 @@ public class WifiConnectivityManager {
                 clientModeManager.getConnectedWifiConfiguration());
         boolean connectingOrConnectedToTarget =
                 connectedOrConnectingWifiConfiguration != null
-                        && targetNetworkId == connectedOrConnectingWifiConfiguration.networkId;
+                        && (targetNetworkId == connectedOrConnectingWifiConfiguration.networkId
+                        || (mContext.getResources().getBoolean(
+                                R.bool.config_wifiEnableLinkedNetworkRoaming)
+                        && connectedOrConnectingWifiConfiguration.isLinked(candidate)));
 
         // Is Firmware roaming control is supported?
         //   - Yes, framework does nothing, firmware will roam if necessary.
@@ -1208,10 +1211,16 @@ public class WifiConnectivityManager {
                             WifiConfiguration currentNetwork,
                             WifiConfiguration targetNetwork,
                             String targetBssid) {
+                        mWifiMetrics.incrementWifiToWifiSwitchTriggerCount();
                         // If both the current & target networks have MAC randomization disabled,
                         // we cannot use MBB because then both ifaces would need to use the exact
                         // same MAC address (the "designated" factory MAC for the device), which is
                         // illegal. Fallback to single STA behavior.
+
+                        // TODO(b/172086124): Possibly move this logic to
+                        // ActiveModeWarden.handleAdditionalClientModeManagerRequest() to
+                        // ensure that all fallback logic in 1 central place (all the necessary
+                        // info is already included in the secondary STA creation request).
                         if (currentNetwork.macRandomizationSetting == RANDOMIZATION_NONE
                                 && targetNetwork.macRandomizationSetting == RANDOMIZATION_NONE) {
                             triggerConnectToNetworkUsingCmm(
@@ -1348,8 +1357,8 @@ public class WifiConnectivityManager {
         // isClientModeManagerConnectedOrConnectingToCandidate()).
         if (currentNetwork != null
                 && (currentNetwork.networkId == targetNetwork.networkId
-                //TODO(b/36788683): re-enable linked configuration check
-                /* || currentNetwork.isLinked(candidate) */)) {
+                || (mContext.getResources().getBoolean(R.bool.config_wifiEnableLinkedNetworkRoaming)
+                && currentNetwork.isLinked(targetNetwork)))) {
             localLog("connectToNetwork(" + clientModeManager + "): Roam to " + targetAssociationId
                     + " from " + currentAssociationId);
             connectHandler.triggerRoamWhenConnected(currentNetwork, targetNetwork, targetBssid);
@@ -1438,6 +1447,9 @@ public class WifiConnectivityManager {
                                 + targetNetwork + " on " + clientModeManager);
                         return;
                     }
+                    if (clientModeManager.getRole() == ROLE_CLIENT_SECONDARY_TRANSIENT) {
+                        mWifiMetrics.incrementMakeBeforeBreakTriggerCount();
+                    }
                     triggerConnectToNetworkUsingCmm(clientModeManager, targetNetwork, targetBssid);
                 },
                 ActiveModeWarden.INTERNAL_REQUESTOR_WS,
@@ -1452,11 +1464,12 @@ public class WifiConnectivityManager {
 
     private int getScanBand(boolean isFullBandScan) {
         if (isFullBandScan) {
-            // TODO b/158335433: Add an config.xml overlay to configure whether we want to do 6Ghz
-            // scanning with RNR + PSC (default option), or just RNR. Continue to return
-            // WIFI_BAND_ALL if PSC channels need to be scanned for 6Ghz. If PSC channels do not
-            // need to be scanned, this method should return WIFI_BAND_BOTH_WITH_DFS so that the
-            // 6Ghz band is scanned only via RNR.
+            if (SdkLevel.isAtLeastS()) {
+                if (mContext.getResources().getBoolean(R.bool.config_wifiEnable6ghzPscScanning)) {
+                    return WifiScanner.WIFI_BAND_24_5_WITH_DFS_6_GHZ;
+                }
+                return WifiScanner.WIFI_BAND_BOTH_WITH_DFS;
+            }
             return WifiScanner.WIFI_BAND_ALL;
         } else {
             // Use channel list instead.
@@ -1790,6 +1803,9 @@ public class WifiConnectivityManager {
         if (SdkLevel.isAtLeastS()) {
             settings.setRnrSetting(isFullBandScan ? WifiScanner.WIFI_RNR_ENABLED
                     : WifiScanner.WIFI_RNR_NOT_NEEDED);
+            settings.set6GhzPscOnlyEnabled(isFullBandScan
+                    ? mContext.getResources().getBoolean(R.bool.config_wifiEnable6ghzPscScanning)
+                    : false);
         }
         settings.reportEvents = WifiScanner.REPORT_EVENT_FULL_SCAN_RESULT
                             | WifiScanner.REPORT_EVENT_AFTER_EACH_SCAN;
@@ -2178,7 +2194,7 @@ public class WifiConnectivityManager {
 
         // If we have a single suggestion network, and we are connected to it, return true.
         WifiNetworkSuggestion network = suggestionsNetworks.iterator().next();
-        String suggestionKey = network.getWifiConfiguration().getProfileKey();
+        String suggestionKey = network.getWifiConfiguration().getProfileKeyInternal();
         WifiConfiguration config = mConfigManager.getConfiguredNetwork(suggestionKey);
         return (config != null && config.networkId == currentNetworkId);
     }
@@ -2488,9 +2504,8 @@ public class WifiConnectivityManager {
 
         if (!enable) {
             mNetworkSelector.resetOnDisable();
-            mWifiBlocklistMonitor.clearBssidBlocklist();
             mConfigManager.enableTemporaryDisabledNetworks();
-            mConfigManager.stopTemporarilyDisablingAllNonCarrierMergedWifi();
+            mConfigManager.stopRestrictingAutoJoinToSubscriptionId();
         }
         mWifiEnabled = enable;
         updateRunningState();

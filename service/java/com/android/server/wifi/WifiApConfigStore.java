@@ -364,7 +364,7 @@ public class WifiApConfigStore {
      * Generate a temporary WPA2 based configuration for use by the local only hotspot.
      * This config is not persisted and will not be stored by the WifiApConfigStore.
      */
-    public static SoftApConfiguration generateLocalOnlyHotspotConfig(Context context, int apBand,
+    public SoftApConfiguration generateLocalOnlyHotspotConfig(Context context, int apBand,
             @Nullable SoftApConfiguration customConfig) {
         SoftApConfiguration.Builder configBuilder;
         if (customConfig != null) {
@@ -390,8 +390,11 @@ public class WifiApConfigStore {
             }
         }
 
-        // Update default MAC randomization setting to NONE when feature doesn't support it.
-        if (!ApConfigUtil.isApMacRandomizationSupported(context)) {
+        // Update default MAC randomization setting to NONE when feature doesn't support it or
+        // It was disabled in tethered mode.
+        if (!ApConfigUtil.isApMacRandomizationSupported(context) || (mPersistentWifiApConfig != null
+                && mPersistentWifiApConfig.getMacRandomizationSettingInternal()
+                == SoftApConfiguration.RANDOMIZATION_NONE)) {
             if (SdkLevel.isAtLeastS()) {
                 configBuilder.setMacRandomizationSetting(SoftApConfiguration.RANDOMIZATION_NONE);
             }
@@ -407,7 +410,7 @@ public class WifiApConfigStore {
     SoftApConfiguration randomizeBssidIfUnset(Context context, SoftApConfiguration config) {
         SoftApConfiguration.Builder configBuilder = new SoftApConfiguration.Builder(config);
         if (config.getBssid() == null && ApConfigUtil.isApMacRandomizationSupported(mContext)) {
-            if (SdkLevel.isAtLeastS() && config.getMacRandomizationSetting()
+            if (config.getMacRandomizationSettingInternal()
                     == SoftApConfiguration.RANDOMIZATION_NONE) {
                 return configBuilder.build();
             }
@@ -575,9 +578,7 @@ public class WifiApConfigStore {
      * @return A band which will be used for a default band in default configuration.
      */
     public static @BandType int generateDefaultBand(Context context) {
-        int[] supportedBand = {SoftApConfiguration.BAND_2GHZ, SoftApConfiguration.BAND_5GHZ,
-                SoftApConfiguration.BAND_6GHZ, SoftApConfiguration.BAND_60GHZ};
-        for (int band : supportedBand) {
+        for (int band : SoftApConfiguration.BAND_TYPES) {
             if (ApConfigUtil.isBandSupported(band, context)) {
                 return band;
             }
