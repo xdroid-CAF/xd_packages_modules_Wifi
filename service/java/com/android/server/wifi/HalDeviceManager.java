@@ -938,6 +938,7 @@ public class HalDeviceManager {
 
                 if (!mWifi.linkToDeath(mIWifiDeathRecipient, /* don't care */ 0)) {
                     Log.e(TAG, "Error on linkToDeath on IWifi - will retry later");
+                    mWifi = null;
                     return;
                 }
 
@@ -958,6 +959,7 @@ public class HalDeviceManager {
                 stopWifi();
                 mIsReady = true;
             } catch (RemoteException e) {
+                mWifi = null;
                 Log.e(TAG, "Exception while operating on IWifi: " + e);
             }
         }
