@@ -134,6 +134,7 @@ import com.android.server.wifi.proto.nano.WifiMetricsProto.UserActionEvent;
 import com.android.server.wifi.util.ActionListenerWrapper;
 import com.android.server.wifi.util.ApConfigUtil;
 import com.android.server.wifi.util.GeneralUtil.Mutable;
+import com.android.server.wifi.util.LastCallerInfoManager;
 import com.android.server.wifi.util.RssiUtil;
 import com.android.server.wifi.util.ScanResultUtil;
 import com.android.server.wifi.util.WifiPermissionsUtil;
@@ -178,7 +179,7 @@ public class WifiServiceImpl extends BaseWifiService {
     /** Max wait time for posting blocking runnables */
     private static final int RUN_WITH_SCISSORS_TIMEOUT_MILLIS = 4000;
     @VisibleForTesting
-    static final int AUTO_DISABLE_SHOW_KEY_COUNTDOWN_MILLIS = 30000;
+    static final int AUTO_DISABLE_SHOW_KEY_COUNTDOWN_MILLIS = 24 * 60 * 60 * 1000;
 
     private final ActiveModeWarden mActiveModeWarden;
     private final ScanRequestProxy mScanRequestProxy;
@@ -225,6 +226,8 @@ public class WifiServiceImpl extends BaseWifiService {
 
     private final LohsSoftApTracker mLohsSoftApTracker;
 
+    private final BuildProperties mBuildProperties;
+
     /**
      * Callback for use with LocalOnlyHotspot to unregister requesting applications upon death.
      */
@@ -270,6 +273,7 @@ public class WifiServiceImpl extends BaseWifiService {
     private final WifiNative mWifiNative;
     private final SimRequiredNotifier mSimRequiredNotifier;
     private final MakeBeforeBreakManager mMakeBeforeBreakManager;
+    private final LastCallerInfoManager mLastCallerInfoManager;
 
     /**
      * The wrapper of SoftApCallback is used in WifiService internally.
@@ -350,7 +354,8 @@ public class WifiServiceImpl extends BaseWifiService {
         mSimRequiredNotifier = wifiInjector.getSimRequiredNotifier();
         mWifiCarrierInfoManager = wifiInjector.getWifiCarrierInfoManager();
         mMakeBeforeBreakManager = mWifiInjector.getMakeBeforeBreakManager();
-        mCountryCode.registerListener(new CountryCodeListenerProxy());
+        mLastCallerInfoManager = mWifiInjector.getLastCallerInfoManager();
+        mBuildProperties = mWifiInjector.getBuildProperties();
     }
 
     /**
@@ -537,6 +542,8 @@ public class WifiServiceImpl extends BaseWifiService {
             mWifiInjector.getUntrustedWifiNetworkFactory().register();
             mWifiInjector.getOemWifiNetworkFactory().register();
             mWifiInjector.getWifiP2pConnection().handleBootCompleted();
+            // Start to listen country code change.
+            mCountryCode.registerListener(new CountryCodeListenerProxy());
             mTetheredSoftApTracker.handleBootCompleted();
             mWifiInjector.getSarManager().handleBootCompleted();
         });
@@ -899,6 +906,8 @@ public class WifiServiceImpl extends BaseWifiService {
         }
         mWifiMetrics.incrementNumWifiToggles(isPrivileged, enable);
         mActiveModeWarden.wifiToggled(new WorkSource(Binder.getCallingUid(), packageName));
+        mLastCallerInfoManager.put(LastCallerInfoManager.WIFI_ENABLED, Process.myTid(),
+                Binder.getCallingUid(), Binder.getCallingPid(), packageName, enable);
         return true;
     }
 
@@ -1146,7 +1155,8 @@ public class WifiServiceImpl extends BaseWifiService {
             mTetheredSoftApTracker.setFailedWhileEnabling();
             return false;
         }
-
+        mLastCallerInfoManager.put(LastCallerInfoManager.SOFT_AP, Process.myTid(),
+                Binder.getCallingUid(), Binder.getCallingPid(), packageName, true);
         return true;
     }
 
@@ -1182,7 +1192,8 @@ public class WifiServiceImpl extends BaseWifiService {
             mTetheredSoftApTracker.setFailedWhileEnabling();
             return false;
         }
-
+        mLastCallerInfoManager.put(LastCallerInfoManager.TETHERED_HOTSPOT, Process.myTid(),
+                Binder.getCallingUid(), Binder.getCallingPid(), packageName, true);
         return true;
     }
 
@@ -1226,6 +1237,8 @@ public class WifiServiceImpl extends BaseWifiService {
         mLog.info("stopSoftAp uid=%").c(Binder.getCallingUid()).flush();
 
         stopSoftApInternal(WifiManager.IFACE_IP_MODE_TETHERED);
+        mLastCallerInfoManager.put(LastCallerInfoManager.SOFT_AP, Process.myTid(),
+                Binder.getCallingUid(), Binder.getCallingPid(), "<unknown>", false);
         return true;
     }
 
@@ -2955,8 +2968,9 @@ public class WifiServiceImpl extends BaseWifiService {
 
         int callingUid = Binder.getCallingUid();
         mLog.info("allowAutojoinGlobal=% uid=%").c(choice).c(callingUid).flush();
-
         mWifiThreadRunner.post(() -> mWifiConnectivityManager.setAutoJoinEnabledExternal(choice));
+        mLastCallerInfoManager.put(LastCallerInfoManager.AUTOJOIN_GLOBAL, Process.myTid(),
+                callingUid, Binder.getCallingPid(), "<unknown>", choice);
     }
 
     /**
@@ -3828,6 +3842,8 @@ public class WifiServiceImpl extends BaseWifiService {
             mWifiInjector.getWifiGlobals().dump(fd, pw, args);
             mWifiInjector.getSarManager().dump(fd, pw, args);
             pw.println();
+            mLastCallerInfoManager.dump(pw);
+            pw.println();
         }
     }
 
@@ -3941,6 +3957,10 @@ public class WifiServiceImpl extends BaseWifiService {
     }
 
     private void enableVerboseLoggingInternal(int verbose) {
+        if (verbose > WifiManager.VERBOSE_LOGGING_LEVEL_ENABLED
+                && mBuildProperties.isUserBuild()) {
+            throw new SecurityException(TAG + ": Not allowed for the user build.");
+        }
         mVerboseLoggingLevel = verbose;
 
         // Update wifi globals before sending the verbose logging change.
