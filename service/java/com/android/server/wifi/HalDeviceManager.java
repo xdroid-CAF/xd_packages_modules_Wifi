@@ -942,7 +942,14 @@ public class HalDeviceManager {
                     return;
                 }
 
-                WifiStatus status = mWifi.registerEventCallback(mWifiEventCallback);
+                WifiStatus status;
+                android.hardware.wifi.V1_5.IWifi iWifiV15 = getWifiServiceForV1_5Mockable(mWifi);
+                if (iWifiV15 != null) {
+                    status = iWifiV15.registerEventCallback_1_5(mWifiEventCallbackV15);
+                } else {
+                    status = mWifi.registerEventCallback(mWifiEventCallback);
+                }
+
                 if (status.code != WifiStatusCode.SUCCESS) {
                     Log.e(TAG, "IWifi.registerEventCallback failed: " + statusString(status));
                     mWifi = null;
