@@ -401,10 +401,6 @@ public class WifiNetworkSuggestionsManager {
      */
     private final Map<Pair<ScanResultMatchInfo, MacAddress>, Set<ExtendedWifiNetworkSuggestion>>
             mActiveScanResultMatchInfoWithBssid = new HashMap<>();
-    /**
-     * List of {@link WifiNetworkSuggestion} matching the current connected network.
-     */
-    private Set<ExtendedWifiNetworkSuggestion> mActiveNetworkSuggestionsMatchingConnection;
 
     private final Map<String, Set<ExtendedWifiNetworkSuggestion>>
             mPasspointInfo = new HashMap<>();
@@ -809,27 +805,6 @@ public class WifiNetworkSuggestionsManager {
         }
     }
 
-
-    // Issues a disconnect if the only serving network suggestion is removed.
-    private void removeFromConfigManagerIfServingNetworkSuggestionRemoved(
-            Collection<ExtendedWifiNetworkSuggestion> extNetworkSuggestionsRemoved) {
-        if (mActiveNetworkSuggestionsMatchingConnection == null
-                || mActiveNetworkSuggestionsMatchingConnection.isEmpty()) {
-            return;
-        }
-        WifiConfiguration activeWifiConfiguration = mActiveNetworkSuggestionsMatchingConnection
-                .iterator().next().createInternalWifiConfiguration(mWifiCarrierInfoManager);
-        if (mActiveNetworkSuggestionsMatchingConnection.removeAll(extNetworkSuggestionsRemoved)) {
-            if (mActiveNetworkSuggestionsMatchingConnection.isEmpty()) {
-                Log.i(TAG, "Only network suggestion matching the connected network removed. "
-                        + "Removing from config manager...");
-                // will trigger a disconnect.
-                mWifiConfigManager.removeSuggestionConfiguredNetwork(
-                        activeWifiConfiguration.getProfileKeyInternal());
-            }
-        }
-    }
-
     private void startTrackingAppOpsChange(@NonNull String packageName, int uid) {
         AppOpsChangedListener appOpsChangedListener =
                 new AppOpsChangedListener(packageName, uid);
@@ -1189,9 +1164,8 @@ public class WifiNetworkSuggestionsManager {
         for (WifiNetworkSuggestion suggestion : networkSuggestions) {
             WifiConfiguration wifiConfiguration = suggestion.wifiConfiguration;
             PasspointConfiguration passpointConfiguration = suggestion.passpointConfiguration;
-            if (!isAppWorkingAsCrossCarrierProvider && wifiConfiguration.carrierMerged
-                    && !mWifiCarrierInfoManager.areMergedCarrierWifiNetworksAllowed(
-                    wifiConfiguration.subscriptionId)) {
+            if (wifiConfiguration.carrierMerged && !areCarrierMergedSuggestionsAllowed(
+                    wifiConfiguration.subscriptionId, packageName)) {
                 // Carrier must be explicitly configured as merged carrier offload enabled
                 return false;
             }
@@ -1232,7 +1206,9 @@ public class WifiNetworkSuggestionsManager {
                         : passpointConfiguration.getSubscriptionId();
                 if (!mWifiCarrierInfoManager
                         .isSubIdMatchingCarrierId(subId, carrierId)) {
-                    Log.e(TAG, "Subscription ID doesn't match the carrier.");
+                    Log.e(TAG, "Subscription ID doesn't match the carrier. CarrierId:"
+                            + carrierId + ", subscriptionId:" + subId + ", NetworkSuggestion:"
+                            + suggestion);
                     return false;
                 }
             }
@@ -1297,12 +1273,14 @@ public class WifiNetworkSuggestionsManager {
                         .getProfileKeyInternal());
             }
             removingSuggestions.add(ewns.wns);
+            // Remove the config from WifiConfigManager. If current connected suggestion is remove,
+            // would trigger a disconnect.
+            mWifiConfigManager.removeSuggestionConfiguredNetwork(
+                    ewns.createInternalWifiConfiguration(mWifiCarrierInfoManager));
         }
         for (OnSuggestionUpdateListener listener : mListeners) {
             listener.onSuggestionsRemoved(removingSuggestions);
         }
-        // Disconnect suggested network if connected
-        removeFromConfigManagerIfServingNetworkSuggestionRemoved(removingExtSuggestions);
     }
 
     /**
@@ -1705,6 +1683,10 @@ public class WifiNetworkSuggestionsManager {
                         ewns.perAppInfo.uid);
                 continue;
             }
+            if (ewns.wns.wifiConfiguration.carrierMerged && !areCarrierMergedSuggestionsAllowed(
+                    ewns.wns.wifiConfiguration.subscriptionId, ewns.perAppInfo.packageName)) {
+                continue;
+            }
             if (isSimBasedSuggestion(ewns)) {
                 mWifiCarrierInfoManager.sendImsiProtectionExemptionNotificationIfRequired(
                         getCarrierIdFromSuggestion(ewns));
@@ -1750,6 +1732,10 @@ public class WifiNetworkSuggestionsManager {
             if (!ewns.perAppInfo.isApproved(activeScorerPackage)) {
                 sendUserApprovalNotificationIfNotApproved(ewns.perAppInfo.packageName,
                         ewns.perAppInfo.uid);
+                continue;
+            }
+            if (ewns.wns.wifiConfiguration.carrierMerged && !areCarrierMergedSuggestionsAllowed(
+                    ewns.wns.wifiConfiguration.subscriptionId, ewns.perAppInfo.packageName)) {
                 continue;
             }
             if (isSimBasedSuggestion(ewns)) {
@@ -1850,7 +1836,11 @@ public class WifiNetworkSuggestionsManager {
                 WifiConfiguration config = ewns.createInternalWifiConfiguration(
                         mWifiCarrierInfoManager);
                 if (config.carrierId != TelephonyManager.UNKNOWN_CARRIER_ID
-                        && !mWifiCarrierInfoManager.isSimPresent(config.subscriptionId)) {
+                        && !mWifiCarrierInfoManager.isSimReady(config.subscriptionId)) {
+                    continue;
+                }
+                if (config.carrierMerged && !areCarrierMergedSuggestionsAllowed(
+                        config.subscriptionId, ewns.perAppInfo.packageName)) {
                     continue;
                 }
                 WifiConfiguration wCmWifiConfig = mWifiConfigManager
@@ -1876,7 +1866,7 @@ public class WifiNetworkSuggestionsManager {
         }
         if (config.carrierId != TelephonyManager.UNKNOWN_CARRIER_ID) {
             int subId = mWifiCarrierInfoManager.getBestMatchSubscriptionId(config);
-            if (!mWifiCarrierInfoManager.isSimPresent(subId)) {
+            if (!mWifiCarrierInfoManager.isSimReady(subId)) {
                 return false;
             }
         }
@@ -1986,9 +1976,6 @@ public class WifiNetworkSuggestionsManager {
                 Log.wtf(TAG, "Current connected network suggestion is missing!");
                 return;
             }
-            // Store the set of matching network suggestions.
-            mActiveNetworkSuggestionsMatchingConnection =
-                    new HashSet<>(matchingExtNetworkSuggestionsFromTargetApp);
         } else {
             // If not suggestion, the connected network is open network.
             // For saved open network, found the matching suggestion from carrier privileged
@@ -2087,10 +2074,6 @@ public class WifiNetworkSuggestionsManager {
         return matchingExtNetworkSuggestionsWithSameProfileKey;
     }
 
-    private void resetConnectionState() {
-        mActiveNetworkSuggestionsMatchingConnection = null;
-    }
-
     /**
      * Invoked by {@link ClientModeImpl} on end of connection attempt to a network.
      *
@@ -2103,22 +2086,11 @@ public class WifiNetworkSuggestionsManager {
         if (mVerboseLoggingEnabled) {
             Log.v(TAG, "handleConnectionAttemptEnded " + failureCode + ", " + network);
         }
-        resetConnectionState();
         if (failureCode == WifiMetrics.ConnectionEvent.FAILURE_NONE) {
             handleConnectionSuccess(network, bssid);
         } else {
             handleConnectionFailure(network, bssid, failureCode);
         }
-    }
-
-    /**
-     * Invoked by {@link ClientModeImpl} on disconnect from network.
-     */
-    public void handleDisconnect(@NonNull WifiConfiguration network, @NonNull String bssid) {
-        if (mVerboseLoggingEnabled) {
-            Log.v(TAG, "handleDisconnect " + network);
-        }
-        resetConnectionState();
     }
 
     /**
@@ -2620,6 +2592,14 @@ public class WifiNetworkSuggestionsManager {
         listenersTracker.finishBroadcast();
     }
 
+    private boolean areCarrierMergedSuggestionsAllowed(int subId, String packageName) {
+        if (isAppWorkingAsCrossCarrierProvider(packageName)) {
+            return true;
+        }
+
+        return mWifiCarrierInfoManager.areMergedCarrierWifiNetworksAllowed(subId);
+    }
+
     /**
      * Dump of {@link WifiNetworkSuggestionsManager}.
      */
@@ -2641,8 +2621,6 @@ public class WifiNetworkSuggestionsManager {
             }
         }
         pw.println("WifiNetworkSuggestionsManager - Networks End ----");
-        pw.println("WifiNetworkSuggestionsManager - Network Suggestions matching connection: "
-                + mActiveNetworkSuggestionsMatchingConnection);
     }
 
     public void resetNotification() {
