@@ -1234,14 +1234,14 @@ public class WifiScoreCard {
             long txBytes = mFrameworkFacade.getTotalTxBytes() - mFrameworkFacade.getMobileTxBytes();
             long rxBytes = mFrameworkFacade.getTotalRxBytes() - mFrameworkFacade.getMobileRxBytes();
             // Sometimes TrafficStats byte counts return invalid values
-            // Ignore two polls if it happens
+            // Ignore next two polls if it happens
             boolean trafficValid = txBytes >= mLastTxBytes && rxBytes >= mLastRxBytes;
             if (!mLastTrafficValid || !trafficValid) {
                 mLastTrafficValid = trafficValid;
-                mLastTxBytes = txBytes;
-                mLastRxBytes = rxBytes;
                 logv("invalid traffic count tx " + txBytes + " last " + mLastTxBytes
                         + " rx " + rxBytes + " last " + mLastRxBytes);
+                mLastTxBytes = txBytes;
+                mLastRxBytes = rxBytes;
                 return;
             }
 
@@ -1279,18 +1279,19 @@ public class WifiScoreCard {
                 return;
             }
 
-            int onTimeMs = newStats.on_time - oldStats.on_time;
+            int onTimeMs = getTotalRadioOnTimeMs(newStats) - getTotalRadioOnTimeMs(oldStats);
             if (onTimeMs <= RADIO_ON_TIME_MIN_MS
                     || onTimeMs > RADIO_ON_ELAPSED_TIME_DELTA_MAX_MS + elapsedTimeMs) {
                 return;
             }
             onTimeMs = Math.min(elapsedTimeMs, onTimeMs);
 
-            int txBytesDelta = (int) (txBytes - mLastTxBytes);
-            updateBandwidthSample(txBytesDelta, LINK_TX, onTimeMs);
-
-            int rxBytesDelta = (int) (rxBytes - mLastRxBytes);
-            updateBandwidthSample(rxBytesDelta, LINK_RX, onTimeMs);
+            long txBytesDelta = txBytes - mLastTxBytes;
+            updateBandwidthSample(txBytesDelta, LINK_TX, onTimeMs,
+                    wifiInfo.getMaxSupportedTxLinkSpeedMbps());
+            long rxBytesDelta = rxBytes - mLastRxBytes;
+            updateBandwidthSample(rxBytesDelta, LINK_RX, onTimeMs,
+                    wifiInfo.getMaxSupportedRxLinkSpeedMbps());
 
             if (!mBandwidthSampleValid[LINK_RX] && !mBandwidthSampleValid[LINK_TX]) {
                 return;
@@ -1308,16 +1309,32 @@ public class WifiScoreCard {
                     .toString());
         }
 
+        private int getTotalRadioOnTimeMs(@NonNull WifiLinkLayerStats stats) {
+            if (stats.radioStats != null && stats.radioStats.length > 0) {
+                int totalRadioOnTime = 0;
+                for (WifiLinkLayerStats.RadioStat stat : stats.radioStats) {
+                    totalRadioOnTime += stat.on_time;
+                }
+                return totalRadioOnTime;
+            }
+            return stats.on_time;
+        }
+
         private int getBandIdx(ExtendedWifiInfo wifiInfo) {
             return ScanResult.is24GHz(wifiInfo.getFrequency()) ? 0 : 1;
         }
 
-        private void updateBandwidthSample(int bytesDelta, int link, int onTimeMs) {
+        private void updateBandwidthSample(long bytesDelta, int link, int onTimeMs,
+                int maxSupportedLinkSpeedMbps) {
             if (bytesDelta < mByteDeltaAccThr[link]) {
                 return;
             }
+            long speedKbps = bytesDelta / onTimeMs * 8;
+            if (speedKbps > (maxSupportedLinkSpeedMbps * 1000)) {
+                return;
+            }
+            int linkBandwidthKbps = (int) speedKbps;
             changed = true;
-            int linkBandwidthKbps = bytesDelta * 8 / onTimeMs;
             mBandwidthSampleValid[link] = true;
             mBandwidthSampleKbps[link] = linkBandwidthKbps;
             // Update SSID level stats
@@ -1377,13 +1394,19 @@ public class WifiScoreCard {
             }
 
             if (filterInKbps == mFilterKbps[link]) {
-                logd(link + " skip calculation because the same input / current = " + filterInKbps);
                 return;
             }
             int alpha = timeDeltaSec > LARGE_TIME_DECAY_RATIO * timeConstantSec ? 0
                     : (int) (FILTER_SCALE * Math.exp(-1.0 * timeDeltaSec / timeConstantSec));
-            mFilterKbps[link] = alpha == 0 ? filterInKbps : ((mFilterKbps[link] * alpha
-                    + filterInKbps * FILTER_SCALE - filterInKbps * alpha) / FILTER_SCALE);
+
+            if (alpha == 0) {
+                mFilterKbps[link] = filterInKbps;
+                return;
+            }
+            long filterOutKbps = (long) mFilterKbps[link] * alpha
+                    + filterInKbps * FILTER_SCALE - filterInKbps * alpha;
+            filterOutKbps = filterOutKbps / FILTER_SCALE;
+            mFilterKbps[link] = (int) Math.min(filterOutKbps, Integer.MAX_VALUE);
             StringBuilder sb = new StringBuilder();
             logd(sb.append(link)
                     .append(" lastSampleWeight=").append(alpha)
@@ -1423,8 +1446,9 @@ public class WifiScoreCard {
 
         // Calculate a byte count threshold for the given avg BW and observation window size
         private int calculateByteCountThreshold(int avgBwKbps, int durationMs) {
-            int avgBytes = avgBwKbps / 8 * durationMs;
-            return avgBytes * LOW_BW_TO_AVG_BW_RATIO_NUM / LOW_BW_TO_AVG_BW_RATIO_DEN;
+            long avgBytes = (long) avgBwKbps / 8 * durationMs;
+            long result = avgBytes * LOW_BW_TO_AVG_BW_RATIO_NUM / LOW_BW_TO_AVG_BW_RATIO_DEN;
+            return (int) Math.min(result, Integer.MAX_VALUE);
         }
 
         /**
@@ -1454,7 +1478,8 @@ public class WifiScoreCard {
 
         private void calculateError(int link, int reportedKbps, int l2Kbps) {
             if (mBandwidthStatsCount[mBandIdx][link][mSignalLevel] < (BANDWIDTH_STATS_COUNT_THR
-                    + EXTRA_SAMPLE_BW_FILTERING) || !mBandwidthSampleValid[link]) {
+                    + EXTRA_SAMPLE_BW_FILTERING) || !mBandwidthSampleValid[link]
+                    || mAvgUsedKbps[link] <= 0) {
                 return;
             }
             int bwSampleKbps = mBandwidthSampleKbps[link];
@@ -1480,9 +1505,8 @@ public class WifiScoreCard {
         }
 
         private int calculateErrorPercent(int inKbps, int bwSampleKbps) {
-            int errorKbps = inKbps - bwSampleKbps;
-            int errorPercent = bwSampleKbps > 0 ? (errorKbps * 100 / bwSampleKbps) : 0;
-            return Math.max(-MAX_ERROR_PERCENT, Math.min(errorPercent, MAX_ERROR_PERCENT));
+            long errorPercent = 100L * (inKbps - bwSampleKbps) / bwSampleKbps;
+            return (int) Math.max(-MAX_ERROR_PERCENT, Math.min(errorPercent, MAX_ERROR_PERCENT));
         }
 
         /**

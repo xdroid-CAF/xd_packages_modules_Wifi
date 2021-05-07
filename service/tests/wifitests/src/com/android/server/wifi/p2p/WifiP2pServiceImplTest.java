@@ -118,9 +118,7 @@ import java.net.NetworkInterface;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Unit test harness for WifiP2pServiceImpl.
@@ -851,7 +849,7 @@ public class WifiP2pServiceImplTest extends WifiBaseTest {
             }
         }).when(mCoexManager).registerCoexListener(any(CoexManager.CoexListener.class));
         when(mCoexManager.getCoexRestrictions()).thenReturn(0);
-        when(mCoexManager.getCoexUnsafeChannels()).thenReturn(new HashSet<CoexUnsafeChannel>());
+        when(mCoexManager.getCoexUnsafeChannels()).thenReturn(Collections.emptyList());
 
         mWifiP2pServiceImpl = new WifiP2pServiceImpl(mContext, mWifiInjector);
         if (supported) {
@@ -4235,9 +4233,9 @@ public class WifiP2pServiceImplTest extends WifiBaseTest {
                 config.groupOwnerIntent);
     }
 
-    private Set<CoexUnsafeChannel> setupCoexMock(int restrictionBits) {
+    private List<CoexUnsafeChannel> setupCoexMock(int restrictionBits) {
         assumeTrue(SdkLevel.isAtLeastS());
-        Set<CoexUnsafeChannel> unsafeChannels = new HashSet<>();
+        List<CoexUnsafeChannel> unsafeChannels = new ArrayList<>();
         unsafeChannels.add(new CoexUnsafeChannel(WifiScanner.WIFI_BAND_24_GHZ, 1));
         unsafeChannels.add(new CoexUnsafeChannel(WifiScanner.WIFI_BAND_24_GHZ, 2));
         unsafeChannels.add(new CoexUnsafeChannel(WifiScanner.WIFI_BAND_24_GHZ, 3));
@@ -4260,17 +4258,17 @@ public class WifiP2pServiceImplTest extends WifiBaseTest {
         forceP2pEnabled(mClient1);
         mLooper.dispatchAll();
 
-        Set<CoexUnsafeChannel> unsafeChannels =
+        List<CoexUnsafeChannel> unsafeChannels =
                 setupCoexMock(WifiManager.COEX_RESTRICTION_WIFI_DIRECT);
         mCoexListener.onCoexUnsafeChannelsChanged();
         mLooper.dispatchAll();
 
         // On entering P2pEnabledState, these are called once first.
         verify(mWifiNative, times(2)).p2pSetListenChannel(eq(0));
-        ArgumentCaptor<Set<CoexUnsafeChannel>> unsafeChannelsCaptor =
-                ArgumentCaptor.forClass(Set.class);
+        ArgumentCaptor<List<CoexUnsafeChannel>> unsafeChannelsCaptor =
+                ArgumentCaptor.forClass(List.class);
         verify(mWifiNative, times(2)).p2pSetOperatingChannel(eq(0), unsafeChannelsCaptor.capture());
-        List<Set<CoexUnsafeChannel>> capturedUnsafeChannelsList =
+        List<List<CoexUnsafeChannel>> capturedUnsafeChannelsList =
                 unsafeChannelsCaptor.getAllValues();
         // The second one is what we sent.
         assertEquals(unsafeChannels, capturedUnsafeChannelsList.get(1));
@@ -4290,10 +4288,10 @@ public class WifiP2pServiceImplTest extends WifiBaseTest {
 
         // On entering P2pEnabledState, these are called once first.
         verify(mWifiNative, times(2)).p2pSetListenChannel(eq(0));
-        ArgumentCaptor<Set<CoexUnsafeChannel>> unsafeChannelsCaptor =
-                ArgumentCaptor.forClass(Set.class);
+        ArgumentCaptor<List<CoexUnsafeChannel>> unsafeChannelsCaptor =
+                ArgumentCaptor.forClass(List.class);
         verify(mWifiNative, times(2)).p2pSetOperatingChannel(eq(0), unsafeChannelsCaptor.capture());
-        List<Set<CoexUnsafeChannel>> capturedUnsafeChannelsList =
+        List<List<CoexUnsafeChannel>> capturedUnsafeChannelsList =
                 unsafeChannelsCaptor.getAllValues();
         // The second one is what we sent.
         assertEquals(0, capturedUnsafeChannelsList.get(1).size());
@@ -4365,5 +4363,37 @@ public class WifiP2pServiceImplTest extends WifiBaseTest {
         Message message = mMessageCaptor.getValue();
         assertEquals(WifiP2pManager.SET_WFD_INFO_FAILED, message.what);
         assertEquals(WifiP2pManager.ERROR, message.arg1);
+    }
+
+    /**
+     * Verify that P2P group is removed during group creating failure.
+     */
+    @Test
+    public void testGroupCreatingFailureDueToTethering() throws Exception {
+        when(mWifiNative.p2pGroupAdd(anyBoolean())).thenReturn(true);
+        when(mWifiNative.p2pGroupRemove(eq(IFACE_NAME_P2P))).thenReturn(true);
+        when(mWifiPermissionsUtil.checkCanAccessWifiDirect(eq("testPkg1"), eq("testFeature"),
+                anyInt(), anyBoolean())).thenReturn(true);
+
+        WifiP2pGroup group = new WifiP2pGroup();
+        group.setNetworkId(WifiP2pGroup.NETWORK_ID_PERSISTENT);
+        group.setNetworkName("DIRECT-xy-NEW");
+        group.setOwner(new WifiP2pDevice("thisDeviceMac"));
+        group.setIsGroupOwner(true);
+        group.setInterface(IFACE_NAME_P2P);
+
+        forceP2pEnabled(mClient1);
+        sendChannelInfoUpdateMsg("testPkg1", "testFeature", mClient1, mClientMessenger);
+        mLooper.dispatchAll();
+        sendCreateGroupMsg(mClientMessenger, WifiP2pGroup.NETWORK_ID_TEMPORARY, null);
+        mLooper.dispatchAll();
+
+        sendGroupStartedMsg(group);
+        mLooper.dispatchAll();
+
+        mLooper.moveTimeForward(120 * 1000 * 2);
+        mLooper.dispatchAll();
+
+        verify(mWifiNative).p2pGroupRemove(group.getInterface());
     }
 }
