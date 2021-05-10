@@ -172,7 +172,8 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
     private FrameworkFacade mFrameworkFacade;
     private WifiSettingsConfigStore mSettingsConfigStore;
     private WifiP2pMetrics mWifiP2pMetrics;
-    private CoexManager mCoexManager;
+    // This will only be null if SdkLevel is not at least S
+    @Nullable private CoexManager mCoexManager;
     private WifiGlobals mWifiGlobals;
 
     private static final Boolean JOIN_GROUP = true;
@@ -925,12 +926,14 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                         WIFI_VERBOSE_LOGGING_ENABLED,
                         (key, newValue) -> enableVerboseLogging(newValue),
                         getHandler());
-                mCoexManager.registerCoexListener(new CoexManager.CoexListener() {
-                    @Override
-                    public void onCoexUnsafeChannelsChanged() {
-                        checkCoexUnsafeChannels();
-                    }
-                });
+                if (SdkLevel.isAtLeastS()) {
+                    mCoexManager.registerCoexListener(new CoexManager.CoexListener() {
+                        @Override
+                        public void onCoexUnsafeChannelsChanged() {
+                            checkCoexUnsafeChannels();
+                        }
+                    });
+                }
             }
         }
 
@@ -938,8 +941,9 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
             List<CoexUnsafeChannel> unsafeChannels = null;
 
             // If WIFI DIRECT bit is not set, pass null to clear unsafe channels.
-            if ((mCoexManager.getCoexRestrictions() & WifiManager.COEX_RESTRICTION_WIFI_DIRECT)
-                    != 0) {
+            if (SdkLevel.isAtLeastS()
+                    && (mCoexManager.getCoexRestrictions()
+                    & WifiManager.COEX_RESTRICTION_WIFI_DIRECT) != 0) {
                 unsafeChannels = mCoexManager.getCoexUnsafeChannels();
                 Log.d(TAG, "UnsafeChannels: "
                         + unsafeChannels.stream()
@@ -1613,7 +1617,9 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                         }
                         if (!blocked && mDiscoveryPostponed) {
                             mDiscoveryPostponed = false;
-                            mWifiNative.p2pFind(DISCOVER_TIMEOUT_S);
+                            if (mWifiNative.p2pFind(DISCOVER_TIMEOUT_S)) {
+                                sendP2pDiscoveryChangedBroadcast(true);
+                            }
                         }
                         if (blocked && mWifiChannel != null) {
                             mWifiChannel.replyToMessage(message, message.arg2);
@@ -1678,6 +1684,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                             break;
                         }
                         if (mWifiNative.p2pFind(DISCOVER_TIMEOUT_S)) {
+                            sendP2pDiscoveryChangedBroadcast(true);
                             mWifiP2pMetrics.incrementServiceScans();
                             replyToMessage(message, WifiP2pManager.DISCOVER_SERVICES_SUCCEEDED);
                         } else {

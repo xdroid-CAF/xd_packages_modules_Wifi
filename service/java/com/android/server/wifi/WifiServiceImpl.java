@@ -3123,16 +3123,32 @@ public class WifiServiceImpl extends BaseWifiService {
                             .syncRequestConnectionInfo(), new WifiInfo());
             long redactions = wifiInfo.getApplicableRedactions();
             if (mWifiPermissionsUtil.checkLocalMacAddressPermission(uid)) {
+                if (isVerboseLoggingEnabled()) {
+                    Log.v(TAG, "Clearing REDACT_FOR_LOCAL_MAC_ADDRESS for " + callingPackage
+                            + "(uid=" + uid + ")");
+                }
                 redactions &= ~NetworkCapabilities.REDACT_FOR_LOCAL_MAC_ADDRESS;
             }
             if (mWifiPermissionsUtil.checkNetworkSettingsPermission(uid)) {
+                if (isVerboseLoggingEnabled()) {
+                    Log.v(TAG, "Clearing REDACT_FOR_NETWORK_SETTINGS for " + callingPackage
+                            + "(uid=" + uid + ")");
+                }
                 redactions &= ~NetworkCapabilities.REDACT_FOR_NETWORK_SETTINGS;
             }
             try {
+                if (isVerboseLoggingEnabled()) {
+                    Log.v(TAG, "Clearing REDACT_FOR_ACCESS_FINE_LOCATION for " + callingPackage
+                            + "(uid=" + uid + ")");
+                }
                 mWifiPermissionsUtil.enforceCanAccessScanResults(callingPackage, callingFeatureId,
                         uid, null);
                 redactions &= ~NetworkCapabilities.REDACT_FOR_ACCESS_FINE_LOCATION;
-            } catch (SecurityException ignored) { }
+            } catch (SecurityException ignored) {
+                if (isVerboseLoggingEnabled()) {
+                    Log.v(TAG, "Keeping REDACT_FOR_ACCESS_FINE_LOCATION:" + ignored);
+                }
+            }
             return wifiInfo.makeCopy(redactions);
         } finally {
             Binder.restoreCallingIdentity(ident);
@@ -3844,6 +3860,7 @@ public class WifiServiceImpl extends BaseWifiService {
             pw.println();
             mLastCallerInfoManager.dump(pw);
             pw.println();
+            mWifiInjector.getLinkProbeManager().dump(fd, pw, args);
         }
     }
 
@@ -4134,7 +4151,7 @@ public class WifiServiceImpl extends BaseWifiService {
                                         .getNetworkId();
                         if (networkId == WifiConfiguration.INVALID_NETWORK_ID) {
                             Log.e(TAG, "Restore network failed: "
-                                    + configuration.getProfileKeyInternal());
+                                    + configuration.getProfileKey());
                             continue;
                         }
                         // Enable all networks restored.
