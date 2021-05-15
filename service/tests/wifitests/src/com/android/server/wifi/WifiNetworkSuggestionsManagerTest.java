@@ -730,9 +730,9 @@ public class WifiNetworkSuggestionsManagerTest extends WifiBaseTest {
 
         // Nothing in WCM.
         when(mWifiConfigManager.getConfiguredNetwork(networkSuggestion1.wifiConfiguration
-                .getProfileKeyInternal())).thenReturn(null);
+                .getProfileKey())).thenReturn(null);
         when(mWifiConfigManager.getConfiguredNetwork(networkSuggestion2.wifiConfiguration
-                .getProfileKeyInternal())).thenReturn(null);
+                .getProfileKey())).thenReturn(null);
 
         // Set user connect choice, Anonymous Identity and auto join.
         WifiConfiguration config = new WifiConfiguration(eapSimConfig);
@@ -3670,7 +3670,7 @@ public class WifiNetworkSuggestionsManagerTest extends WifiBaseTest {
     private void setupGetConfiguredNetworksFromWcm(WifiConfiguration...configs) {
         for (int i = 0; i < configs.length; i++) {
             WifiConfiguration config = configs[i];
-            when(mWifiConfigManager.getConfiguredNetwork(config.getProfileKeyInternal()))
+            when(mWifiConfigManager.getConfiguredNetwork(config.getProfileKey()))
                     .thenReturn(config);
         }
     }
@@ -4475,7 +4475,7 @@ public class WifiNetworkSuggestionsManagerTest extends WifiBaseTest {
                 mock(WifiConfiguration.NetworkSelectionStatus.class);
         when(status.isNetworkEnabled()).thenReturn(false);
         wcmConfig.setNetworkSelectionStatus(status);
-        when(mWifiConfigManager.getConfiguredNetwork(wcmConfig.getProfileKeyInternal()))
+        when(mWifiConfigManager.getConfiguredNetwork(wcmConfig.getProfileKey()))
                 .thenReturn(wcmConfig);
 
         List<ScanDetail> scanDetails = Arrays.asList(scanDetail1, scanDetail2);
@@ -4918,6 +4918,7 @@ public class WifiNetworkSuggestionsManagerTest extends WifiBaseTest {
      */
     @Test
     public void testGetMergedPasspointSuggestionFromFqdn() {
+        assumeTrue(SdkLevel.isAtLeastS());
         when(mWifiPermissionsUtil.checkNetworkCarrierProvisioningPermission(TEST_UID_1))
                 .thenReturn(true);
         when(mWifiCarrierInfoManager.areMergedCarrierWifiNetworksAllowed(TEST_SUBID))
@@ -4956,6 +4957,7 @@ public class WifiNetworkSuggestionsManagerTest extends WifiBaseTest {
      */
     @Test
     public void testGetMergedNetworkSuggestionsForScanDetail() {
+        assumeTrue(SdkLevel.isAtLeastS());
         when(mWifiPermissionsUtil.checkNetworkCarrierProvisioningPermission(TEST_UID_1))
                 .thenReturn(true);
         when(mWifiCarrierInfoManager.areMergedCarrierWifiNetworksAllowed(TEST_SUBID))

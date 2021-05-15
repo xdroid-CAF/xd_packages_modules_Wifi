@@ -1553,7 +1553,7 @@ public class WifiManager {
                             new ArrayList<>(results.keySet()));
             for (WifiConfiguration configuration : wifiConfigurations) {
                 Map<Integer, List<ScanResult>> scanResultsPerNetworkType =
-                        results.get(configuration.getProfileKeyInternal());
+                        results.get(configuration.getProfileKey());
                 if (scanResultsPerNetworkType != null) {
                     configs.add(Pair.create(configuration, scanResultsPerNetworkType));
                 }
@@ -4719,6 +4719,17 @@ public class WifiManager {
             List<SoftApInfo> changedInfoList = new ArrayList<>(infos.values());
             Map<SoftApInfo, List<WifiClient>> changedInfoClients = new HashMap<>();
             boolean isInfoChanged = infos.size() != mCurrentInfos.size();
+            if (isRegistration) {
+                // Check if there are clients connected, put it to changedInfoClients
+                for (SoftApInfo currentInfo : infos.values()) {
+                    String instance = currentInfo.getApInstanceIdentifier();
+                    if (clients.getOrDefault(instance, Collections.emptyList()).size() > 0) {
+                        changedInfoClients.put(currentInfo, clients.get(instance));
+                    }
+                }
+            }
+
+            // Check if old info removed or not (client changed case)
             for (SoftApInfo info : mCurrentInfos.values()) {
                 String changedInstance = info.getApInstanceIdentifier();
                 if (!changedInfoList.contains(info)) {
@@ -4739,24 +4750,23 @@ public class WifiManager {
                             .getOrDefault(changedInstance, Collections.emptyList()).size()) {
                         // Here should notify client changed on new info(same as old info)
                         changedInfoClients.put(info, changedClientList);
-                        Log.d(TAG, "SoftApCallbackProxy: client changed on " + info
-                                + " list: " + changedClientList);
                     }
                 }
             }
 
+            mCurrentClients = clients;
+            mCurrentInfos = infos;
             if (!isInfoChanged && changedInfoClients.isEmpty()
                     && !isRegistration) {
                 Log.v(TAG, "SoftApCallbackProxy: No changed & Not Registration,"
                         + " don't need to notify the client");
                 return;
             }
-            mCurrentClients = clients;
-            mCurrentInfos = infos;
             Binder.clearCallingIdentity();
             // Notify the clients changed first for old info shutdown case
             for (SoftApInfo changedInfo : changedInfoClients.keySet()) {
-                Log.v(TAG, "send onConnectedClientsChanged, changedInfo is " + changedInfo);
+                Log.v(TAG, "SoftApCallbackProxy: send onConnectedClientsChanged, changedInfo is "
+                        + changedInfo + " and clients are " + changedInfoClients.get(changedInfo));
                 mExecutor.execute(() -> {
                     mCallback.onConnectedClientsChanged(
                             changedInfo, changedInfoClients.get(changedInfo));
@@ -4831,7 +4841,7 @@ public class WifiManager {
      * (if bridged AP is enabled).
      *
      * Note: Caller will receive the callback
-     * {@link SoftApCallback#onConnectedClientsChangedWithApInfo(SoftApInfo, List<WifiClient>)}
+     * {@link SoftApCallback#onConnectedClientsChanged(SoftApInfo, List<WifiClient>)}
      * on registration when there are clients connected to AP.
      *
      * These will be dispatched on registration to provide the caller with the current state

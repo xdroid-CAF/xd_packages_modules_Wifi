@@ -43,6 +43,7 @@ import android.util.Log;
 import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.Clock;
 import com.android.server.wifi.MacAddressUtil;
 import com.android.server.wifi.NetworkUpdateResult;
@@ -168,6 +169,11 @@ public class PasspointManager {
                 return;
             }
 
+            if (anqpElements.containsKey(Constants.ANQPElementType.ANQPVenueUrl)) {
+                // Venue URL ANQP is requested and received only after the network is connected
+                mWifiMetrics.incrementTotalNumberOfPasspointConnectionsWithVenueUrl();
+            }
+
             // Add new entry to the cache.
             mAnqpCache.addOrUpdateEntry(anqpKey, anqpElements);
         }
@@ -289,7 +295,7 @@ public class PasspointManager {
     private void onUserConnectChoiceSet(List<WifiConfiguration> networks, String choiceKey,
             int rssi) {
         for (WifiConfiguration config : networks) {
-            PasspointProvider provider = mProviders.get(config.getProfileKeyInternal());
+            PasspointProvider provider = mProviders.get(config.getProfileKey());
             if (provider != null) {
                 provider.setUserConnectChoice(choiceKey, rssi);
             }
@@ -401,7 +407,7 @@ public class PasspointManager {
     private void updateWifiConfigInWcmIfPresent(
             WifiConfiguration newConfig, int uid, String packageName, boolean isFromSuggestion) {
         WifiConfiguration configInWcm =
-                mWifiConfigManager.getConfiguredNetwork(newConfig.getProfileKeyInternal());
+                mWifiConfigManager.getConfiguredNetwork(newConfig.getProfileKey());
         if (configInWcm == null) return;
         // suggestion != saved
         if (isFromSuggestion != configInWcm.fromWifiNetworkSuggestion) return;
@@ -520,7 +526,7 @@ public class PasspointManager {
             // New profile changes the credential, remove the related WifiConfig.
             if (!old.equals(newProvider)) {
                 mWifiConfigManager.removePasspointConfiguredNetwork(
-                        newProvider.getWifiConfig().getProfileKeyInternal());
+                        newProvider.getWifiConfig().getProfileKey());
             } else {
                 // If there is a config cached in WifiConfigManager, update it with new info.
                 updateWifiConfigInWcmIfPresent(
@@ -545,6 +551,9 @@ public class PasspointManager {
         if (metricsSubscriptionExpiration) {
             mWifiMetrics.incrementNumPasspointProviderWithSubscriptionExpiration();
         }
+        if (SdkLevel.isAtLeastS() && config.getDecoratedIdentityPrefix() != null) {
+            mWifiMetrics.incrementTotalNumberOfPasspointProfilesWithDecoratedIdentity();
+        }
         mWifiMetrics.incrementNumPasspointProviderInstallSuccess();
         return true;
     }
@@ -564,7 +573,7 @@ public class PasspointManager {
         String packageName = provider.getPackageName();
         // Remove any configs corresponding to the profile in WifiConfigManager.
         mWifiConfigManager.removePasspointConfiguredNetwork(
-                provider.getWifiConfig().getProfileKeyInternal());
+                provider.getWifiConfig().getProfileKey());
         String uniqueId = provider.getConfig().getUniqueId();
         mProviders.remove(uniqueId);
         mWifiConfigManager.removeConnectChoiceFromAllNetworks(uniqueId);
@@ -712,7 +721,7 @@ public class PasspointManager {
                                     : UserActionEvent.EVENT_CONFIGURE_MAC_RANDOMIZATION_OFF,
                             provider.isFromSuggestion(), true);
                     mWifiConfigManager.removePasspointConfiguredNetwork(
-                            provider.getWifiConfig().getProfileKeyInternal());
+                            provider.getWifiConfig().getProfileKey());
                 }
                 found = true;
             }
@@ -1041,7 +1050,7 @@ public class PasspointManager {
                     type = WifiManager.PASSPOINT_ROAMING_NETWORK;
                 }
                 Map<Integer, List<ScanResult>> scanResultsPerNetworkType =
-                        configs.computeIfAbsent(config.getProfileKeyInternal(),
+                        configs.computeIfAbsent(config.getProfileKey(),
                                 k -> new HashMap<>());
                 List<ScanResult> matchingScanResults = scanResultsPerNetworkType.computeIfAbsent(
                         type, k -> new ArrayList<>());
@@ -1164,7 +1173,7 @@ public class PasspointManager {
                 continue;
             }
             WifiConfiguration config = provider.getWifiConfig();
-            config = mWifiConfigManager.getConfiguredNetwork(config.getProfileKeyInternal());
+            config = mWifiConfigManager.getConfiguredNetwork(config.getProfileKey());
             if (config == null) {
                 continue;
             }
@@ -1513,8 +1522,9 @@ public class PasspointManager {
             return;
         }
 
-        blockProvider(config.getProfileKeyInternal(), event.getBssid(), event.isEss(),
+        blockProvider(config.getProfileKey(), event.getBssid(), event.isEss(),
                 event.getDelay());
+        mWifiMetrics.incrementPasspointDeauthImminentScope(event.isEss());
     }
 
     /**
@@ -1539,7 +1549,7 @@ public class PasspointManager {
         if (!configuration.isPasspoint()) {
             return;
         }
-        PasspointProvider provider = mProviders.get(configuration.getProfileKeyInternal());
+        PasspointProvider provider = mProviders.get(configuration.getProfileKey());
         if (provider != null) {
             provider.setAnonymousIdentity(configuration.enterpriseConfig.getAnonymousIdentity());
             mWifiConfigManager.saveToStore(true);
@@ -1576,7 +1586,7 @@ public class PasspointManager {
                     + " from BSSID: " + Utils.macToString(event.getBssid()));
 
             // Block this provider for an hour, this unlikely issue may be resolved shortly
-            blockProvider(config.getProfileKeyInternal(), event.getBssid(), true, oneHourInSeconds);
+            blockProvider(config.getProfileKey(), event.getBssid(), true, oneHourInSeconds);
             return null;
         }
         // Reject URLs that are not HTTPS
@@ -1585,7 +1595,7 @@ public class PasspointManager {
                     + " from BSSID: " + Utils.macToString(event.getBssid()));
 
             // Block this provider for 24 hours, it is unlikely to be changed
-            blockProvider(config.getProfileKeyInternal(), event.getBssid(), true,
+            blockProvider(config.getProfileKey(), event.getBssid(), true,
                     twentyFourHoursInSeconds);
             return null;
         }
