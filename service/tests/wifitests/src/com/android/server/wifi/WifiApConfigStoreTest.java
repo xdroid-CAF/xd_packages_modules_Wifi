@@ -1062,4 +1062,66 @@ public class WifiApConfigStoreTest extends WifiBaseTest {
         mResources.setBoolean(R.bool.config_wifiSoftap60ghzSupported, false);
         assertFalse(WifiApConfigStore.validateApWifiConfiguration(config, true, mContext));
     }
+
+    @Test
+    public void testSanitizePersistentApConfig() throws Exception {
+        WifiApConfigStore store = createWifiApConfigStore();
+        SoftApConfiguration config5Gonly = setupApConfig(
+                "ConfiguredAP",                   /* SSID */
+                "randomKey",                      /* preshared key */
+                SECURITY_TYPE_WPA2_PSK,           /* security type */
+                SoftApConfiguration.BAND_5GHZ,    /* AP band */
+                0,                                /* AP channel */
+                true                              /* Hidden SSID */);
+
+        SoftApConfiguration expectedConfig = new SoftApConfiguration.Builder(config5Gonly)
+                .setBand(SoftApConfiguration.BAND_2GHZ | SoftApConfiguration.BAND_5GHZ)
+                .build();
+        store.setApConfiguration(config5Gonly);
+        verifyApConfig(expectedConfig, store.getApConfiguration());
+
+        if (SdkLevel.isAtLeastS()) {
+            SoftApConfiguration bridgedConfig2GAnd5G = new SoftApConfiguration.Builder(config5Gonly)
+                    .setBands(new int[] {SoftApConfiguration.BAND_2GHZ,
+                            SoftApConfiguration.BAND_5GHZ})
+                    .build();
+
+            SoftApConfiguration expectedBridgedConfig = new SoftApConfiguration
+                    .Builder(bridgedConfig2GAnd5G)
+                    .setBands(new int[] {SoftApConfiguration.BAND_2GHZ,
+                            SoftApConfiguration.BAND_2GHZ | SoftApConfiguration.BAND_5GHZ})
+                    .build();
+        }
+    }
+
+    @Test
+    public void testForceApBaneChannel() throws Exception {
+        int testBand = SoftApConfiguration.BAND_5GHZ; // Not default
+        int testChannal = 149;
+        WifiApConfigStore store = createWifiApConfigStore();
+        verifyDefaultApConfig(store.getApConfiguration(), TEST_DEFAULT_AP_SSID);
+        verify(mWifiConfigManager).saveToStore(true);
+
+        // Test to enable forced AP band
+        store.enableForceSoftApBandOrChannel(testBand, 0);
+        SoftApConfiguration expectedConfig = store.getApConfiguration();
+        assertEquals(expectedConfig.getBand(), testBand);
+        assertEquals(expectedConfig.getChannel(), 0);
+        // Disable forced AP band
+        store.disableForceSoftApBandOrChannel();
+        expectedConfig = store.getApConfiguration();
+        assertEquals(expectedConfig.getBand(), SoftApConfiguration.BAND_2GHZ);
+        assertEquals(expectedConfig.getChannel(), 0);
+
+        // Test to enable forced AP band
+        store.enableForceSoftApBandOrChannel(testBand, testChannal);
+        expectedConfig = store.getApConfiguration();
+        assertEquals(expectedConfig.getBand(), testBand);
+        assertEquals(expectedConfig.getChannel(), testChannal);
+        // Disable forced AP band
+        store.disableForceSoftApBandOrChannel();
+        expectedConfig = store.getApConfiguration();
+        assertEquals(expectedConfig.getBand(), SoftApConfiguration.BAND_2GHZ);
+        assertEquals(expectedConfig.getChannel(), 0);
+    }
 }

@@ -230,6 +230,11 @@ public final class ScanResult implements Parcelable {
     public static final int KEY_MGMT_FILS_SHA384 = 16;
     /**
      * @hide
+     * Security key management scheme: any unknown AKM.
+     */
+    public static final int KEY_MGMT_UNKNOWN = 17;
+    /**
+     * @hide
      * No cipher suite.
      */
     @SystemApi
@@ -742,6 +747,20 @@ public final class ScanResult implements Parcelable {
     }
 
     /**
+     * Utility function to check if a frequency is 6Ghz PSC channel.
+     * @param freqMhz
+     * @return true if the frequency is 6GHz PSC, false otherwise
+     *
+     * @hide
+     */
+    public static boolean is6GHzPsc(int freqMhz) {
+        if (!ScanResult.is6GHz(freqMhz)) {
+            return false;
+        }
+        return (freqMhz - BAND_6_GHZ_PSC_START_MHZ) % BAND_6_GHZ_PSC_STEP_SIZE_MHZ == 0;
+    }
+
+    /**
      * Utility function to check if a frequency within 60 GHz band
      * @param freqMhz
      * @return true if within 60GHz, false otherwise
@@ -851,6 +870,13 @@ public final class ScanResult implements Parcelable {
      */
     public boolean is6GHz() {
         return ScanResult.is6GHz(frequency);
+    }
+
+    /**
+     * @hide
+     */
+    public boolean is6GhzPsc() {
+        return ScanResult.is6GHzPsc(frequency);
     }
 
     /**

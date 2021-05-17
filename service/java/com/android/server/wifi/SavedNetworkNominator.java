@@ -79,6 +79,8 @@ public class SavedNetworkNominator implements WifiNetworkSelector.NetworkNominat
      */
     @Override
     public void update(List<ScanDetail> scanDetails) {
+        // Update the matching profiles into WifiConfigManager, help displaying Passpoint networks
+        // in Wifi Picker
         mPasspointNetworkNominateHelper.getPasspointNetworkCandidates(scanDetails, false);
     }
 
@@ -199,7 +201,7 @@ public class SavedNetworkNominator implements WifiNetworkSelector.NetworkNominat
                 ? mWifiCarrierInfoManager.getDefaultDataSimCarrierId() : network.carrierId;
         int subId = mWifiCarrierInfoManager.getMatchingSubId(carrierId);
         // Ignore security type is EAP SIM/AKA/AKA' when SIM is not present.
-        if (!mWifiCarrierInfoManager.isSimPresent(subId)) {
+        if (!mWifiCarrierInfoManager.isSimReady(subId)) {
             localLog("No SIM card is good for Network "
                     + WifiNetworkSelector.toNetworkString(network));
             return false;

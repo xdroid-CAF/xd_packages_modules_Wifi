@@ -90,6 +90,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * Interprets and executes 'adb shell cmd wifi [args]'.
@@ -136,13 +137,11 @@ public class WifiShellCommand extends BasicShellCommandHandler {
             sActiveRequests = new ConcurrentHashMap<>();
 
     private final ActiveModeWarden mActiveModeWarden;
-    private final ClientModeManager mPrimaryClientModeManager;
     private final WifiGlobals mWifiGlobals;
     private final WifiLockManager mWifiLockManager;
     private final WifiNetworkSuggestionsManager mWifiNetworkSuggestionsManager;
     private final WifiConfigManager mWifiConfigManager;
     private final WifiNative mWifiNative;
-    private final HostapdHal mHostapdHal;
     private final CoexManager mCoexManager;
     private final WifiCountryCode mWifiCountryCode;
     private final WifiLastResortWatchdog mWifiLastResortWatchdog;
@@ -152,6 +151,8 @@ public class WifiShellCommand extends BasicShellCommandHandler {
     private final WifiCarrierInfoManager mWifiCarrierInfoManager;
     private final WifiNetworkFactory mWifiNetworkFactory;
     private final SelfRecovery mSelfRecovery;
+    private final WifiThreadRunner mWifiThreadRunner;
+    private final WifiApConfigStore mWifiApConfigStore;
     private int mSapState = WifiManager.WIFI_STATE_UNKNOWN;
 
     /**
@@ -194,14 +195,13 @@ public class WifiShellCommand extends BasicShellCommandHandler {
     }
 
     WifiShellCommand(WifiInjector wifiInjector, WifiServiceImpl wifiService, Context context,
-            WifiGlobals wifiGlobals) {
+            WifiGlobals wifiGlobals, WifiThreadRunner wifiThreadRunner) {
         mWifiGlobals = wifiGlobals;
+        mWifiThreadRunner = wifiThreadRunner;
         mActiveModeWarden = wifiInjector.getActiveModeWarden();
-        mPrimaryClientModeManager = mActiveModeWarden.getPrimaryClientModeManager();
         mWifiLockManager = wifiInjector.getWifiLockManager();
         mWifiNetworkSuggestionsManager = wifiInjector.getWifiNetworkSuggestionsManager();
         mWifiConfigManager = wifiInjector.getWifiConfigManager();
-        mHostapdHal = wifiInjector.getHostapdHal();
         mWifiNative = wifiInjector.getWifiNative();
         mCoexManager = wifiInjector.getCoexManager();
         mWifiCountryCode = wifiInjector.getWifiCountryCode();
@@ -212,6 +212,7 @@ public class WifiShellCommand extends BasicShellCommandHandler {
         mWifiCarrierInfoManager = wifiInjector.getWifiCarrierInfoManager();
         mWifiNetworkFactory = wifiInjector.getWifiNetworkFactory();
         mSelfRecovery = wifiInjector.getSelfRecovery();
+        mWifiApConfigStore = wifiInjector.getWifiApConfigStore();
     }
 
     @Override
@@ -351,6 +352,31 @@ public class WifiShellCommand extends BasicShellCommandHandler {
                 case "send-link-probe": {
                     return sendLinkProbe(pw);
                 }
+                case "force-softap-band": {
+                    boolean forceBandEnabled = getNextArgRequiredTrueOrFalse("enabled", "disabled");
+                    if (forceBandEnabled) {
+                        String forcedBand = getNextArgRequired();
+                        if (forcedBand.equals("2")) {
+                            mWifiApConfigStore.enableForceSoftApBandOrChannel(
+                                    SoftApConfiguration.BAND_2GHZ, 0);
+                        } else if (forcedBand.equals("5")) {
+                            mWifiApConfigStore.enableForceSoftApBandOrChannel(
+                                    SoftApConfiguration.BAND_5GHZ, 0);
+                        } else if (forcedBand.equals("6")) {
+                            mWifiApConfigStore.enableForceSoftApBandOrChannel(
+                                    SoftApConfiguration.BAND_6GHZ, 0);
+                        } else {
+                            pw.println("Invalid argument to 'force-softap-band enabled' "
+                                    + "- must be a valid band integer (2|5|6)");
+                            return -1;
+                        }
+                        return 0;
+                    } else {
+                        mWifiApConfigStore.disableForceSoftApBandOrChannel();
+                        return 0;
+                    }
+
+                }
                 case "force-softap-channel": {
                     boolean enabled = getNextArgRequiredTrueOrFalse("enabled", "disabled");
                     if (enabled) {
@@ -393,10 +419,10 @@ public class WifiShellCommand extends BasicShellCommandHandler {
                                     + " in a band supported by the device");
                             return -1;
                         }
-                        mHostapdHal.enableForceSoftApChannel(apChannel, band);
+                        mWifiApConfigStore.enableForceSoftApBandOrChannel(band, apChannel);
                         return 0;
                     } else {
-                        mHostapdHal.disableForceSoftApChannel();
+                        mWifiApConfigStore.disableForceSoftApBandOrChannel();
                         return 0;
                     }
                 }
@@ -542,18 +568,11 @@ public class WifiShellCommand extends BasicShellCommandHandler {
                     } else {
                         pw.println("Network Id      SSID                         Security type");
                         for (WifiConfiguration network : networks.getList()) {
-                            String securityType = null;
-                            if (WifiConfigurationUtil.isConfigForSaeNetwork(network)) {
-                                securityType = "wpa3";
-                            } else if (WifiConfigurationUtil.isConfigForPskNetwork(network)) {
-                                securityType = "wpa2";
-                            } else if (WifiConfigurationUtil.isConfigForEapNetwork(network)) {
-                                securityType = "eap";
-                            } else if (WifiConfigurationUtil.isConfigForOweNetwork(network)) {
-                                securityType = "owe";
-                            } else if (WifiConfigurationUtil.isConfigForOpenNetwork(network)) {
-                                securityType = "open";
-                            }
+                            String securityType = network.getSecurityParamsList().stream()
+                                    .map(p -> WifiConfiguration.getSecurityTypeName(
+                                                    p.getSecurityType())
+                                            + (p.isAddedByAutoUpgrade() ? "^" : ""))
+                                    .collect(Collectors.joining("/"));
                             pw.println(String.format("%-12d %-32s %-4s",
                                     network.networkId, WifiInfo.sanitizeSsid(network.SSID),
                                     securityType));
@@ -1229,18 +1248,19 @@ public class WifiShellCommand extends BasicShellCommandHandler {
         final int sendMgmtFrameTimeoutMs = 1000;
 
         ArrayBlockingQueue<String> queue = new ArrayBlockingQueue<>(1);
-        mPrimaryClientModeManager.probeLink(new LinkProbeCallback() {
-            @Override
-            public void onAck(int elapsedTimeMs) {
-                queue.offer("Link probe succeeded after " + elapsedTimeMs + " ms");
-            }
+        mWifiThreadRunner.post(() ->
+                mActiveModeWarden.getPrimaryClientModeManager().probeLink(new LinkProbeCallback() {
+                    @Override
+                    public void onAck(int elapsedTimeMs) {
+                        queue.offer("Link probe succeeded after " + elapsedTimeMs + " ms");
+                    }
 
-            @Override
-            public void onFailure(int reason) {
-                queue.offer("Link probe failed with reason "
-                        + LinkProbeCallback.failureReasonToString(reason));
-            }
-        }, -1);
+                    @Override
+                    public void onFailure(int reason) {
+                        queue.offer("Link probe failed with reason "
+                                + LinkProbeCallback.failureReasonToString(reason));
+                    }
+                }, -1));
 
         // block until msg is received, or timed out
         String msg = queue.poll(sendMgmtFrameTimeoutMs + 1000, TimeUnit.MILLISECONDS);
@@ -1533,6 +1553,8 @@ public class WifiShellCommand extends BasicShellCommandHandler {
         pw.println("    Clears the user disabled networks list.");
         pw.println("  send-link-probe");
         pw.println("    Manually triggers a link probe.");
+        pw.println("  force-softap-band enabled <int> | disabled");
+        pw.println("    Forces soft AP band to 2|5|6");
         pw.println("  force-softap-channel enabled <int> | disabled");
         pw.println("    Sets whether soft AP channel is forced to <int> MHz");
         pw.println("    or left for normal   operation.");

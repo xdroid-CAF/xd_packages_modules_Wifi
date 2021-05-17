@@ -23,6 +23,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.hardware.wifi.V1_0.NanStatusType;
+import android.hardware.wifi.V1_0.WifiStatusCode;
 import android.hardware.wifi.V1_2.NanDataPathChannelInfo;
 import android.location.LocationManager;
 import android.net.wifi.WifiManager;
@@ -133,6 +134,7 @@ public class WifiAwareStateManager implements WifiAwareShellCommand.DelegatedShe
     private static final int COMMAND_TYPE_DELAYED_INITIALIZATION = 121;
     private static final int COMMAND_TYPE_GET_AWARE = 122;
     private static final int COMMAND_TYPE_RELEASE_AWARE = 123;
+    private static final int COMMAND_TYPE_DISABLE = 124;
 
     private static final int RESPONSE_TYPE_ON_CONFIG_SUCCESS = 200;
     private static final int RESPONSE_TYPE_ON_CONFIG_FAIL = 201;
@@ -236,6 +238,9 @@ public class WifiAwareStateManager implements WifiAwareShellCommand.DelegatedShe
 
     private static final byte[] ALL_ZERO_MAC = new byte[] {0, 0, 0, 0, 0, 0};
     private byte[] mCurrentDiscoveryInterfaceMac = ALL_ZERO_MAC;
+    // Flag to help defer the connect request when disable Aware is not finished, to prevent race
+    // condition.
+    private boolean mAwareIsDisabling = false;
 
     public WifiAwareStateManager() {
         onReset();
@@ -719,6 +724,16 @@ public class WifiAwareStateManager implements WifiAwareShellCommand.DelegatedShe
         Message msg = mSm.obtainMessage(MESSAGE_TYPE_COMMAND);
         msg.arg1 = COMMAND_TYPE_DISCONNECT;
         msg.arg2 = clientId;
+        mSm.sendMessage(msg);
+    }
+
+    /**
+     * Place a request to defer Disable Aware on the state machine queue.
+     */
+    private void deferDisableAware() {
+        mAwareIsDisabling = true;
+        Message msg = mSm.obtainMessage(MESSAGE_TYPE_COMMAND);
+        msg.arg1 = COMMAND_TYPE_DISABLE;
         mSm.sendMessage(msg);
     }
 
@@ -1706,6 +1721,11 @@ public class WifiAwareStateManager implements WifiAwareShellCommand.DelegatedShe
 
             switch (msg.arg1) {
                 case COMMAND_TYPE_CONNECT: {
+                    if (mAwareIsDisabling) {
+                        deferMessage(msg);
+                        waitForResponse = false;
+                        break;
+                    }
                     int clientId = msg.arg2;
                     IWifiAwareEventCallback callback = (IWifiAwareEventCallback) msg.obj;
                     ConfigRequest configRequest = (ConfigRequest) msg.getData()
@@ -1728,6 +1748,14 @@ public class WifiAwareStateManager implements WifiAwareShellCommand.DelegatedShe
                     int clientId = msg.arg2;
 
                     waitForResponse = disconnectLocal(mCurrentTransactionId, clientId);
+                    break;
+                }
+                case COMMAND_TYPE_DISABLE: {
+                    mAwareIsDisabling = false;
+                    // Must trigger a state transition to execute the deferred connect command
+                    if (!mWifiAwareNativeApi.disable(mCurrentTransactionId)) {
+                        onDisableResponse(mCurrentTransactionId, WifiStatusCode.ERROR_UNKNOWN);
+                    }
                     break;
                 }
                 case COMMAND_TYPE_RECONFIGURE:
@@ -1848,7 +1876,8 @@ public class WifiAwareStateManager implements WifiAwareShellCommand.DelegatedShe
                     waitForResponse = false;
                     break;
                 case COMMAND_TYPE_DISABLE_USAGE:
-                    waitForResponse = disableUsageLocal(mCurrentTransactionId);
+                    disableUsageLocal(mCurrentTransactionId);
+                    waitForResponse = false;
                     break;
                 case COMMAND_TYPE_GET_CAPABILITIES:
                     if (mCapabilities == null) {
@@ -2190,6 +2219,9 @@ public class WifiAwareStateManager implements WifiAwareShellCommand.DelegatedShe
                     Log.wtf(TAG,
                             "processTimeout: COMMAND_TYPE_RELEASE_AWARE - shouldn't be waiting!");
                     break;
+                case COMMAND_TYPE_DISABLE:
+                    mAwareMetrics.recordDisableAware();
+                    break;
                 default:
                     Log.wtf(TAG, "processTimeout: this isn't a COMMAND -- msg=" + msg);
                     /* fall-through */
@@ -2430,8 +2462,9 @@ public class WifiAwareStateManager implements WifiAwareShellCommand.DelegatedShe
 
         if (mClients.size() == 0) {
             mCurrentAwareConfiguration = null;
-            deleteAllDataPathInterfaces();
-            return mWifiAwareNativeApi.disable(transactionId);
+            mDataPathMgr.deleteAllInterfaces();
+            deferDisableAware();
+            return false;
         }
 
         if (!mWifiAwareNativeManager.replaceRequestorWs(createMergedRequestorWs())) {
@@ -2645,26 +2678,23 @@ public class WifiAwareStateManager implements WifiAwareShellCommand.DelegatedShe
         mAwareMetrics.recordEnableUsage();
     }
 
-    private boolean disableUsageLocal(short transactionId) {
+    private void disableUsageLocal(short transactionId) {
         if (VDBG) {
             Log.v(TAG, "disableUsageLocal: transactionId=" + transactionId + ", mUsageEnabled="
                     + mUsageEnabled);
         }
 
         if (!mUsageEnabled) {
-            return false;
+            return;
         }
-
         onAwareDownLocal();
 
         mUsageEnabled = false;
-        boolean callDispatched = mWifiAwareNativeApi.disable(transactionId);
+        deferDisableAware();
 
         sendAwareStateChangedBroadcast(false);
 
         mAwareMetrics.recordDisableUsage();
-
-        return callDispatched;
     }
 
     private boolean initiateDataPathSetupLocal(short transactionId,
@@ -3292,7 +3322,7 @@ public class WifiAwareStateManager implements WifiAwareShellCommand.DelegatedShe
         mSm.onAwareDownCleanupSendQueueState();
         mDataPathMgr.onAwareDownCleanupDataPaths();
         mCurrentDiscoveryInterfaceMac = ALL_ZERO_MAC;
-        deleteAllDataPathInterfaces();
+        mDataPathMgr.deleteAllInterfaces();
     }
 
     /*

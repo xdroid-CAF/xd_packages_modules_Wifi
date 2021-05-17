@@ -742,6 +742,9 @@ message WifiLog {
 
   // Bandwidth estimator stats.
   optional BandwidthEstimatorStats bandwidth_estimator_stats = 210;
+
+  // Total number of scan results from 6GHz PSC band
+  optional int32 num_6g_psc_network_scan_results = 211;
 }
 
 // Information that gets logged for every WiFi connection.
@@ -1365,6 +1368,31 @@ message StaEvent {
 
     // The network being evaluated in Make-Before-Break was disconnected due to no internet.
     DISCONNECT_MBB_NO_INTERNET = 7;
+
+    // The network has been removed from the database.
+    DISCONNECT_NETWORK_REMOVED = 8;
+
+    // The network has been marked as metered.
+    DISCONNECT_NETWORK_METERED = 9;
+
+    // The network has been disabled temporarily.
+    DISCONNECT_NETWORK_TEMPORARY_DISABLED = 10;
+
+    // The network has been disabled permanently.
+    DISCONNECT_NETWORK_PERMANENT_DISABLED = 11;
+
+    // Carrier offload for this network has been disabled.
+    DISCONNECT_CARRIER_OFFLOAD_DISABLED = 12;
+
+    // Disconnected due to an issue with passpoint terms and conditions URL.
+    DISCONNECT_PASSPOINT_TAC = 13;
+
+    // VCN policy is requesting to tear down the network.
+    DISCONNECT_VCN_REQUEST = 14;
+
+    // Connected to a network that's not found in the database.
+    DISCONNECT_UNKNOWN_NETWORK = 15;
+
   }
 
   // Authentication Failure reasons as reported through the API.
@@ -2209,6 +2237,14 @@ message BssidBlocklistStats {
   // Number of times connection is initiated in the high movement state
   // only relevant if high_movement_multiple_scans_feature_enabled=true
   optional int32 num_high_movement_connection_started = 4;
+
+  // Histogram corresponding to the number of times BSSIDs are blocked per
+  // WifiBlocklistMonitor.FailureReason.
+  repeated Int32Count bssid_blocklist_per_reason_count = 5;
+
+  // Histogram corresponding to the number of times WifiConfigurations are blocked per
+  // WifiConfiguration.NetworkSelectionStatus.NetworkSelectionDisableReason.
+  repeated Int32Count wifi_config_blocklist_per_reason_count = 6;
 }
 
 message WifiIsUnusableEvent {
@@ -2564,16 +2600,16 @@ message ContentionTimeStats {
   optional AccessCategory access_category = 1;
 
   // Data packet min contention time in microseconds
-  optional int32 contention_time_min_micros = 2;
+  optional int64 contention_time_min_micros = 2;
 
   // Data packet max contention time in microseconds
-  optional int32 contention_time_max_micros = 3;
+  optional int64 contention_time_max_micros = 3;
 
   // Data packet average contention time in microseconds
-  optional int32 contention_time_avg_micros = 4;
+  optional int64 contention_time_avg_micros = 4;
 
   // Number of data packets used for contention statistics
-  optional int32 contention_num_samples = 5;
+  optional int64 contention_num_samples = 5;
 }
 
 message RateStats {

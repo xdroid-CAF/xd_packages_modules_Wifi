@@ -18,11 +18,11 @@ package com.android.server.wifi;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeTrue;
 import static org.mockito.AdditionalAnswers.answerVoid;
-import static org.mockito.AdditionalMatchers.not;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.any;
@@ -33,6 +33,7 @@ import static org.mockito.Mockito.atMost;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -41,6 +42,7 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.NetworkScore;
 import android.net.wifi.IScoreUpdateObserver;
 import android.net.wifi.IWifiConnectedNetworkScorer;
 import android.net.wifi.WifiConnectedSessionInfo;
@@ -48,7 +50,6 @@ import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
 import android.os.RemoteException;
 import android.os.test.TestLooper;
 
@@ -61,6 +62,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -106,14 +108,11 @@ public class WifiScoreReportTest extends WifiBaseTest {
     @Mock WifiScoreCard mWifiScoreCard;
     @Mock WifiScoreCard.PerNetwork mPerNetwork;
     @Mock DeviceConfigFacade mDeviceConfigFacade;
-    @Mock Looper mWifiLooper;
-    @Mock FrameworkFacade mFrameworkFacade;
     @Mock AdaptiveConnectivityEnabledSettingObserver mAdaptiveConnectivityEnabledSettingObserver;
     @Mock ExternalScoreUpdateObserverProxy mExternalScoreUpdateObserverProxy;
-    ArgumentCaptor<WifiManager.ScoreUpdateObserver> mExternalScoreUpdateObserverCbCaptor =
-            ArgumentCaptor.forClass(WifiManager.ScoreUpdateObserver.class);
     @Mock WifiSettingsStore mWifiSettingsStore;
     @Mock WifiGlobals mWifiGlobals;
+    @Captor ArgumentCaptor<WifiManager.ScoreUpdateObserver> mExternalScoreUpdateObserverCbCaptor;
     private TestLooper mLooper;
 
     public class WifiConnectedNetworkScorerImpl extends IWifiConnectedNetworkScorer.Stub {
@@ -209,6 +208,7 @@ public class WifiScoreReportTest extends WifiBaseTest {
                 mDeviceConfigFacade, mContext,
                 mAdaptiveConnectivityEnabledSettingObserver, TEST_IFACE_NAME,
                 mExternalScoreUpdateObserverProxy, mWifiSettingsStore);
+        mWifiScoreReport.onRoleChanged(ActiveModeManager.ROLE_CLIENT_PRIMARY);
         mWifiScoreReport.setNetworkAgent(mNetworkAgent);
         when(mDeviceConfigFacade.getMinConfirmationDurationSendLowScoreMs()).thenReturn(
                 DeviceConfigFacade.DEFAULT_MIN_CONFIRMATION_DURATION_SEND_LOW_SCORE_MS);
@@ -240,34 +240,110 @@ public class WifiScoreReportTest extends WifiBaseTest {
      */
     @Test
     public void calculateAndReportScoreSucceeds() throws Exception {
+        // initially called once
+        verify(mNetworkAgent).sendNetworkScore(any());
+
         mWifiInfo.setRssi(-77);
         mWifiScoreReport.calculateAndReportScore();
-        verify(mNetworkAgent).sendNetworkScore(anyInt());
+        // called again after calculateAndReportScore()
+        verify(mNetworkAgent, times(2)).sendNetworkScore(any());
         verify(mWifiMetrics).incrementWifiScoreCount(eq(TEST_IFACE_NAME), anyInt());
     }
 
     @Test
+    public void mbbNetworkForceKeepUp() throws Exception {
+        reset(mNetworkAgent);
+
+        ArgumentCaptor<NetworkScore> networkScoreCaptor =
+                ArgumentCaptor.forClass(NetworkScore.class);
+
+        // start as SECONDARY_TRANSIENT
+        mWifiScoreReport.onRoleChanged(ActiveModeManager.ROLE_CLIENT_SECONDARY_TRANSIENT);
+
+        verify(mNetworkAgent).sendNetworkScore(networkScoreCaptor.capture());
+        {
+            NetworkScore networkScore = networkScoreCaptor.getValue();
+            assertNotEquals(WifiScoreReport.LINGERING_SCORE, networkScore.getLegacyInt());
+            assertFalse(networkScore.isExiting());
+            assertFalse(networkScore.isTransportPrimary());
+            // force keep up network
+            assertEquals(NetworkScore.KEEP_CONNECTED_FOR_HANDOVER,
+                    networkScore.getKeepConnectedReason());
+        }
+
+        // network validated, becomes primary
+        mWifiScoreReport.onRoleChanged(ActiveModeManager.ROLE_CLIENT_PRIMARY);
+        verify(mNetworkAgent, times(2)).sendNetworkScore(networkScoreCaptor.capture());
+        {
+            NetworkScore networkScore = networkScoreCaptor.getValue();
+            assertNotEquals(WifiScoreReport.LINGERING_SCORE, networkScore.getLegacyInt());
+            assertFalse(networkScore.isExiting());
+            assertTrue(networkScore.isTransportPrimary());
+            // no longer need to force keep up network
+            assertEquals(NetworkScore.KEEP_CONNECTED_NONE, networkScore.getKeepConnectedReason());
+        }
+    }
+
+    @Test
     public void calculateAndReportScoreWhileLingering_sendLingeringScore() throws Exception {
+        reset(mNetworkAgent);
+
+        ArgumentCaptor<NetworkScore> networkScoreCaptor =
+                ArgumentCaptor.forClass(NetworkScore.class);
+
+        // start as primary
+        mWifiScoreReport.onRoleChanged(ActiveModeManager.ROLE_CLIENT_PRIMARY);
+
+        verify(mNetworkAgent).sendNetworkScore(networkScoreCaptor.capture());
+        {
+            NetworkScore networkScore = networkScoreCaptor.getValue();
+            assertNotEquals(WifiScoreReport.LINGERING_SCORE, networkScore.getLegacyInt());
+            assertFalse(networkScore.isExiting());
+            assertTrue(networkScore.isTransportPrimary());
+            assertEquals(NetworkScore.KEEP_CONNECTED_NONE, networkScore.getKeepConnectedReason());
+        }
+
+        // then, role changed to SECONDARY_TRANSIENT and started lingering
+        mWifiScoreReport.onRoleChanged(ActiveModeManager.ROLE_CLIENT_SECONDARY_TRANSIENT);
         mWifiScoreReport.setShouldReduceNetworkScore(true);
         // upon lingering, immediately send LINGERING_SCORE
-        verify(mNetworkAgent).sendNetworkScore(WifiScoreReport.LINGERING_SCORE);
+        // capture most recent invocation
+        verify(mNetworkAgent, times(3)).sendNetworkScore(networkScoreCaptor.capture());
+        {
+            NetworkScore networkScore = networkScoreCaptor.getValue();
+            assertEquals(WifiScoreReport.LINGERING_SCORE, networkScore.getLegacyInt());
+            assertFalse(networkScore.isExiting());
+            assertFalse(networkScore.isTransportPrimary());
+            assertEquals(NetworkScore.KEEP_CONNECTED_NONE, networkScore.getKeepConnectedReason());
+        }
 
         mWifiInfo.setRssi(-77);
         mWifiScoreReport.calculateAndReportScore();
         // score not sent again while lingering
-        verify(mNetworkAgent).sendNetworkScore(anyInt());
+        verify(mNetworkAgent, times(3)).sendNetworkScore(any());
 
         // disable lingering
+        mWifiScoreReport.onRoleChanged(ActiveModeManager.ROLE_CLIENT_PRIMARY);
         mWifiScoreReport.setShouldReduceNetworkScore(false);
         // report score again
         mWifiInfo.setRssi(-60);
         mWifiScoreReport.calculateAndReportScore();
         // Some non-lingering score is sent
-        verify(mNetworkAgent).sendNetworkScore(not(eq(WifiScoreReport.LINGERING_SCORE)));
+        // capture most recent invocation
+        verify(mNetworkAgent, times(6)).sendNetworkScore(networkScoreCaptor.capture());
+        {
+            NetworkScore networkScore = networkScoreCaptor.getValue();
+            assertNotEquals(WifiScoreReport.LINGERING_SCORE, networkScore.getLegacyInt());
+            assertFalse(networkScore.isExiting());
+            assertTrue(networkScore.isTransportPrimary());
+            assertEquals(NetworkScore.KEEP_CONNECTED_NONE, networkScore.getKeepConnectedReason());
+        }
     }
 
     @Test
-    public void testClientScoreWhileLingering_sendLingeringScore() throws Exception {
+    public void testExternalScorerWhileLingering_sendLingeringScore() throws Exception {
+        mWifiScoreReport.onRoleChanged(ActiveModeManager.ROLE_CLIENT_SECONDARY_LONG_LIVED);
+
         // Register Client for verification.
         mWifiScoreReport.setWifiConnectedNetworkScorer(mAppBinder, mWifiConnectedNetworkScorer);
         verify(mExternalScoreUpdateObserverProxy).registerCallback(
@@ -278,24 +354,28 @@ public class WifiScoreReportTest extends WifiBaseTest {
                 argThat(sessionInfo -> sessionInfo.getSessionId() == TEST_SESSION_ID
                         && sessionInfo.isUserSelected() == TEST_USER_SELECTED));
 
+        reset(mNetworkAgent);
+
+        ArgumentCaptor<NetworkScore> networkScoreCaptor =
+                ArgumentCaptor.forClass(NetworkScore.class);
         mWifiScoreReport.setShouldReduceNetworkScore(true);
         // upon lingering, immediately send LINGERING_SCORE
-        verify(mNetworkAgent).sendNetworkScore(WifiScoreReport.LINGERING_SCORE);
+        // capture most recent invocation
+        verify(mNetworkAgent).sendNetworkScore(networkScoreCaptor.capture());
+        {
+            NetworkScore networkScore = networkScoreCaptor.getValue();
+            assertEquals(WifiScoreReport.LINGERING_SCORE, networkScore.getLegacyInt());
+            assertFalse(networkScore.isExiting());
+            assertFalse(networkScore.isTransportPrimary());
+        }
         // upon lingering, send session end to client.
         verify(mWifiConnectedNetworkScorer).onStop(TEST_SESSION_ID);
 
+        // send score after session has ended
         mExternalScoreUpdateObserverCbCaptor.getValue().notifyScoreUpdate(TEST_SESSION_ID, 49);
         mLooper.dispatchAll();
-        // score not sent again while lingering
-        verify(mNetworkAgent).sendNetworkScore(anyInt());
-
-        // disable lingering
-        mWifiScoreReport.setShouldReduceNetworkScore(false);
-        // report score again
-        mExternalScoreUpdateObserverCbCaptor.getValue().notifyScoreUpdate(TEST_SESSION_ID, 49);
-        mLooper.dispatchAll();
-        // External score is sent.
-        verify(mNetworkAgent).sendNetworkScore(49);
+        // score not sent since session ended
+        verify(mNetworkAgent).sendNetworkScore(any());
     }
 
     /**
@@ -368,7 +448,8 @@ public class WifiScoreReportTest extends WifiBaseTest {
         }
         int score = mWifiInfo.getScore();
         assertTrue(score < ConnectedScore.WIFI_TRANSITION_SCORE);
-        verify(mNetworkAgent, atLeast(1)).sendNetworkScore(score);
+        verify(mNetworkAgent, atLeast(1)).sendNetworkScore(argThat(ns ->
+                ns.getLegacyInt() == score && ns.isExiting() && ns.isTransportPrimary()));
     }
 
     /**
@@ -385,7 +466,8 @@ public class WifiScoreReportTest extends WifiBaseTest {
             oops += ":" + mWifiInfo.getScore();
         }
         int score = mWifiInfo.getScore();
-        verify(mNetworkAgent, atLeast(1)).sendNetworkScore(score);
+        verify(mNetworkAgent, atLeast(1)).sendNetworkScore(
+                argThat(ns -> ns.getLegacyInt() == score));
         assertTrue(oops, score < ConnectedScore.WIFI_TRANSITION_SCORE);
     }
 
@@ -559,7 +641,7 @@ public class WifiScoreReportTest extends WifiBaseTest {
         }
         setupToGenerateAReportWhenPrintlnIsCalled();
         mWifiScoreReport.dump(null, mPrintWriter, null);
-        verify(mPrintWriter, times(12)).println(anyString());
+        verify(mPrintWriter, times(13)).println(anyString());
     }
 
     /**
@@ -580,7 +662,7 @@ public class WifiScoreReportTest extends WifiBaseTest {
             mWifiScoreReport.calculateAndReportScore();
         }
         mWifiScoreReport.dump(null, mPrintWriter, null);
-        verify(mPrintWriter, atMost(3602)).println(anyString());
+        verify(mPrintWriter, atMost(3603)).println(anyString());
     }
 
     /**
@@ -788,24 +870,36 @@ public class WifiScoreReportTest extends WifiBaseTest {
 
         // Invalid session ID
         mExternalScoreUpdateObserverCbCaptor.getValue().notifyScoreUpdate(-1, 49);
-        assertEquals(mWifiScoreReport.getScore(), ConnectedScore.WIFI_MAX_SCORE);
+        NetworkScore score = mWifiScoreReport.getScore();
+        assertEquals(score.getLegacyInt(), ConnectedScore.WIFI_MAX_SCORE);
+        assertTrue(score.isTransportPrimary());
+        assertFalse(score.isExiting());
 
         // Incorrect session ID
         mExternalScoreUpdateObserverCbCaptor.getValue().notifyScoreUpdate(
                 scorerImpl.mSessionId + 10, 49);
-        assertEquals(mWifiScoreReport.getScore(), ConnectedScore.WIFI_MAX_SCORE);
+        score = mWifiScoreReport.getScore();
+        assertEquals(score.getLegacyInt(), ConnectedScore.WIFI_MAX_SCORE);
+        assertTrue(score.isTransportPrimary());
+        assertFalse(score.isExiting());
 
         mExternalScoreUpdateObserverCbCaptor.getValue().notifyScoreUpdate(
                 scorerImpl.mSessionId, 49);
         mLooper.dispatchAll();
-        verify(mNetworkAgent).sendNetworkScore(49);
-        assertEquals(mWifiScoreReport.getScore(), 49);
+        verify(mNetworkAgent).sendNetworkScore(argThat(ns -> ns.getLegacyInt() == 49));
+        score = mWifiScoreReport.getScore();
+        assertEquals(score.getLegacyInt(), 49);
+        assertTrue(score.isTransportPrimary());
+        assertTrue(score.isExiting());
 
         mExternalScoreUpdateObserverCbCaptor.getValue().notifyScoreUpdate(
                 scorerImpl.mSessionId, 59);
         mLooper.dispatchAll();
-        verify(mNetworkAgent).sendNetworkScore(59);
-        assertEquals(mWifiScoreReport.getScore(), 59);
+        verify(mNetworkAgent).sendNetworkScore(argThat(ns -> ns.getLegacyInt() == 59));
+        score = mWifiScoreReport.getScore();
+        assertEquals(score.getLegacyInt(), 59);
+        assertTrue(score.isTransportPrimary());
+        assertFalse(score.isExiting());
     }
 
     /**
@@ -1156,7 +1250,8 @@ public class WifiScoreReportTest extends WifiBaseTest {
         when(mAdaptiveConnectivityEnabledSettingObserver.get()).thenReturn(false);
         mWifiScoreReport.calculateAndReportScore();
         assertFalse(mWifiScoreReport.shouldCheckIpLayer());
-        verify(mNetworkAgent).sendNetworkScore(51);
+        verify(mNetworkAgent).sendNetworkScore(argThat(score ->
+                score.getLegacyInt() == 51 && !score.isExiting() && score.isTransportPrimary()));
     }
 
     /**
@@ -1170,7 +1265,8 @@ public class WifiScoreReportTest extends WifiBaseTest {
         when(mWifiSettingsStore.isWifiScoringEnabled()).thenReturn(false);
         mWifiScoreReport.calculateAndReportScore();
         assertFalse(mWifiScoreReport.shouldCheckIpLayer());
-        verify(mNetworkAgent).sendNetworkScore(51);
+        verify(mNetworkAgent).sendNetworkScore(argThat(score ->
+                score.getLegacyInt() == 51 && !score.isExiting() && score.isTransportPrimary()));
     }
 
     /**
@@ -1275,12 +1371,14 @@ public class WifiScoreReportTest extends WifiBaseTest {
         mExternalScoreUpdateObserverCbCaptor.getValue().notifyStatusUpdate(
                 scorerImpl.mSessionId, true);
         mLooper.dispatchAll();
-        verify(mNetworkAgent).sendNetworkScore(51);
+        verify(mNetworkAgent).sendNetworkScore(argThat(score ->
+                score.getLegacyInt() == 51 && !score.isExiting() && score.isTransportPrimary()));
 
         mExternalScoreUpdateObserverCbCaptor.getValue().notifyStatusUpdate(
                 scorerImpl.mSessionId, false);
         mLooper.dispatchAll();
-        verify(mNetworkAgent).sendNetworkScore(49);
+        verify(mNetworkAgent).sendNetworkScore(argThat(score ->
+                score.getLegacyInt() == 49 && score.isExiting() && score.isTransportPrimary()));
     }
 
     /**

@@ -938,6 +938,7 @@ public class HalDeviceManager {
 
                 if (!mWifi.linkToDeath(mIWifiDeathRecipient, /* don't care */ 0)) {
                     Log.e(TAG, "Error on linkToDeath on IWifi - will retry later");
+                    mWifi = null;
                     return;
                 }
 
@@ -958,6 +959,7 @@ public class HalDeviceManager {
                 stopWifi();
                 mIsReady = true;
             } catch (RemoteException e) {
+                mWifi = null;
                 Log.e(TAG, "Exception while operating on IWifi: " + e);
             }
         }
@@ -1099,8 +1101,7 @@ public class HalDeviceManager {
         if (VDBG) Log.d(TAG, "getAllChipInfo");
 
         synchronized (mLock) {
-            if (mWifi == null) {
-                Log.e(TAG, "getAllChipInfo: called but mWifi is null!?");
+            if (!isWifiStarted()) {
                 return null;
             }
 
@@ -1394,7 +1395,6 @@ public class HalDeviceManager {
         synchronized (mLock) {
             try {
                 if (mWifi == null) {
-                    Log.w(TAG, "isWifiStarted called but mWifi is null!?");
                     return false;
                 } else {
                     return mWifi.isStarted();

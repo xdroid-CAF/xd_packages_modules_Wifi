@@ -26,6 +26,7 @@ import android.os.Handler;
 import android.os.Process;
 import android.text.TextUtils;
 import android.util.Log;
+import android.util.SparseIntArray;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.modules.utils.build.SdkLevel;
@@ -37,6 +38,7 @@ import java.nio.charset.CharsetEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Objects;
 import java.util.Random;
 
 import javax.annotation.Nullable;
@@ -74,6 +76,9 @@ public class WifiApConfigStore {
     private final WifiConfigManager mWifiConfigManager;
     private final ActiveModeWarden mActiveModeWarden;
     private boolean mHasNewDataToSerialize = false;
+    private boolean mForceApChannel = false;
+    private int mForcedApBand;
+    private int mForcedApChannel;
 
     /**
      * Module to interact with the wifi config store.
@@ -133,9 +138,18 @@ public class WifiApConfigStore {
         }
         SoftApConfiguration sanitizedPersistentconfig =
                 sanitizePersistentApConfig(mPersistentWifiApConfig);
-        if (mPersistentWifiApConfig != sanitizedPersistentconfig) {
+        if (!Objects.equals(mPersistentWifiApConfig, sanitizedPersistentconfig)) {
             Log.d(TAG, "persisted config was converted, need to resave it");
             persistConfigAndTriggerBackupManagerProxy(sanitizedPersistentconfig);
+        }
+        if (mForceApChannel) {
+            Log.d(TAG, "getApConfiguration: Band force to " + mForcedApBand
+                    + ", and channel force to " + mForcedApChannel);
+            return mForcedApChannel == 0
+                    ? new SoftApConfiguration.Builder(mPersistentWifiApConfig)
+                            .setBand(mForcedApBand).build()
+                    : new SoftApConfiguration.Builder(mPersistentWifiApConfig)
+                            .setChannel(mForcedApChannel, mForcedApBand).build();
         }
         return mPersistentWifiApConfig;
     }
@@ -280,24 +294,36 @@ public class WifiApConfigStore {
     }
 
     private SoftApConfiguration sanitizePersistentApConfig(SoftApConfiguration config) {
-        if (SdkLevel.isAtLeastS() && config.getBands().length > 1) {
-            return config;
-        }
-        SoftApConfiguration.Builder convertedConfigBuilder = null;
-        int band = config.getBand();
-        // some countries are unable to support 5GHz only operation, always allow for 2GHz when
-        // config doesn't force channel
-        if (config.getChannel() == 0 && (band & SoftApConfiguration.BAND_2GHZ) == 0) {
-            if (ApConfigUtil.isBandSupported(config.getBand(), mContext)) {
-                Log.w(TAG, "Supplied ap config band without 2.4G, add allowing for 2.4GHz");
-                if (convertedConfigBuilder == null) {
-                    convertedConfigBuilder = new SoftApConfiguration.Builder(config);
+        SoftApConfiguration.Builder convertedConfigBuilder =
+                new SoftApConfiguration.Builder(config);
+        int[] bands = config.getBands();
+        if (bands.length > 1) {
+            // Consider 2.4G instance may be shutdown, i.e. only left 5G instance. If the 5G
+            // configuration is 5G band only, it will cause that driver can't switch channel from
+            // 5G to 2.4G when coexistence happene. Always append 2.4G into band configuration to
+            // allow driver handle coexistence case after 2.4G instance shutdown.
+            SparseIntArray newChannels = new SparseIntArray();
+            for (int i = 0; i < bands.length; i++) {
+                int channel = config.getChannels().valueAt(i);
+                if (channel == 0 && (bands[i] & SoftApConfiguration.BAND_2GHZ) == 0
+                        && ApConfigUtil.isBandSupported(bands[i], mContext)) {
+                    newChannels.put(ApConfigUtil.append24GToBandIf24GSupported(bands[i], mContext),
+                            0);
+                } else {
+                    newChannels.put(bands[i], channel);
                 }
+            }
+            convertedConfigBuilder.setChannels(newChannels);
+        } else if (config.getChannel() == 0 && (bands[0] & SoftApConfiguration.BAND_2GHZ) == 0) {
+            // some countries are unable to support 5GHz only operation, always allow for 2GHz when
+            // config doesn't force channel
+            if (ApConfigUtil.isBandSupported(bands[0], mContext)) {
+                Log.i(TAG, "Supplied ap config band without 2.4G, add allowing for 2.4GHz");
                 convertedConfigBuilder.setBand(
-                        ApConfigUtil.append24GToBandIf24GSupported(band, mContext));
+                        ApConfigUtil.append24GToBandIf24GSupported(bands[0], mContext));
             }
         }
-        return convertedConfigBuilder == null ? config : convertedConfigBuilder.build();
+        return convertedConfigBuilder.build();
     }
 
     private void persistConfigAndTriggerBackupManagerProxy(SoftApConfiguration config) {
@@ -594,5 +620,24 @@ public class WifiApConfigStore {
             }
         }
         return true;
+    }
+
+    /**
+     * Enable force-soft-AP-channel mode which takes effect when soft AP starts next time
+     *
+     * @param forcedApBand The forced band.
+     * @param forcedApChannel The forced IEEE channel number or 0 when forced AP band only.
+     */
+    public void enableForceSoftApBandOrChannel(@BandType int forcedApBand, int forcedApChannel) {
+        mForceApChannel = true;
+        mForcedApChannel = forcedApChannel;
+        mForcedApBand = forcedApBand;
+    }
+
+    /**
+     * Disable force-soft-AP-channel mode which take effect when soft AP starts next time
+     */
+    public void disableForceSoftApBandOrChannel() {
+        mForceApChannel = false;
     }
 }
