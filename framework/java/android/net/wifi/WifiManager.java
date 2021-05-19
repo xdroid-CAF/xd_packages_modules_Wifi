@@ -66,6 +66,8 @@ import android.util.Log;
 import android.util.Pair;
 import android.util.SparseArray;
 
+import androidx.annotation.RequiresApi;
+
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.modules.utils.ParceledListSlice;
@@ -2993,6 +2995,7 @@ public class WifiManager {
      *
      * @return {@code true} if supported, {@code false} otherwise.
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     public boolean is60GHzBandSupported() {
         try {
             return mService.is60GHzBandSupported();
@@ -7881,9 +7884,6 @@ public class WifiManager {
             android.Manifest.permission.NETWORK_SETUP_WIZARD})
     public void setCarrierNetworkOffloadEnabled(int subscriptionId, boolean merged,
             boolean enabled) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         try {
             mService.setCarrierNetworkOffloadEnabled(subscriptionId, merged, enabled);
         } catch (RemoteException e) {
@@ -7901,9 +7901,6 @@ public class WifiManager {
      */
     @RequiresPermission(ACCESS_WIFI_STATE)
     public boolean isCarrierNetworkOffloadEnabled(int subscriptionId, boolean merged) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         try {
             return mService.isCarrierNetworkOffloadEnabled(subscriptionId, merged);
         } catch (RemoteException e) {
@@ -7961,9 +7958,6 @@ public class WifiManager {
     public void addSuggestionUserApprovalStatusListener(
             @NonNull @CallbackExecutor Executor executor,
             @NonNull SuggestionUserApprovalStatusListener listener) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         if (listener == null) throw new NullPointerException("Listener cannot be null");
         if (executor == null) throw new NullPointerException("Executor cannot be null");
         Log.v(TAG, "addSuggestionUserApprovalStatusListener listener=" + listener
@@ -7993,9 +7987,6 @@ public class WifiManager {
     @RequiresPermission(ACCESS_WIFI_STATE)
     public void removeSuggestionUserApprovalStatusListener(
             @NonNull SuggestionUserApprovalStatusListener listener) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         if (listener == null) throw new IllegalArgumentException("Listener cannot be null");
         Log.v(TAG, "removeSuggestionUserApprovalStatusListener: listener=" + listener);
         try {
