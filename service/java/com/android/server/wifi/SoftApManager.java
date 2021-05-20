@@ -388,7 +388,7 @@ public class SoftApManager implements ActiveModeManager {
         mStateMachine.sendMessage(SoftApStateMachine.CMD_STOP);
     }
 
-    private boolean isBridgedMode() {
+    public boolean isBridgedMode() {
         return (SdkLevel.isAtLeastS() && mCurrentSoftApConfiguration != null
                 && (mCurrentSoftApConfiguration.getBands().length > 1
                     || (mCurrentSoftApConfiguration.getSecurityType()

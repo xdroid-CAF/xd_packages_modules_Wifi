@@ -3894,4 +3894,8 @@ public class WifiVendorHal {
             }
         }
     }
+
+    public boolean needToDeleteIfacesDueToBridgeMode(int ifaceType, WorkSource requestorWs) {
+       return mHalDeviceManager.needToDeleteIfacesDueToBridgeMode(ifaceType, requestorWs);
+    }
 }

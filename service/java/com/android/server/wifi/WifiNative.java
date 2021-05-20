@@ -4357,4 +4357,8 @@ public class WifiNative {
     public SecurityParams getCurrentSecurityParams(@NonNull String ifaceName) {
         return mSupplicantStaIfaceHal.getCurrentSecurityParams(ifaceName);
     }
+
+    public boolean needToDeleteIfacesDueToBridgeMode(int ifaceType, WorkSource requestorWs) {
+       return mWifiVendorHal.needToDeleteIfacesDueToBridgeMode(ifaceType, requestorWs);
+    }
 }
