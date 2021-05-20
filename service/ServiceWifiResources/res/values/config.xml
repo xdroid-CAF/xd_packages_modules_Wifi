@@ -666,4 +666,7 @@
 
     <!-- Indicate max number of log records for WifiClientModeImpl -->
     <integer translatable="false" name="config_wifiClientModeImplNumLogRecs">100</integer>
+
+    <!-- Wifi driver supports WPA3 Simultaneous Authentication of Equals (WPA3-OWE) for softap -->
+    <bool translatable="false" name="config_vendor_wifi_softap_owe_supported">false</bool>
 </resources>

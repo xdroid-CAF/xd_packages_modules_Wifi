@@ -390,7 +390,11 @@ public class SoftApManager implements ActiveModeManager {
 
     private boolean isBridgedMode() {
         return (SdkLevel.isAtLeastS() && mCurrentSoftApConfiguration != null
-                && mCurrentSoftApConfiguration.getBands().length > 1);
+                && (mCurrentSoftApConfiguration.getBands().length > 1
+                    || (mCurrentSoftApConfiguration.getSecurityType()
+                        == SoftApConfiguration.SECURITY_TYPE_OWE
+                       && (mCurrentSoftApConfiguration.getBand()
+                           & SoftApConfiguration.BAND_6GHZ) == 0)));
     }
 
     private long getShutdownTimeoutMillis() {
@@ -893,7 +897,8 @@ public class SoftApManager implements ActiveModeManager {
                         }
                         mApInterfaceName = mWifiNative.setupInterfaceForSoftApMode(
                                 mWifiNativeInterfaceCallback, mRequestorWs,
-                                mCurrentSoftApConfiguration.getBand(), isBridgedMode());
+                                mCurrentSoftApConfiguration.getBand(), isBridgedMode(),
+                                mCurrentSoftApConfiguration.getSecurityType());
                         if (TextUtils.isEmpty(mApInterfaceName)) {
                             Log.e(getTag(), "setup failure when creating ap interface.");
                             updateApState(WifiManager.WIFI_AP_STATE_FAILED,
