@@ -760,6 +760,9 @@ message WifiLog {
 
   // Scope of Passpoint deauth-imminent notification: ESS or BSS
   repeated Int32Count passpoint_deauth_imminent_scope = 216;
+
+  // Total number of steering requests from AP
+  optional int32 num_steering_request = 217;
 }
 
 // Information that gets logged for every WiFi connection.
@@ -938,6 +941,26 @@ message RouterFingerPrint {
 
   // Max Rx link speed (in Mbps) supported by current network (STA and AP)
   optional int32 max_supported_rx_link_speed_mbps = 14;
+}
+
+enum ClientRole {
+  // default/Invalid role
+  ROLE_UNKNOWN = 0;
+
+  // STA created for scans only.
+  ROLE_CLIENT_SCAN_ONLY = 1;
+
+  // secondary STA used for make before break.
+  ROLE_CLIENT_SECONDARY_TRANSIENT = 2;
+
+  // secondary STA created for local connection (no internet connectivity).
+  ROLE_CLIENT_LOCAL_ONLY = 3;
+
+  // primary STA.
+  ROLE_CLIENT_PRIMARY = 4;
+
+  // Long lived secondary STA used for restricted use cases
+  ROLE_CLIENT_SECONDARY_LONG_LIVED = 5;
 }
 
 message ConnectionEvent {
@@ -1149,6 +1172,10 @@ message ConnectionEvent {
   // The wireless interface name e.g. "wlan0", "wlan1". Used to distinguish which event stream this
   // ConnectionEvent belongs to when multiple interfaces are active concurrently.
   optional string interface_name = 27;
+
+  // The role of the wireless interface at the start of the connection.
+  // Gives more information on what purpose this interface is used for.
+  optional ClientRole interface_role = 29;
 }
 
 // Number of occurrences of a specific RSSI poll rssi value
@@ -1543,6 +1570,10 @@ message StaEvent {
   // The wireless interface name e.g. "wlan0", "wlan1". Used to distinguish which event stream this
   // StaEvent belongs to when multiple interfaces are active concurrently.
   optional string interface_name = 27;
+
+  // The role of the wireless interface
+  // Gives more information on what purpose this interface is used for.
+  optional ClientRole interface_role = 28;
 }
 
 // Wi-Fi Aware metrics
@@ -1688,6 +1719,9 @@ message WifiAwareLog {
   // enabled which did not trigger ranging
   optional int32 num_matches_without_ranging_for_ranging_enabled_subscribes = 49;
 
+  // Total number of different types of NDP requests
+  repeated NdpRequestTypeHistogramBucket histogram_ndp_request_type = 50;
+
   // Histogram bucket for Wi-Fi Aware logs. Range is [start, end)
   message HistogramBucket {
     // lower range of the bucket (inclusive)
@@ -1755,6 +1789,32 @@ message WifiAwareLog {
 
     // number of samples in the bucket
     optional int32 count = 2;
+  }
+
+  enum NdpRequestTypeEnum {
+    // Unknown Type
+    NETWORK_SPECIFIER_TYPE_UNKNOWN = 0;
+
+    // TYPE: in band, specific peer: role, client_id, session_id, peer_id, pmk/passphrase optional
+    NETWORK_SPECIFIER_TYPE_IB = 1;
+
+    // TYPE: in band, any peer: role, client_id, session_id, pmk/passphrase optional
+    NETWORK_SPECIFIER_TYPE_IB_ANY_PEER = 2;
+
+    //TYPE: out-of-band: role, client_id, peer_mac, pmk/passphrase optional
+    NETWORK_SPECIFIER_TYPE_OOB = 3;
+
+    //TYPE: out-of-band, any peer: role, client_id, pmk/passphrase optional
+    NETWORK_SPECIFIER_TYPE_OOB_ANY_PEER = 4;
+
+  }
+
+  message NdpRequestTypeHistogramBucket {
+    // request type defining the bucket
+    optional NdpRequestTypeEnum ndp_request_type = 1;
+    // number of samples in the bucket
+    optional int32 count = 2;
+
   }
 }
 

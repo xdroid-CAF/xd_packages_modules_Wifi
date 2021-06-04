@@ -92,6 +92,7 @@ public class WifiShellCommandTest extends WifiBaseTest {
     @Mock WifiNetworkFactory mWifiNetworkFactory;
     @Mock WifiGlobals mWifiGlobals;
     @Mock WifiThreadRunner mWifiThreadRunner;
+    @Mock ScanRequestProxy mScanRequestProxy;
 
     WifiShellCommand mWifiShellCommand;
 
@@ -114,6 +115,7 @@ public class WifiShellCommandTest extends WifiBaseTest {
         when(mWifiInjector.getWifiLastResortWatchdog()).thenReturn(mWifiLastResortWatchdog);
         when(mWifiInjector.getWifiCarrierInfoManager()).thenReturn(mWifiCarrierInfoManager);
         when(mWifiInjector.getWifiNetworkFactory()).thenReturn(mWifiNetworkFactory);
+        when(mWifiInjector.getScanRequestProxy()).thenReturn(mScanRequestProxy);
         when(mContext.getSystemService(ConnectivityManager.class)).thenReturn(mConnectivityManager);
 
         mWifiShellCommand = new WifiShellCommand(mWifiInjector, mWifiService, mContext,
@@ -249,6 +251,36 @@ public class WifiShellCommandTest extends WifiBaseTest {
                 new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
                 new String[]{"force-hi-perf-mode", "disabled"});
         verify(mWifiLockManager).forceHiPerfMode(false);
+    }
+
+    @Test
+    public void testAddFakeScans() {
+        // not allowed for unrooted shell.
+        mWifiShellCommand.exec(new Binder(), new FileDescriptor(), new FileDescriptor(),
+                new FileDescriptor(),
+                new String[]{"add-fake-scan", "ssid", "80:01:02:03:04:05", "\"[ESS]\"", "2412",
+                        "-55"});
+        verify(mWifiNative, never()).addFakeScanDetail(any());
+        assertFalse(mWifiShellCommand.getErrPrintWriter().toString().isEmpty());
+
+        BinderUtil.setUid(Process.ROOT_UID);
+        String ssid = "ssid";
+        String bssid = "80:01:02:03:04:05";
+        String capabilities = "\"[ESS]\"";
+        String freq = "2412";
+        String dbm = "-55";
+        mWifiShellCommand.exec(new Binder(), new FileDescriptor(), new FileDescriptor(),
+                new FileDescriptor(),
+                new String[]{"add-fake-scan", ssid, bssid, capabilities, freq, dbm});
+
+        ArgumentCaptor<ScanDetail> scanDetailCaptor = ArgumentCaptor.forClass(ScanDetail.class);
+        verify(mWifiNative).addFakeScanDetail(scanDetailCaptor.capture());
+        ScanDetail sd = scanDetailCaptor.getValue();
+        assertEquals(capabilities, sd.getScanResult().capabilities);
+        assertEquals(ssid, sd.getSSID());
+        assertEquals(bssid, sd.getBSSIDString());
+        assertEquals(2412, sd.getScanResult().frequency);
+        assertEquals(-55, sd.getScanResult().level);
     }
 
     @Test
@@ -797,5 +829,23 @@ public class WifiShellCommandTest extends WifiBaseTest {
         assertEquals(-1, mWifiShellCommand.exec(
                 new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
                 new String[]{"connect-network", "ssid1234", "open", "-r", "non_persistent"}));
+    }
+
+    @Test
+    public void testEnableScanning() {
+        BinderUtil.setUid(Process.ROOT_UID);
+        mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"enable-scanning", "enabled"});
+        verify(mScanRequestProxy).enableScanning(true, false);
+    }
+
+    @Test
+    public void testEnableScanningWithHiddenNetworkOption() {
+        BinderUtil.setUid(Process.ROOT_UID);
+        mWifiShellCommand.exec(
+                new Binder(), new FileDescriptor(), new FileDescriptor(), new FileDescriptor(),
+                new String[]{"enable-scanning", "enabled", "-h"});
+        verify(mScanRequestProxy).enableScanning(true, true);
     }
 }
