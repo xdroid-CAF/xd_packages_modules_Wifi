@@ -27,6 +27,10 @@ import android.hardware.wifi.supplicant.V1_0.IfaceType;
 import android.hardware.wifi.supplicant.V1_0.SupplicantStatus;
 import android.hardware.wifi.supplicant.V1_0.SupplicantStatusCode;
 import android.hardware.wifi.supplicant.V1_0.WpsConfigMethods;
+import vendor.qti.hardware.wifi.supplicant.V2_0.ISupplicantVendor;
+import vendor.qti.hardware.wifi.supplicant.V2_0.ISupplicantVendorIface;
+import vendor.qti.hardware.wifi.supplicant.V2_0.ISupplicantVendorP2PIface;
+import vendor.qti.hardware.wifi.supplicant.V2_0.ISupplicantVendorP2PIfaceCallback;
 import android.hidl.manager.V1_0.IServiceManager;
 import android.hidl.manager.V1_0.IServiceNotification;
 import android.net.wifi.CoexUnsafeChannel;
@@ -78,8 +82,10 @@ public class SupplicantP2pIfaceHal {
     // Supplicant HAL HIDL interface objects
     private IServiceManager mIServiceManager = null;
     private ISupplicant mISupplicant = null;
+    private ISupplicantVendor mISupplicantVendor; // Supplicant Vendor HAL interface objects
     private ISupplicantIface mHidlSupplicantIface = null;
     private ISupplicantP2pIface mISupplicantP2pIface = null;
+    private ISupplicantVendorP2PIface mISupplicantVendorP2pIface = null;
     private final IServiceNotification mServiceNotificationCallback =
             new IServiceNotification.Stub() {
         public void onRegistration(String fqName, String name, boolean preexisting) {
@@ -115,6 +121,7 @@ public class SupplicantP2pIfaceHal {
 
     private final WifiP2pMonitor mMonitor;
     private ISupplicantP2pIfaceCallback mCallback = null;
+    private ISupplicantVendorP2PIfaceCallback mVendorCallback = null;
 
     public SupplicantP2pIfaceHal(WifiP2pMonitor monitor) {
         mMonitor = monitor;
@@ -160,7 +167,9 @@ public class SupplicantP2pIfaceHal {
                 return true;
             }
             mISupplicant = null;
+            mISupplicantVendor = null;
             mISupplicantP2pIface = null;
+            mISupplicantVendorP2pIface = null;
             try {
                 mIServiceManager = getServiceManagerMockable();
                 if (mIServiceManager == null) {
@@ -223,6 +232,8 @@ public class SupplicantP2pIfaceHal {
                 return false;
             }
         }
+        if (!initSupplicantVendorService())
+            Log.e(TAG, "Failed to init SupplicantVendor service");
         return true;
     }
 
@@ -281,6 +292,9 @@ public class SupplicantP2pIfaceHal {
                     }
                 }
             }
+            /** creation vendor p2p iface binder */
+            if (!vendor_setupIface(ifaceName))
+                Log.e(TAG, "Failed to create vendor setupiface");
             return true;
         }
     }
@@ -389,8 +403,16 @@ public class SupplicantP2pIfaceHal {
             if (mISupplicantP2pIface == null) return false;
             // Only supported for V1.1
             if (isV1_1()) {
-                return removeIfaceV1_1(ifaceName);
+                if (!removeIfaceV1_1(ifaceName)) {
+                    Log.e(TAG, "Failed to remove iface = " + ifaceName);
+                    return false;
+                }
             }
+            if (mISupplicantVendorP2pIface == null) {
+                Log.e(TAG, "Trying to teardown unknown vendor interface");
+                return false;
+            }
+            mISupplicantVendorP2pIface = null;
             return true;
         }
     }
@@ -431,7 +453,9 @@ public class SupplicantP2pIfaceHal {
     private void supplicantServiceDiedHandler() {
         synchronized (mLock) {
             mISupplicant = null;
+            mISupplicantVendor = null;
             mISupplicantP2pIface = null;
+            mISupplicantVendorP2pIface = null;
         }
     }
 
@@ -535,7 +559,6 @@ public class SupplicantP2pIfaceHal {
             Log.w(TAG, operation + " failed: " + code + " (" + debugMessage + ")");
         }
     }
-
 
     /**
      * Returns false if SupplicantP2pIface is null, and logs failure to call methodStr
@@ -679,7 +702,6 @@ public class SupplicantP2pIfaceHal {
             return result.isSuccess();
         }
     }
-
 
     /**
      * Initiate a P2P service discovery with a (optional) timeout.
@@ -2517,7 +2539,18 @@ public class SupplicantP2pIfaceHal {
 
             android.hardware.wifi.supplicant.V1_4.ISupplicantP2pIface ifaceV14 =
                     getSupplicantP2pIfaceAndLogFailureV1_4("setWfdR2DeviceInfo");
-            if (ifaceV14 == null) return false;
+            if (ifaceV14 == null)  {
+                   SupplicantResultV1_3<Void> resultV1_3 = new SupplicantResultV1_3(
+                                   "setWfdDeviceInfo(" + info + ")");
+                   try {
+                           resultV1_3.setResult(mISupplicantVendorP2pIface.setWfdR2DeviceInfo(wfdR2Info));
+                   } catch (RemoteException e) {
+                           Log.e(TAG, "ISupplicantP2pIface exception: " + e);
+                           supplicantServiceDiedHandler();
+                   }
+
+                   return resultV1_3.isSuccess();
+           }
             SupplicantResultV1_4<Void> result = new SupplicantResultV1_4(
                     "setWfdR2DeviceInfo(" + info + ")");
             try {
@@ -2654,6 +2687,350 @@ public class SupplicantP2pIfaceHal {
             android.hardware.wifi.supplicant.V1_4.SupplicantStatus status =
                     (android.hardware.wifi.supplicant.V1_4.SupplicantStatus) obj;
             return status.debugMessage;
+        }
+    }
+
+    private final DeathRecipient mSupplicantVendorDeathRecipient =
+            cookie -> {
+                synchronized (mLock) {
+                    Log.w(TAG, "ISupplicantVendor/ISupplicantVendorP2PIface died: cookie=" + cookie);
+                    supplicantVendorServiceDiedHandler();
+                }
+            };
+
+    private boolean linkToSupplicantVendorDeath() {
+        synchronized (mLock) {
+            if (mISupplicantVendor == null) return false;
+            try {
+                if (!mISupplicantVendor.linkToDeath(mSupplicantVendorDeathRecipient, 0)) {
+                    Log.wtf(TAG, "Error on linkToDeath on ISupplicantVendor");
+                    supplicantVendorServiceDiedHandler();
+                    return false;
+                }
+            } catch (RemoteException e) {
+                Log.e(TAG, "ISupplicantVendor.linkToDeath exception", e);
+                return false;
+            }
+            return true;
+        }
+    }
+
+    private boolean initSupplicantVendorService() {
+        synchronized (mLock) {
+            try {
+                // Discovering supplicantvendor service
+                mISupplicantVendor = getSupplicantVendorMockable();
+                if (mISupplicantVendor != null) {
+                   Log.e(TAG, "Discover ISupplicantVendor service successfull");
+                }
+            } catch (RemoteException e) {
+                Log.e(TAG, "ISupplicantVendor.getService exception: " + e);
+                return false;
+            }
+            if (mISupplicantVendor == null) {
+                Log.e(TAG, "Got null ISupplicantVendor service. Stopping supplicantVendor HIDL startup");
+                return false;
+            }
+            // check mISupplicantVendor service and trigger death service
+            if (!linkToSupplicantVendorDeath()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean linkToSupplicantVendorP2pIfaceDeath(ISupplicantVendorP2PIface iface) {
+        synchronized (mLock) {
+            if (iface == null) return false;
+            try {
+                if (!iface.linkToDeath(mSupplicantVendorDeathRecipient, 0)) {
+                    Log.wtf(TAG, "Error on linkToDeath on ISupplicantVendorP2PIface");
+                    supplicantVendorServiceDiedHandler();
+                    return false;
+                }
+            } catch (RemoteException e) {
+                Log.e(TAG, "ISupplicantVendorP2PIface.linkToDeath exception", e);
+                return false;
+            }
+            return true;
+        }
+    }
+
+    /**
+     * Setup a Vendor P2P interface for the specified iface name.
+     *
+     * @param ifaceName Name of the interface.
+     * @return true on success, false otherwise.
+     */
+    public boolean vendor_setupIface(@NonNull String ifaceName) {
+        final String methodStr = "vendor_setupIface";
+        if (checkSupplicantVendorP2pIfaceAndLogFailure(methodStr)) {
+            Log.e(TAG, "Already created vendor setupinterface");
+            return true;
+        }
+        ISupplicantVendorIface Vendor_ifaceHwBinder = null;
+
+        if (isVendor_2_0()) {
+            Log.e(TAG, "Try to get Vendor HIDL@2.0 interface");
+            Vendor_ifaceHwBinder = getVendorIfaceV2_0(ifaceName);
+        }
+        if (Vendor_ifaceHwBinder == null) {
+            Log.e(TAG, "Failed to get vendor iface binder");
+            return false;
+        }
+
+        mISupplicantVendorP2pIface = getVendorP2pIfaceMockable(Vendor_ifaceHwBinder);
+        if (mISupplicantVendorP2pIface == null) {
+            Log.e(TAG, "Failed to get ISupplicantVendorP2PIface proxy");
+            return false;
+        }
+        else
+            Log.e(TAG, "Successful get Vendor p2p interface");
+
+        if (!linkToSupplicantVendorP2pIfaceDeath(mISupplicantVendorP2pIface )) {
+            return false;
+        }
+
+        if (mISupplicantVendorP2pIface != null && mMonitor != null) {
+            mVendorCallback = new SupplicantVendorP2pIfaceCallbackV1_3(ifaceName, mMonitor);
+            if (!registerVendorCallback(mVendorCallback)) {
+                Log.e(TAG, "Callback registration failed. Initialization incomplete.");
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Get a Vendor P2P interface for the specified iface name.
+     *
+     * @param ifaceName Name of the interface.
+     * @return true on success, false otherwise.
+     */
+    private ISupplicantVendorIface getVendorIfaceV2_0(@NonNull String ifaceName) {
+        synchronized (mLock) {
+            /** List all supplicant Ifaces */
+            final ArrayList<ISupplicant.IfaceInfo> supplicantIfaces = new ArrayList<>();
+            try {
+                final String methodStr = "listVendorInterfaces";
+                if (!checkSupplicantVendorAndLogFailure(methodStr)) return null;
+                mISupplicantVendor.listVendorInterfaces((SupplicantStatus status,
+                                            ArrayList<ISupplicant.IfaceInfo> ifaces) -> {
+                    if (!checkSupplicantVendorStatusAndLogFailure(status, methodStr)) {
+                        return;
+                    }
+                    supplicantIfaces.addAll(ifaces);
+                });
+            } catch (RemoteException e) {
+                Log.e(TAG, "ISupplicantVendor.listInterfaces exception: " + e);
+                supplicantVendorServiceDiedHandler();
+                return null;
+            }
+            if (supplicantIfaces.size() == 0) {
+                Log.e(TAG, "Got zero HIDL supplicant vendor ifaces. Stopping supplicant vendor HIDL startup.");
+                return null;
+            }
+            SupplicantResult<ISupplicantVendorIface> supplicantVendorIface = new SupplicantResult<>("getVendorInterface");
+            for (ISupplicant.IfaceInfo ifaceInfo : supplicantIfaces) {
+                if (ifaceInfo.type == IfaceType.P2P && ifaceName.equals(ifaceInfo.name)) {
+                    try {
+                        final String methodStr = "getVendorInterface";
+                        if (!checkSupplicantVendorAndLogFailure(methodStr)) return null;
+                        mISupplicantVendor.getVendorInterface(ifaceInfo,
+                                (SupplicantStatus status, ISupplicantVendorIface iface) -> {
+                                    if (!checkSupplicantVendorStatusAndLogFailure(status, methodStr)) {
+                                        return;
+                                    }
+                                    // supplicantVendorIface.value = iface;
+                                    supplicantVendorIface.setResult(status, iface);
+                                });
+                    } catch (RemoteException e) {
+                        Log.e(TAG, "ISupplicantVendor.getInterface exception: " + e);
+                        supplicantVendorServiceDiedHandler();
+                        return null;
+                    }
+                    break;
+                }
+            }
+            // return supplicantVendorIface.value;
+            return supplicantVendorIface.getResult();
+        }
+    }
+
+    private void supplicantVendorServiceDiedHandler() {
+        synchronized (mLock) {
+            mISupplicantVendor = null;
+            mISupplicantVendorP2pIface = null;
+        }
+    }
+
+    protected ISupplicantVendor getSupplicantVendorMockable() throws RemoteException {
+        synchronized (mLock) {
+            try {
+                return ISupplicantVendor.getService();
+            } catch (NoSuchElementException e) {
+                Log.e(TAG, "Failed to get ISupplicant", e);
+                return null;
+            }
+        }
+    }
+
+    protected ISupplicantVendorP2PIface getVendorP2pIfaceMockable(ISupplicantVendorIface iface) {
+        return ISupplicantVendorP2PIface.asInterface(iface.asBinder());
+    }
+
+    /**
+     * Check if the device is running V2_0 supplicant vendor service.
+     * @return
+     */
+    private boolean isVendor_2_0() {
+        synchronized (mLock) {
+            try {
+                return (getSupplicantVendorMockable() != null);
+            } catch (RemoteException e) {
+                Log.e(TAG, "ISupplicantVendor.getService exception: " + e);
+                supplicantServiceDiedHandler();
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Returns false if SupplicantVendor is null, and logs failure to call methodStr
+     */
+    private boolean checkSupplicantVendorAndLogFailure(final String methodStr) {
+        synchronized (mLock) {
+            if (mISupplicantVendor == null) {
+                Log.e(TAG, "Can't call " + methodStr + ", ISupplicantVendor is null");
+                return false;
+            }
+            return true;
+        }
+    }
+
+    /**
+     * Returns false if mISupplicantVendorP2pIface is null, and logs failure to call methodStr
+     */
+    private boolean checkSupplicantVendorP2pIfaceAndLogFailure(final String methodStr) {
+        synchronized (mLock) {
+            if (mISupplicantVendorP2pIface == null) {
+                Log.e(TAG, "Can't call " + methodStr + ", ISupplicantVendorP2PIface is null");
+                return false;
+            }
+            return true;
+        }
+    }
+
+    /**
+     * Returns true if provided supplicant vendor status code is SUCCESS, logs debug message and returns false
+     * otherwise
+     */
+    private boolean checkSupplicantVendorStatusAndLogFailure(SupplicantStatus status,
+            final String methodStr) {
+        synchronized (mLock) {
+            if (status.code != SupplicantStatusCode.SUCCESS) {
+                Log.e(TAG, "ISupplicantVendor." + methodStr + " failed: " + status);
+                return false;
+            } else {
+                return true;
+            }
+        }
+    }
+
+    /**
+     * Returns true if provided Vendor status code is SUCCESS, logs debug message and returns false
+     * otherwise
+     */
+    private boolean checkVendorStatusAndLogFailure(SupplicantStatus status,
+            final String methodStr) {
+        synchronized (mLock) {
+            if (status.code != SupplicantStatusCode.SUCCESS) {
+                Log.e(TAG, "ISupplicantVendorP2pIface." + methodStr + " failed: " + status);
+                return false;
+            } else {
+                return true;
+            }
+        }
+    }
+
+    protected static void logCompletionV1_3(String operation, SupplicantStatus status) {
+        if (status == null) {
+            Log.w(TAG, operation + " failed: no status code returned.");
+        } else if (status.code == SupplicantStatusCode.SUCCESS) {
+            logd(operation + " completed successfully.");
+        } else {
+            Log.w(TAG, operation + " failed: " + status.code + " (" + status.debugMessage + ")");
+        }
+    }
+
+    /**
+     * Register for callbacks from vendor interface.
+     *
+     * These callbacks are invoked for events that are specific to this interface.
+     * Registration of multiple callback objects is supported. These objects must
+     * be automatically deleted when the corresponding client process is dead or
+     * if this interface is removed.
+     *
+     * @param receiver An instance of the |ISupplicantVendorP2pIfaceCallback| HIDL
+     *        interface object.
+     * @return boolean value indicating whether operation was successful.
+     */
+    public boolean registerVendorCallback(ISupplicantVendorP2PIfaceCallback receiver) {
+        synchronized (mLock) {
+            if (!checkSupplicantVendorP2pIfaceAndLogFailure("registerVendorCallback")) return false;
+            SupplicantResult<Void> result = new SupplicantResult("registerVendorCallback()");
+            try {
+                result.setResult(mISupplicantVendorP2pIface.registerVendorCallback(receiver));
+            } catch (RemoteException e) {
+                Log.e(TAG, "ISupplicantVendorP2pIface exception: " + e);
+                supplicantVendorServiceDiedHandler();
+            }
+            return result.isSuccess();
+        }
+    }
+
+
+    /**
+     * Container class allowing propagation of status and/or value
+     * from callbacks.
+     *
+     * Primary purpose is to allow callback lambdas to provide results
+     * to parent methods.
+     */
+    private static class SupplicantResultV1_3<E> {
+        private String mMethodName;
+        private SupplicantStatus mStatus;
+        private E mValue;
+
+        SupplicantResultV1_3(String methodName) {
+            mMethodName = methodName;
+            mStatus = null;
+            mValue = null;
+            logd("entering " + mMethodName);
+        }
+
+        public void setResult(SupplicantStatus status, E value) {
+            logCompletionV1_3(mMethodName, status);
+            logd("leaving " + mMethodName + " with result = " + value);
+            mStatus = status;
+            mValue = value;
+        }
+
+        public void setResult(SupplicantStatus status) {
+            logCompletionV1_3(mMethodName, status);
+            logd("leaving " + mMethodName);
+            mStatus = status;
+        }
+
+        public boolean isSuccess() {
+            return (mStatus != null
+                    && (mStatus.code == SupplicantStatusCode.SUCCESS
+                    || mStatus.code == SupplicantStatusCode.FAILURE_IFACE_EXISTS));
+        }
+
+        public E getResult() {
+            return (isSuccess() ? mValue : null);
         }
     }
 }
