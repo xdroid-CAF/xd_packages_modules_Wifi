@@ -227,6 +227,16 @@ public class WifiNetworkSuggestionsManager {
         }
 
         /**
+         * Needed when a normal App became carrier privileged when SIM insert
+         */
+        public void setCarrierId(int carrierId) {
+            if (this.carrierId == TelephonyManager.UNKNOWN_CARRIER_ID) {
+                this.carrierId = carrierId;
+            }
+            // else ignored.
+        }
+
+        /**
          * Returns true if this app has the necessary approvals to place network suggestions.
          */
         private boolean isApproved(@Nullable String activeScorerPkg) {
@@ -772,7 +782,7 @@ public class WifiNetworkSuggestionsManager {
 
     private void removeNetworkFromScoreCard(WifiConfiguration wifiConfiguration) {
         WifiConfiguration existing =
-                mWifiConfigManager.getConfiguredNetwork(wifiConfiguration.getProfileKeyInternal());
+                mWifiConfigManager.getConfiguredNetwork(wifiConfiguration.getProfileKey());
         // If there is a saved network, do not remove from the score card.
         if (existing != null && !existing.fromWifiNetworkSuggestion) {
             return;
@@ -843,7 +853,7 @@ public class WifiNetworkSuggestionsManager {
     private void updateWifiConfigInWcmIfPresent(
             WifiConfiguration newConfig, int uid, String packageName) {
         WifiConfiguration configInWcm =
-                mWifiConfigManager.getConfiguredNetwork(newConfig.getProfileKeyInternal());
+                mWifiConfigManager.getConfiguredNetwork(newConfig.getProfileKey());
         if (configInWcm == null) return;
         // !suggestion
         if (!configInWcm.fromWifiNetworkSuggestion) return;
@@ -889,7 +899,9 @@ public class WifiNetworkSuggestionsManager {
             Log.e(TAG, "Invalid suggestion add from app: " + packageName);
             return WifiManager.STATUS_NETWORK_SUGGESTIONS_ERROR_ADD_INVALID;
         }
-        if (!validateCarrierNetworkSuggestions(networkSuggestions, uid, packageName)) {
+        int carrierId = mWifiCarrierInfoManager
+                .getCarrierIdForPackageWithCarrierPrivileges(packageName);
+        if (!validateCarrierNetworkSuggestions(networkSuggestions, uid, packageName, carrierId)) {
             Log.e(TAG, "bad wifi suggestion from app: " + packageName);
             return WifiManager.STATUS_NETWORK_SUGGESTIONS_ERROR_ADD_NOT_ALLOWED;
         }
@@ -899,8 +911,6 @@ public class WifiNetworkSuggestionsManager {
             WifiConfigurationUtil.addUpgradableSecurityTypeIfNecessary(wns.wifiConfiguration);
         });
 
-        int carrierId = mWifiCarrierInfoManager
-                .getCarrierIdForPackageWithCarrierPrivileges(packageName);
         final String activeScorerPackage = mNetworkScoreManager.getActiveScorerPackage();
         PerAppInfo perAppInfo = mActiveNetworkSuggestionsPerApp.get(packageName);
         if (perAppInfo == null) {
@@ -918,7 +928,7 @@ public class WifiNetworkSuggestionsManager {
                 perAppInfo.hasUserApproved = true;
             } else if (carrierId != TelephonyManager.UNKNOWN_CARRIER_ID) {
                 Log.i(TAG, "Setting the carrier privileged app approved");
-                perAppInfo.carrierId = carrierId;
+                perAppInfo.setCarrierId(carrierId);
                 mWifiMetrics.incrementNetworkSuggestionApiUsageNumOfAppInType(
                         APP_TYPE_CARRIER_PRIVILEGED);
             } else if (perAppInfo.packageName.equals(activeScorerPackage)) {
@@ -940,6 +950,8 @@ public class WifiNetworkSuggestionsManager {
         }
         // If PerAppInfo is upgrade from pre-R, uid may not be set.
         perAppInfo.setUid(uid);
+        // If App became carrier privileged, set the carrier Id.
+        perAppInfo.setCarrierId(carrierId);
         Set<ExtendedWifiNetworkSuggestion> extNetworkSuggestions =
                 convertToExtendedWnsSet(networkSuggestions, perAppInfo);
         boolean isLowRamDevice = mActivityManager.isLowRamDevice();
@@ -1070,7 +1082,7 @@ public class WifiNetworkSuggestionsManager {
                 }
                 if (config.isEnterprise()) {
                     final WifiEnterpriseConfig enterpriseConfig = config.enterpriseConfig;
-                    if (enterpriseConfig.isTlsBasedEapMethod()
+                    if (enterpriseConfig.isEapMethodServerCertUsed()
                             && !enterpriseConfig.isMandatoryParameterSetForServerCertValidation()) {
                         Log.e(TAG, "Insecure enterprise suggestion is invalid.");
                         return false;
@@ -1152,14 +1164,13 @@ public class WifiNetworkSuggestionsManager {
     }
 
     private boolean validateCarrierNetworkSuggestions(
-            List<WifiNetworkSuggestion> networkSuggestions, int uid, String packageName) {
+            List<WifiNetworkSuggestion> networkSuggestions, int uid, String packageName,
+            int provisionerCarrierId) {
         boolean isAppWorkingAsCrossCarrierProvider = isAppWorkingAsCrossCarrierProvider(
                 packageName);
         boolean isCrossCarrierProvisioner =
                 mWifiPermissionsUtil.checkNetworkCarrierProvisioningPermission(uid)
                         || isAppWorkingAsCrossCarrierProvider;
-        int provisionerCarrierId = mWifiCarrierInfoManager
-                .getCarrierIdForPackageWithCarrierPrivileges(packageName);
 
         for (WifiNetworkSuggestion suggestion : networkSuggestions) {
             WifiConfiguration wifiConfiguration = suggestion.wifiConfiguration;
@@ -1270,7 +1281,7 @@ public class WifiNetworkSuggestionsManager {
                 removeFromScanResultMatchInfoMapAndRemoveRelatedScoreCard(ewns);
                 mWifiConfigManager.removeConnectChoiceFromAllNetworks(ewns
                         .createInternalWifiConfiguration(mWifiCarrierInfoManager)
-                        .getProfileKeyInternal());
+                        .getProfileKey());
             }
             removingSuggestions.add(ewns.wns);
             // Remove the config from WifiConfigManager. If current connected suggestion is remove,
@@ -1489,7 +1500,7 @@ public class WifiNetworkSuggestionsManager {
                 }
                 WifiConfiguration network = mWifiConfigManager
                         .getConfiguredNetwork(ewns.wns.getWifiConfiguration()
-                                .getProfileKeyInternal());
+                                .getProfileKey());
                 if (network == null) {
                     network = ewns.createInternalWifiConfiguration(mWifiCarrierInfoManager);
                 }
@@ -1844,11 +1855,11 @@ public class WifiNetworkSuggestionsManager {
                     continue;
                 }
                 WifiConfiguration wCmWifiConfig = mWifiConfigManager
-                        .getConfiguredNetwork(config.getProfileKeyInternal());
+                        .getConfiguredNetwork(config.getProfileKey());
                 if (wCmWifiConfig == null) {
                     continue;
                 }
-                if (networkKeys.add(wCmWifiConfig.getProfileKeyInternal())) {
+                if (networkKeys.add(wCmWifiConfig.getProfileKey())) {
                     sharedWifiConfigs.add(wCmWifiConfig);
                 }
             }
@@ -2066,7 +2077,7 @@ public class WifiNetworkSuggestionsManager {
         for (ExtendedWifiNetworkSuggestion ewns : matchingSuggestions) {
             WifiConfiguration config = ewns
                     .createInternalWifiConfiguration(mWifiCarrierInfoManager);
-            if (config.getProfileKeyInternal().equals(network.getProfileKeyInternal())
+            if (config.getProfileKey().equals(network.getProfileKey())
                     && config.creatorName.equals(network.creatorName)) {
                 matchingExtNetworkSuggestionsWithSameProfileKey.add(ewns);
             }
@@ -2284,7 +2295,7 @@ public class WifiNetworkSuggestionsManager {
         }
 
         if (config.isPasspoint()) {
-            if (!mWifiInjector.getPasspointManager().enableAutojoin(config.getProfileKeyInternal(),
+            if (!mWifiInjector.getPasspointManager().enableAutojoin(config.getProfileKey(),
                     null, choice)) {
                 return false;
             }
@@ -2461,7 +2472,7 @@ public class WifiNetworkSuggestionsManager {
                 continue;
             }
             WifiConfiguration wcmConfig = mWifiConfigManager
-                    .getConfiguredNetwork(ewns.wns.wifiConfiguration.getProfileKeyInternal());
+                    .getConfiguredNetwork(ewns.wns.wifiConfiguration.getProfileKey());
             // Network selection is disabled, ignore.
             if (wcmConfig != null && !wcmConfig.getNetworkSelectionStatus().isNetworkEnabled()) {
                 continue;
@@ -2540,14 +2551,14 @@ public class WifiNetworkSuggestionsManager {
             int rssi) {
         Set<String> networkKeys = networks.stream()
                 .filter(config -> config.fromWifiNetworkSuggestion)
-                .map(WifiConfiguration::getProfileKeyInternal)
+                .map(WifiConfiguration::getProfileKey)
                 .collect(Collectors.toSet());
         mActiveNetworkSuggestionsPerApp.values().stream()
                 .flatMap(e -> e.extNetworkSuggestions.values().stream())
                 .forEach(ewns -> {
                     String profileKey = ewns
                             .createInternalWifiConfiguration(mWifiCarrierInfoManager)
-                            .getProfileKeyInternal();
+                            .getProfileKey();
                     if (TextUtils.equals(profileKey, choiceKey)) {
                         ewns.connectChoice = null;
                         ewns.connectChoiceRssi = 0;

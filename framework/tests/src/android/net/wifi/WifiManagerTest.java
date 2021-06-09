@@ -1222,6 +1222,32 @@ public class WifiManagerTest {
     }
 
     /*
+     * Verify client-provided callback is being called through callback proxy when registration.
+     */
+    @Test
+    public void softApCallbackProxyCallsOnRegistrationAndApStartedWithClientsConnected()
+            throws Exception {
+        ArgumentCaptor<ISoftApCallback.Stub> callbackCaptor =
+                ArgumentCaptor.forClass(ISoftApCallback.Stub.class);
+        mWifiManager.registerSoftApCallback(new HandlerExecutor(mHandler), mSoftApCallback);
+        verify(mWifiService).registerSoftApCallback(callbackCaptor.capture());
+        // Prepare test info and clients
+        initTestInfoAndAddToTestMap(1);
+        List<WifiClient> clientList = initWifiClientAndAddToTestMap(TEST_AP_INSTANCES[0], 1, 0);
+        // Trigger callback with registration in AP started and clients connected.
+        callbackCaptor.getValue().onConnectedClientsOrInfoChanged(
+                (Map<String, SoftApInfo>) mTestSoftApInfoMap.clone(),
+                (Map<String, List<WifiClient>>) mTestWifiClientsMap.clone(), false, true);
+
+        mLooper.dispatchAll();
+        verify(mSoftApCallback).onConnectedClientsChanged(clientList);
+        verify(mSoftApCallback).onConnectedClientsChanged(mTestApInfo1, clientList);
+        verify(mSoftApCallback).onInfoChanged(mTestApInfo1);
+        verify(mSoftApCallback).onInfoChanged(Mockito.argThat((List<SoftApInfo> infos) ->
+                        infos.contains(mTestApInfo1)));
+    }
+
+    /*
      * Verify client-provided callback is being called through callback proxy
      */
     @Test
@@ -3073,7 +3099,6 @@ public class WifiManagerTest {
 
     @Test
     public void testSetCarrierNetworkOffload() throws Exception {
-        assumeTrue(SdkLevel.isAtLeastS());
         mWifiManager.setCarrierNetworkOffloadEnabled(TEST_SUB_ID, true, false);
         verify(mWifiService).setCarrierNetworkOffloadEnabled(TEST_SUB_ID,
                 true, false);
@@ -3081,7 +3106,6 @@ public class WifiManagerTest {
 
     @Test
     public void testGetCarrierNetworkOffload() throws Exception {
-        assumeTrue(SdkLevel.isAtLeastS());
         when(mWifiService.isCarrierNetworkOffloadEnabled(TEST_SUB_ID, false)).thenReturn(true);
         assertTrue(mWifiManager.isCarrierNetworkOffloadEnabled(TEST_SUB_ID, false));
         verify(mWifiService).isCarrierNetworkOffloadEnabled(TEST_SUB_ID, false);
@@ -3093,8 +3117,6 @@ public class WifiManagerTest {
      */
     @Test(expected = IllegalArgumentException.class)
     public void testRemoveSuggestionUserApprovalStatusListenerWithNullListener() {
-        assumeTrue(SdkLevel.isAtLeastS());
-
         mWifiManager.removeSuggestionUserApprovalStatusListener(null);
     }
 
@@ -3104,7 +3126,6 @@ public class WifiManagerTest {
      */
     @Test
     public void testRemoveSuggestionUserApprovalStatusListener() throws Exception {
-        assumeTrue(SdkLevel.isAtLeastS());
         ArgumentCaptor<ISuggestionUserApprovalStatusListener.Stub> callbackCaptor =
                 ArgumentCaptor.forClass(ISuggestionUserApprovalStatusListener.Stub.class);
         mWifiManager.addSuggestionUserApprovalStatusListener(mExecutor,
@@ -3123,8 +3144,6 @@ public class WifiManagerTest {
      */
     @Test(expected = NullPointerException.class)
     public void testAddSuggestionUserApprovalStatusListenerWithNullExecutor() {
-        assumeTrue(SdkLevel.isAtLeastS());
-
         mWifiManager.addSuggestionUserApprovalStatusListener(null,
                 mSuggestionUserApprovalStatusListener);
     }
@@ -3134,8 +3153,6 @@ public class WifiManagerTest {
      */
     @Test(expected = NullPointerException.class)
     public void testAddSuggestionUserApprovalStatusListenerWithNullListener() {
-        assumeTrue(SdkLevel.isAtLeastS());
-
         mWifiManager.addSuggestionUserApprovalStatusListener(mExecutor, null);
     }
 
@@ -3144,8 +3161,6 @@ public class WifiManagerTest {
      */
     @Test
     public void testAddSuggestionUserApprovalStatusListenerAndReceiveEvent() throws Exception {
-        assumeTrue(SdkLevel.isAtLeastS());
-
         ArgumentCaptor<ISuggestionUserApprovalStatusListener.Stub> callbackCaptor =
                 ArgumentCaptor.forClass(ISuggestionUserApprovalStatusListener.Stub.class);
         Executor executor = new SynchronousExecutor();
@@ -3165,7 +3180,6 @@ public class WifiManagerTest {
     @Test
     public void testAddSuggestionUserApprovalStatusListenerWithTheTargetExecutor()
             throws Exception {
-        assumeTrue(SdkLevel.isAtLeastS());
         ArgumentCaptor<ISuggestionUserApprovalStatusListener.Stub> callbackCaptor =
                 ArgumentCaptor.forClass(ISuggestionUserApprovalStatusListener.Stub.class);
         mWifiManager.addSuggestionUserApprovalStatusListener(mExecutor,

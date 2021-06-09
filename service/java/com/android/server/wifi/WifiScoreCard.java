@@ -70,6 +70,7 @@ import com.android.server.wifi.util.IntHistogram;
 import com.android.server.wifi.util.LruList;
 import com.android.server.wifi.util.NativeUtil;
 import com.android.server.wifi.util.RssiUtil;
+import com.android.wifi.resources.R;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -128,14 +129,9 @@ public class WifiScoreCard {
     private final FrameworkFacade mFrameworkFacade;
     private final Context mContext;
     private final LocalLog mLocalLog = new LocalLog(256);
-    // Normalized square error (NSE) of L2 BW report
-    private final long[][][] mL2Nse =
+    private final long[][][] mL2ErrorAccPercent =
             new long[NUM_LINK_BAND][NUM_LINK_DIRECTION][NUM_SIGNAL_LEVEL];
-    // Normalized square error (NSE) of internal version of BW estimation
-    private final long[][][] mBwEstIntNse =
-            new long[NUM_LINK_BAND][NUM_LINK_DIRECTION][NUM_SIGNAL_LEVEL];
-    // Normalized square error (NSE) of external version of BW estimation
-    private final long[][][] mBwEstExtNse =
+    private final long[][][] mBwEstErrorAccPercent =
             new long[NUM_LINK_BAND][NUM_LINK_DIRECTION][NUM_SIGNAL_LEVEL];
     private final int[][][] mBwEstValue =
             new int[NUM_LINK_BAND][NUM_LINK_DIRECTION][NUM_SIGNAL_LEVEL];
@@ -973,7 +969,6 @@ public class WifiScoreCard {
     static final int BANDWIDTH_STATS_COUNT_THR = 5;
     private static final int TIME_CONSTANT_LARGE_SEC = 6;
     private static final int TIME_CONSTANT_SMALL_SEC = 6;
-    private static final int POLL_MIN_INTERVAL_MS = 3000;
     // If RSSI changes by more than the below value, update BW filter with small time constant
     private static final int RSSI_DELTA_THR_DB = 8;
     private static final int FILTER_SCALE = 128;
@@ -983,7 +978,7 @@ public class WifiScoreCard {
     private static final int LOW_BW_TO_AVG_BW_RATIO_NUM = 3;
     private static final int LOW_BW_TO_AVG_BW_RATIO_DEN = 8;
     // radio on time below the following value is ignored.
-    static final int RADIO_ON_TIME_MIN_MS = 10;
+    static final int RADIO_ON_TIME_MIN_MS = 200;
     static final int RADIO_ON_ELAPSED_TIME_DELTA_MAX_MS = 200;
     static final int NUM_SIGNAL_LEVEL = 5;
     static final int LINK_TX = 0;
@@ -1350,8 +1345,10 @@ public class WifiScoreCard {
         }
 
         private int getByteDeltaAccThr(int link) {
+            int maxTimeDeltaMs = mContext.getResources().getInteger(
+                    R.integer.config_wifiPollRssiIntervalMilliseconds);
             int lowBytes = calculateByteCountThreshold(getAvgUsedLinkBandwidthKbps(link),
-                    POLL_MIN_INTERVAL_MS);
+                    maxTimeDeltaMs);
             // Start with a predefined value
             int deltaAccThr = LINK_BANDWIDTH_BYTE_DELTA_THR_KBYTE[mSignalLevel] * 1024;
             if (lowBytes > 0) {
@@ -1422,6 +1419,12 @@ public class WifiScoreCard {
             if (mAvgUsedKbps[link] > 0) {
                 return mAvgUsedKbps[link];
             }
+
+            int avgBwAdjSignalKbps = getAvgUsedBandwidthAdjacentThreeLevelKbps(link);
+            if (avgBwAdjSignalKbps > 0) {
+                return avgBwAdjSignalKbps;
+            }
+
             // Fall back to a cold-start value
             return LINK_BANDWIDTH_INIT_KBPS[mBandIdx][link][mSignalLevel];
         }
@@ -1441,6 +1444,25 @@ public class WifiScoreCard {
             if (count >= BANDWIDTH_STATS_COUNT_THR) {
                 return (int) (value / count);
             }
+
+            return -1;
+        }
+
+        private int getAvgUsedBandwidthAdjacentThreeLevelKbps(int link) {
+            int count = 0;
+            long value = 0;
+            for (int i = -1; i <= 1; i++) {
+                int currLevel = mSignalLevel + i;
+                if (currLevel < 0 || currLevel >= NUM_SIGNAL_LEVEL) {
+                    continue;
+                }
+                count += mBandwidthStatsCount[mBandIdx][link][currLevel];
+                value += mBandwidthStatsValue[mBandIdx][link][currLevel];
+            }
+            if (count >= BANDWIDTH_STATS_COUNT_THR) {
+                return (int) (value / count);
+            }
+
             return -1;
         }
 
@@ -1486,9 +1508,8 @@ public class WifiScoreCard {
             int bwEstExtErrPercent = calculateErrorPercent(reportedKbps, bwSampleKbps);
             int bwEstIntErrPercent = calculateErrorPercent(mFilterKbps[link], bwSampleKbps);
             int l2ErrPercent = calculateErrorPercent(l2Kbps, bwSampleKbps);
-            mBwEstExtNse[mBandIdx][link][mSignalLevel] += bwEstExtErrPercent * bwEstExtErrPercent;
-            mBwEstIntNse[mBandIdx][link][mSignalLevel] += bwEstIntErrPercent * bwEstIntErrPercent;
-            mL2Nse[mBandIdx][link][mSignalLevel] += l2ErrPercent * l2ErrPercent;
+            mBwEstErrorAccPercent[mBandIdx][link][mSignalLevel] += Math.abs(bwEstExtErrPercent);
+            mL2ErrorAccPercent[mBandIdx][link][mSignalLevel] += Math.abs(l2ErrPercent);
             mBwEstValue[mBandIdx][link][mSignalLevel] = mAvgUsedKbps[link];
             mBwEstCount[mBandIdx][link][mSignalLevel]++;
             StringBuilder sb = new StringBuilder();
@@ -2540,22 +2561,21 @@ public class WifiScoreCard {
         stats.signalLevel = level;
         stats.count = count;
         stats.avgBandwidthKbps = mBwEstValue[bandIdx][linkIdx][level];
-        stats.l2NrmsePercent = calculateNrmse(mL2Nse[bandIdx][linkIdx][level], count);
-        stats.bandwidthEstNrmsePercent =
-                calculateNrmse(mBwEstExtNse[bandIdx][linkIdx][level], count);
+        stats.l2ErrorPercent = calculateAvgError(
+                mL2ErrorAccPercent[bandIdx][linkIdx][level], count);
+        stats.bandwidthEstErrorPercent = calculateAvgError(
+                mBwEstErrorAccPercent[bandIdx][linkIdx][level], count);
 
         // reset counters for next run
         mBwEstCount[bandIdx][linkIdx][level] = 0;
         mBwEstValue[bandIdx][linkIdx][level] = 0;
-        mL2Nse[bandIdx][linkIdx][level] = 0;
-        mBwEstExtNse[bandIdx][linkIdx][level] = 0;
-        mBwEstIntNse[bandIdx][linkIdx][level] = 0;
+        mL2ErrorAccPercent[bandIdx][linkIdx][level] = 0;
+        mBwEstErrorAccPercent[bandIdx][linkIdx][level] = 0;
         return stats;
     }
 
-    // Calculate the normalized root mean square error (NRMSE)
-    private int calculateNrmse(long nse, int count) {
-        return (count > 0 && nse >= 0) ? (int) Math.sqrt(nse / count) : 0;
+    private int calculateAvgError(long errorAccPercent, int count) {
+        return (count > 0) ? (int) (errorAccPercent / count) : 0;
     }
 
     /**
@@ -2579,12 +2599,10 @@ public class WifiScoreCard {
                 printValues(mBwEstCount[i][j], pw);
                 pw.println(" AvgKbps");
                 printValues(mBwEstValue[i][j], pw);
-                pw.println(" Internal NRMSE");
-                printAvgStats(mBwEstIntNse[i][j], mBwEstCount[i][j], pw);
-                pw.println(" External NRMSE");
-                printAvgStats(mBwEstExtNse[i][j], mBwEstCount[i][j], pw);
-                pw.println(" L2 NRMSE");
-                printAvgStats(mL2Nse[i][j], mBwEstCount[i][j], pw);
+                pw.println(" BwEst error");
+                printAvgStats(mBwEstErrorAccPercent[i][j], mBwEstCount[i][j], pw);
+                pw.println(" L2 error");
+                printAvgStats(mL2ErrorAccPercent[i][j], mBwEstCount[i][j], pw);
             }
         }
         pw.println();
@@ -2601,7 +2619,7 @@ public class WifiScoreCard {
     private void printAvgStats(long[] stats, int[] count, PrintWriter pw) {
         StringBuilder sb = new StringBuilder();
         for (int k = 0; k < NUM_SIGNAL_LEVEL; k++) {
-            sb.append(" " + calculateNrmse(stats[k], count[k]));
+            sb.append(" " + calculateAvgError(stats[k], count[k]));
         }
         pw.println(sb.toString());
     }

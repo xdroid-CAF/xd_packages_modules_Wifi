@@ -66,6 +66,8 @@ import android.util.Log;
 import android.util.Pair;
 import android.util.SparseArray;
 
+import androidx.annotation.RequiresApi;
+
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.modules.utils.ParceledListSlice;
@@ -1553,7 +1555,7 @@ public class WifiManager {
                             new ArrayList<>(results.keySet()));
             for (WifiConfiguration configuration : wifiConfigurations) {
                 Map<Integer, List<ScanResult>> scanResultsPerNetworkType =
-                        results.get(configuration.getProfileKeyInternal());
+                        results.get(configuration.getProfileKey());
                 if (scanResultsPerNetworkType != null) {
                     configs.add(Pair.create(configuration, scanResultsPerNetworkType));
                 }
@@ -2993,6 +2995,7 @@ public class WifiManager {
      *
      * @return {@code true} if supported, {@code false} otherwise.
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     public boolean is60GHzBandSupported() {
         try {
             return mService.is60GHzBandSupported();
@@ -4719,6 +4722,17 @@ public class WifiManager {
             List<SoftApInfo> changedInfoList = new ArrayList<>(infos.values());
             Map<SoftApInfo, List<WifiClient>> changedInfoClients = new HashMap<>();
             boolean isInfoChanged = infos.size() != mCurrentInfos.size();
+            if (isRegistration) {
+                // Check if there are clients connected, put it to changedInfoClients
+                for (SoftApInfo currentInfo : infos.values()) {
+                    String instance = currentInfo.getApInstanceIdentifier();
+                    if (clients.getOrDefault(instance, Collections.emptyList()).size() > 0) {
+                        changedInfoClients.put(currentInfo, clients.get(instance));
+                    }
+                }
+            }
+
+            // Check if old info removed or not (client changed case)
             for (SoftApInfo info : mCurrentInfos.values()) {
                 String changedInstance = info.getApInstanceIdentifier();
                 if (!changedInfoList.contains(info)) {
@@ -4739,24 +4753,23 @@ public class WifiManager {
                             .getOrDefault(changedInstance, Collections.emptyList()).size()) {
                         // Here should notify client changed on new info(same as old info)
                         changedInfoClients.put(info, changedClientList);
-                        Log.d(TAG, "SoftApCallbackProxy: client changed on " + info
-                                + " list: " + changedClientList);
                     }
                 }
             }
 
+            mCurrentClients = clients;
+            mCurrentInfos = infos;
             if (!isInfoChanged && changedInfoClients.isEmpty()
                     && !isRegistration) {
                 Log.v(TAG, "SoftApCallbackProxy: No changed & Not Registration,"
                         + " don't need to notify the client");
                 return;
             }
-            mCurrentClients = clients;
-            mCurrentInfos = infos;
             Binder.clearCallingIdentity();
             // Notify the clients changed first for old info shutdown case
             for (SoftApInfo changedInfo : changedInfoClients.keySet()) {
-                Log.v(TAG, "send onConnectedClientsChanged, changedInfo is " + changedInfo);
+                Log.v(TAG, "SoftApCallbackProxy: send onConnectedClientsChanged, changedInfo is "
+                        + changedInfo + " and clients are " + changedInfoClients.get(changedInfo));
                 mExecutor.execute(() -> {
                     mCallback.onConnectedClientsChanged(
                             changedInfo, changedInfoClients.get(changedInfo));
@@ -4831,7 +4844,7 @@ public class WifiManager {
      * (if bridged AP is enabled).
      *
      * Note: Caller will receive the callback
-     * {@link SoftApCallback#onConnectedClientsChangedWithApInfo(SoftApInfo, List<WifiClient>)}
+     * {@link SoftApCallback#onConnectedClientsChanged(SoftApInfo, List<WifiClient>)}
      * on registration when there are clients connected to AP.
      *
      * These will be dispatched on registration to provide the caller with the current state
@@ -7871,9 +7884,6 @@ public class WifiManager {
             android.Manifest.permission.NETWORK_SETUP_WIZARD})
     public void setCarrierNetworkOffloadEnabled(int subscriptionId, boolean merged,
             boolean enabled) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         try {
             mService.setCarrierNetworkOffloadEnabled(subscriptionId, merged, enabled);
         } catch (RemoteException e) {
@@ -7891,9 +7901,6 @@ public class WifiManager {
      */
     @RequiresPermission(ACCESS_WIFI_STATE)
     public boolean isCarrierNetworkOffloadEnabled(int subscriptionId, boolean merged) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         try {
             return mService.isCarrierNetworkOffloadEnabled(subscriptionId, merged);
         } catch (RemoteException e) {
@@ -7951,9 +7958,6 @@ public class WifiManager {
     public void addSuggestionUserApprovalStatusListener(
             @NonNull @CallbackExecutor Executor executor,
             @NonNull SuggestionUserApprovalStatusListener listener) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         if (listener == null) throw new NullPointerException("Listener cannot be null");
         if (executor == null) throw new NullPointerException("Executor cannot be null");
         Log.v(TAG, "addSuggestionUserApprovalStatusListener listener=" + listener
@@ -7983,9 +7987,6 @@ public class WifiManager {
     @RequiresPermission(ACCESS_WIFI_STATE)
     public void removeSuggestionUserApprovalStatusListener(
             @NonNull SuggestionUserApprovalStatusListener listener) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         if (listener == null) throw new IllegalArgumentException("Listener cannot be null");
         Log.v(TAG, "removeSuggestionUserApprovalStatusListener: listener=" + listener);
         try {

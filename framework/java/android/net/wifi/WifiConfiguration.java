@@ -55,6 +55,7 @@ import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * A class representing a configured Wi-Fi network, including the
@@ -632,7 +633,8 @@ public class WifiConfiguration implements Parcelable {
         if (securityParamsList == null || securityParamsList.isEmpty()) {
             throw new IllegalArgumentException("An empty security params list is invalid.");
         }
-        mSecurityParamsList = new ArrayList<>(securityParamsList);
+        mSecurityParamsList = securityParamsList.stream()
+                .map(p -> new SecurityParams(p)).collect(Collectors.toList());
         updateLegacySecurityParams();
     }
 
@@ -3577,7 +3579,8 @@ public class WifiConfiguration implements Parcelable {
             allowedGroupCiphers    = (BitSet) source.allowedGroupCiphers.clone();
             allowedGroupManagementCiphers = (BitSet) source.allowedGroupManagementCiphers.clone();
             allowedSuiteBCiphers    = (BitSet) source.allowedSuiteBCiphers.clone();
-            mSecurityParamsList = new ArrayList(source.mSecurityParamsList);
+            mSecurityParamsList = source.mSecurityParamsList.stream()
+                    .map(p -> new SecurityParams(p)).collect(Collectors.toList());
             enterpriseConfig = new WifiEnterpriseConfig(source.enterpriseConfig);
 
             defaultGwMacAddress = source.defaultGwMacAddress;
@@ -3859,18 +3862,6 @@ public class WifiConfiguration implements Parcelable {
      */
     @SystemApi
     @NonNull public String getProfileKey() {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
-        return getProfileKeyInternal();
-    }
-
-    /**
-     * Get profile key for internal usage, if target level is less than S, will use the legacy
-     * {@link #getKey()} to generate the result.
-     * @hide
-     */
-    @NonNull public String getProfileKeyInternal() {
         if (!SdkLevel.isAtLeastS()) {
             return getKey();
         }
