@@ -343,4 +343,10 @@ interface IWifiManager
     int getSoftApWifiStandard();
 
     boolean isVht8ssCapableDevice();
+
+    boolean isExtendingWifi();
+
+    boolean isWifiCoverageExtendFeatureEnabled();
+
+    void enableWifiCoverageExtendFeature(boolean enable);
 }
