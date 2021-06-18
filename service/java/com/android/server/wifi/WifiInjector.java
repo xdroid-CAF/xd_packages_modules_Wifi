@@ -306,7 +306,7 @@ public class WifiInjector {
         mWifiNative = new WifiNative(
                 mWifiVendorHal, mSupplicantStaIfaceHal, mHostapdHal, mWifiCondManager,
                 mWifiMonitor, mPropertyService, mWifiMetrics,
-                wifiHandler, new Random(), this);
+                wifiHandler, new Random(), mBuildProperties, this);
         mWifiP2pMonitor = new WifiP2pMonitor();
         mSupplicantP2pIfaceHal = new SupplicantP2pIfaceHal(mWifiP2pMonitor);
         mWifiP2pNative = new WifiP2pNative(mWifiCondManager, mWifiNative,
@@ -436,6 +436,7 @@ public class WifiInjector {
                 mWifiNative, mDefaultClientModeManager, mBatteryStats, mWifiDiagnostics,
                 mContext, mSettingsStore, mFrameworkFacade, mWifiPermissionsUtil, mWifiMetrics,
                 mExternalScoreUpdateObserverProxy, mDppManager);
+        mWifiMetrics.setActiveModeWarden(mActiveModeWarden);
         mWifiHealthMonitor = new WifiHealthMonitor(mContext, this, mClock, mWifiConfigManager,
             mWifiScoreCard, wifiHandler, mWifiNative, l2KeySeed, mDeviceConfigFacade,
             mActiveModeWarden);
@@ -461,7 +462,7 @@ public class WifiInjector {
                 mWifiMetrics, wifiHandler,
                 mClock, mConnectivityLocalLog, mWifiScoreCard, mWifiBlocklistMonitor,
                 mWifiChannelUtilizationScan, mPasspointManager, mDeviceConfigFacade,
-                mActiveModeWarden);
+                mActiveModeWarden, mWifiGlobals);
         mMboOceController = new MboOceController(makeTelephonyManager(), mActiveModeWarden);
         mCountryCode = new WifiCountryCode(mContext, mActiveModeWarden,
                 mCmiMonitor, mWifiNative, mSettingsConfigStore);
@@ -718,7 +719,7 @@ public class WifiInjector {
             @NonNull String ifaceName,
             @NonNull ConcreteClientModeManager clientModeManager,
             boolean verboseLoggingEnabled) {
-        ExtendedWifiInfo wifiInfo = new ExtendedWifiInfo(mWifiGlobals);
+        ExtendedWifiInfo wifiInfo = new ExtendedWifiInfo(mWifiGlobals, ifaceName);
         SupplicantStateTracker supplicantStateTracker = new SupplicantStateTracker(
                 mContext, mWifiConfigManager, mBatteryStats, mWifiHandlerThread.getLooper(),
                 mWifiMonitor, ifaceName, clientModeManager, mBroadcastQueue);
