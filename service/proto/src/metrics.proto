@@ -763,6 +763,10 @@ message WifiLog {
 
   // Total number of steering requests from AP
   optional int32 num_steering_request = 217;
+
+  // Histogram corresponding to the number of times recent connection failure status are reported
+  // per WifiConfiguration.RecentFailureReason
+  repeated Int32Count recent_failure_association_status = 218;
 }
 
 // Information that gets logged for every WiFi connection.
@@ -883,7 +887,7 @@ message RouterFingerPrint {
     TYPE_PHASE2_AKA = 6;
 
     // EAP-Authentication and Key Agreement Prime [RFC-5448]
-    TYPE_PHASE2_AKA_PRIME   = 7;
+    TYPE_PHASE2_AKA_PRIME = 7;
   }
 
   enum OcspType {
@@ -921,7 +925,7 @@ message RouterFingerPrint {
   // whether ipv6 is supported.
   optional bool supports_ipv6 = 7;
 
-  // If the router is a passpoint / hotspot 2.0 network
+  // If the router is a Passpoint / Hotspot 2.0 network
   optional bool passpoint = 8;
 
   // EAP method used by the enterprise network
@@ -941,6 +945,9 @@ message RouterFingerPrint {
 
   // Max Rx link speed (in Mbps) supported by current network (STA and AP)
   optional int32 max_supported_rx_link_speed_mbps = 14;
+
+  // If the Passpoint connection is provided by the Home provider or Roaming/visited network
+  optional bool is_passpoint_home_provider = 15;
 }
 
 enum ClientRole {
@@ -1176,6 +1183,9 @@ message ConnectionEvent {
   // The role of the wireless interface at the start of the connection.
   // Gives more information on what purpose this interface is used for.
   optional ClientRole interface_role = 29;
+
+  // Indicates if the profile used for the connection is carrier merged.
+  optional bool is_carrier_merged = 30;
 }
 
 // Number of occurrences of a specific RSSI poll rssi value
@@ -2484,6 +2494,9 @@ message WifiLinkLayerUsageStats {
   // Total time the wifi radio spent doing hotspot 2.0 scans and GAS exchange
   // in ms over the logging duration.
   optional int64 radio_hs20_scan_time_ms = 10;
+
+  // Radio stats from all the radios
+  repeated RadioStats radio_stats = 11;
 }
 
 message WifiUsabilityStatsEntry {
@@ -3058,6 +3071,12 @@ message WifiDppLog {
   // Number of Enrollee-Responder incompatible configurations found in DPP R2 compatibility check.
   optional int32 num_dpp_r2_enrollee_responder_incompatible_configuration = 10;
 
+  // Number of Enrollee-Responder requests
+  optional int32 num_dpp_enrollee_responder_requests = 11;
+
+  // Number of Enrollee-Responder success
+  optional int32 num_dpp_enrollee_responder_success = 12;
+
   // Histogram bucket for Wi-Fi DPP configurator success
   message DppConfiguratorSuccessStatusHistogramBucket {
     // status type defining the bucket
@@ -3129,6 +3148,12 @@ message WifiDppLog {
 
     // Easy Connect R2 Failure event: Enrollee rejected the configuration.
     EASY_CONNECT_EVENT_FAILURE_ENROLLEE_REJECTED_CONFIGURATION = 12;
+
+    // Easy Connect Failure event: System failed to generate DPP URI.
+    EASY_CONNECT_EVENT_FAILURE_URI_GENERATION = 13;
+
+    // Easy Connect Failure event: Enrollee didn't scan the network's operating channel.
+    EASY_CONNECT_EVENT_FAILURE_ENROLLEE_FAILED_TO_SCAN_NETWORK_CHANNEL = 14;
   }
 }
 
@@ -3343,6 +3368,16 @@ message WifiNetworkSuggestionApiLog {
 
   // Number of user revoke app's permission from settings or disallowed from UI.
   optional int32 user_revoke_app_suggestion_permission = 6;
+
+  // Number of priority groups configured on the device, excluding the default priority group.
+  optional int32 num_priority_groups = 7;
+
+  // Number of times when a ScanResult matched more than one suggestions.
+  optional int32 num_multiple_suggestions = 8;
+
+  // Number of saved profiles which also have at least one suggestion (for the same network)
+  // provisioned on the device.
+  optional int32 num_saved_networks_with_configured_suggestion = 9;
 }
 
 // WifiLock metrics
@@ -3868,6 +3903,9 @@ message WifiToWifiSwitchStats {
 
   // Number of times the old network in Make Before Break completed lingering and was disconnected.
   optional int32 make_before_break_linger_completed_count = 8;
+
+  // Histogram of lingering duration caused by make before break in seconds.
+  repeated Int32Count make_before_break_linger_duration_seconds = 9;
 }
 
 // Network layer bandwidth estimator stats

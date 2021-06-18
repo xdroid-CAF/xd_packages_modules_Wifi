@@ -1745,16 +1745,36 @@ public class WifiMetricsTest extends WifiBaseTest {
         assertEquals(upper, mDecodedProto.staEventList[1].lastWifiUsabilityScore);
     }
 
-    private static final String SSID = "red";
-    private static final int CONFIG_DTIM = 3;
-    private static final int NETWORK_DETAIL_WIFIMODE = 5;
-    private static final int NETWORK_DETAIL_DTIM = 7;
-    private static final int SCAN_RESULT_LEVEL = -30;
     /**
      * Test that WifiMetrics is correctly getting data from ScanDetail and WifiConfiguration
      */
     @Test
     public void testScanDetailAndWifiConfigurationUsage() throws Exception {
+        setupNetworkAndVerify();
+    }
+
+    /**
+     * Test that WifiMetrics is correctly getting data from ScanDetail and WifiConfiguration for
+     * Passpoint use cases.
+     */
+    @Test
+    public void testScanDetailAndWifiConfigurationUsageForPasspoint() throws Exception {
+        setupNetworkAndVerify(true, false);
+        setupNetworkAndVerify(true, true);
+    }
+
+    private static final String SSID = "red";
+    private static final int CONFIG_DTIM = 3;
+    private static final int NETWORK_DETAIL_WIFIMODE = 5;
+    private static final int NETWORK_DETAIL_DTIM = 7;
+    private static final int SCAN_RESULT_LEVEL = -30;
+
+    private void setupNetworkAndVerify() throws Exception {
+        setupNetworkAndVerify(false, false);
+    }
+
+    private void setupNetworkAndVerify(boolean isPasspoint, boolean isPasspointHomeProvider)
+            throws Exception {
         //Setup mock configs and scan details
         NetworkDetail networkDetail = mock(NetworkDetail.class);
         when(networkDetail.getWifiMode()).thenReturn(NETWORK_DETAIL_WIFIMODE);
@@ -1788,6 +1808,9 @@ public class WifiMetricsTest extends WifiBaseTest {
         mWifiMetrics.setNominatorForNetwork(TEST_NETWORK_ID,
                 WifiMetricsProto.ConnectionEvent.NOMINATOR_MANUAL);
 
+        when(config.isPasspoint()).thenReturn(isPasspoint);
+        config.isHomeProviderNetwork = isPasspointHomeProvider;
+
         //Create a connection event using only the config
         mWifiMetrics.startConnectionEvent(TEST_IFACE_NAME, config,
                 "Red", WifiMetricsProto.ConnectionEvent.ROAM_NONE);
@@ -1799,6 +1822,7 @@ public class WifiMetricsTest extends WifiBaseTest {
         //Change configuration to open without randomization
         config.macRandomizationSetting = WifiConfiguration.RANDOMIZATION_NONE;
         scanResult.capabilities = "";
+
         //Create a connection event using the config and a scan detail
         mWifiMetrics.startConnectionEvent(TEST_IFACE_NAME, config,
                 "Green", WifiMetricsProto.ConnectionEvent.ROAM_NONE);
@@ -1844,6 +1868,9 @@ public class WifiMetricsTest extends WifiBaseTest {
                 mDecodedProto.connectionEvent[0].connectionNominator);
         assertEquals(1, mDecodedProto.numConnectToNetworkSupportingMbo);
         assertEquals(1, mDecodedProto.numConnectToNetworkSupportingOce);
+        assertEquals(isPasspoint, mDecodedProto.connectionEvent[0].routerFingerprint.passpoint);
+        assertEquals(isPasspointHomeProvider,
+                mDecodedProto.connectionEvent[0].routerFingerprint.isPasspointHomeProvider);
     }
 
     /**
@@ -2132,6 +2159,7 @@ public class WifiMetricsTest extends WifiBaseTest {
     @Test
     public void testConnectionNetworkTypePasspoint() throws Exception {
         WifiConfiguration config = WifiConfigurationTestUtil.createPasspointNetwork();
+        config.carrierMerged = true;
         mWifiMetrics.startConnectionEvent(TEST_IFACE_NAME, config,
                 "RED", WifiMetricsProto.ConnectionEvent.ROAM_NONE);
         mWifiMetrics.endConnectionEvent(TEST_IFACE_NAME,
@@ -2144,6 +2172,7 @@ public class WifiMetricsTest extends WifiBaseTest {
         assertEquals(WifiMetricsProto.ConnectionEvent.TYPE_PASSPOINT,
                 mDecodedProto.connectionEvent[0].networkType);
         assertFalse(mDecodedProto.connectionEvent[0].isOsuProvisioned);
+        assertTrue(mDecodedProto.connectionEvent[0].isCarrierMerged);
     }
 
     /**
@@ -3841,6 +3870,40 @@ public class WifiMetricsTest extends WifiBaseTest {
                 mDecodedProto.wifiLinkLayerUsageStats.radioHs20ScanTimeMs);
     }
 
+    private void assertPerRadioStatsUsageHasDiff(WifiLinkLayerStats oldStats,
+            WifiLinkLayerStats newStats) {
+        assertEquals(oldStats.radioStats.length, newStats.radioStats.length);
+        assertEquals(newStats.radioStats.length,
+                mDecodedProto.wifiLinkLayerUsageStats.radioStats.length);
+        for (int i = 0; i < oldStats.radioStats.length; i++) {
+            RadioStat oldRadioStats = oldStats.radioStats[i];
+            RadioStat newRadioStats = newStats.radioStats[i];
+            RadioStats radioStats =
+                    mDecodedProto.wifiLinkLayerUsageStats.radioStats[i];
+            assertEquals(oldRadioStats.radio_id, newRadioStats.radio_id);
+            assertEquals(newRadioStats.radio_id, radioStats.radioId);
+            assertEquals(newRadioStats.on_time - oldRadioStats.on_time,
+                    radioStats.totalRadioOnTimeMs);
+            assertEquals(newRadioStats.tx_time - oldRadioStats.tx_time,
+                    radioStats.totalRadioTxTimeMs);
+            assertEquals(newRadioStats.rx_time - oldRadioStats.rx_time,
+                    radioStats.totalRadioRxTimeMs);
+            assertEquals(newRadioStats.on_time_scan - oldRadioStats.on_time_scan,
+                    radioStats.totalScanTimeMs);
+            assertEquals(newRadioStats.on_time_nan_scan - oldRadioStats.on_time_nan_scan,
+                    radioStats.totalNanScanTimeMs);
+            assertEquals(newRadioStats.on_time_background_scan
+                    - oldRadioStats.on_time_background_scan,
+                    radioStats.totalBackgroundScanTimeMs);
+            assertEquals(newRadioStats.on_time_roam_scan - oldRadioStats.on_time_roam_scan,
+                    radioStats.totalRoamScanTimeMs);
+            assertEquals(newRadioStats.on_time_pno_scan - oldRadioStats.on_time_pno_scan,
+                    radioStats.totalPnoScanTimeMs);
+            assertEquals(newRadioStats.on_time_hs20_scan - oldRadioStats.on_time_hs20_scan,
+                    radioStats.totalHotspot2ScanTimeMs);
+        }
+    }
+
     /**
      * Verify that WifiMetrics is counting link layer usage correctly when given a series of
      * valid input.
@@ -3848,7 +3911,7 @@ public class WifiMetricsTest extends WifiBaseTest {
      */
     @Test
     public void testWifiLinkLayerUsageStats() throws Exception {
-        WifiLinkLayerStats stat1 = nextRandomStats(new WifiLinkLayerStats());
+        WifiLinkLayerStats stat1 = nextRandomStats(createNewWifiLinkLayerStats());
         WifiLinkLayerStats stat2 = nextRandomStats(stat1);
         WifiLinkLayerStats stat3 = nextRandomStats(stat2);
         mWifiMetrics.incrementWifiLinkLayerUsageStats(TEST_IFACE_NAME, stat1);
@@ -3858,6 +3921,7 @@ public class WifiMetricsTest extends WifiBaseTest {
 
         // After 2 increments, the counters should have difference between |stat1| and |stat3|
         assertWifiLinkLayerUsageHasDiff(stat1, stat3);
+        assertPerRadioStatsUsageHasDiff(stat1, stat3);
     }
 
     /**
@@ -3866,7 +3930,7 @@ public class WifiMetricsTest extends WifiBaseTest {
      */
     @Test
     public void testWifiLinkLayerUsageStatsNullInput() throws Exception {
-        WifiLinkLayerStats stat1 = nextRandomStats(new WifiLinkLayerStats());
+        WifiLinkLayerStats stat1 = nextRandomStats(createNewWifiLinkLayerStats());
         WifiLinkLayerStats stat2 = null;
         mWifiMetrics.incrementWifiLinkLayerUsageStats(TEST_IFACE_NAME, stat1);
         mWifiMetrics.incrementWifiLinkLayerUsageStats(TEST_IFACE_NAME, stat2);
@@ -3874,6 +3938,7 @@ public class WifiMetricsTest extends WifiBaseTest {
 
         // Counter should be zero
         assertWifiLinkLayerUsageHasDiff(stat1, stat1);
+        assertNotNull(mDecodedProto.wifiLinkLayerUsageStats.radioStats);
     }
 
     /**
@@ -3883,7 +3948,7 @@ public class WifiMetricsTest extends WifiBaseTest {
      */
     @Test
     public void testWifiLinkLayerUsageStatsChipReset() throws Exception {
-        WifiLinkLayerStats stat1 = nextRandomStats(new WifiLinkLayerStats());
+        WifiLinkLayerStats stat1 = nextRandomStats(createNewWifiLinkLayerStats());
         WifiLinkLayerStats stat2 = nextRandomStats(stat1);
         stat2.on_time = stat1.on_time - 1;
         WifiLinkLayerStats stat3 = nextRandomStats(stat2);
@@ -3896,6 +3961,7 @@ public class WifiMetricsTest extends WifiBaseTest {
 
         // Should only count the difference between |stat3| and |stat4|
         assertWifiLinkLayerUsageHasDiff(stat3, stat4);
+        assertPerRadioStatsUsageHasDiff(stat3, stat4);
     }
 
     private void assertUsabilityStatsAssignment(WifiInfo info, WifiLinkLayerStats stats,
@@ -4925,6 +4991,12 @@ public class WifiMetricsTest extends WifiBaseTest {
         mWifiMetrics.incrementNetworkSuggestionUserRevokePermission();
         mWifiMetrics.incrementNetworkSuggestionUserRevokePermission();
 
+        mWifiMetrics.addSuggestionExistsForSavedNetwork("savedNetwork");
+        mWifiMetrics.incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
+        mWifiMetrics.addNetworkSuggestionPriorityGroup(0);
+        mWifiMetrics.addNetworkSuggestionPriorityGroup(1);
+        mWifiMetrics.addNetworkSuggestionPriorityGroup(1);
+
         dumpProtoAndDeserialize();
 
         assertEquals(4, mDecodedProto.wifiNetworkSuggestionApiLog.numModification);
@@ -4950,6 +5022,10 @@ public class WifiMetricsTest extends WifiBaseTest {
         assertEquals(WifiMetricsProto.WifiNetworkSuggestionApiLog.TYPE_NON_PRIVILEGED,
                 mDecodedProto.wifiNetworkSuggestionApiLog.appCountPerType[2].appType);
         assertEquals(3, mDecodedProto.wifiNetworkSuggestionApiLog.appCountPerType[2].count);
+        assertEquals(1, mDecodedProto.wifiNetworkSuggestionApiLog.numMultipleSuggestions);
+        assertEquals(1, mDecodedProto.wifiNetworkSuggestionApiLog
+                .numSavedNetworksWithConfiguredSuggestion);
+        assertEquals(1, mDecodedProto.wifiNetworkSuggestionApiLog.numPriorityGroups);
     }
 
     /**
@@ -6313,6 +6389,8 @@ public class WifiMetricsTest extends WifiBaseTest {
         assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakInternetValidatedCount);
         assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakSuccessCount);
         assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakLingerCompletedCount);
+        assertEquals(0,
+                mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakLingerDurationSeconds.length);
 
         // increment everything
         mWifiMetrics.setIsMakeBeforeBreakSupported(true);
@@ -6322,7 +6400,7 @@ public class WifiMetricsTest extends WifiBaseTest {
         mWifiMetrics.incrementMakeBeforeBreakRecoverPrimaryCount();
         mWifiMetrics.incrementMakeBeforeBreakInternetValidatedCount();
         mWifiMetrics.incrementMakeBeforeBreakSuccessCount();
-        mWifiMetrics.incrementMakeBeforeBreakLingerCompletedCount();
+        mWifiMetrics.incrementMakeBeforeBreakLingerCompletedCount(1000);
 
         dumpProtoAndDeserialize();
 
@@ -6335,6 +6413,12 @@ public class WifiMetricsTest extends WifiBaseTest {
         assertEquals(1, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakInternetValidatedCount);
         assertEquals(1, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakSuccessCount);
         assertEquals(1, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakLingerCompletedCount);
+        assertEquals(1,
+                mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakLingerDurationSeconds.length);
+        assertEquals(1,
+                mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakLingerDurationSeconds[0].key);
+        assertEquals(1,
+                mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakLingerDurationSeconds[0].count);
 
         // dump again
         dumpProtoAndDeserialize();
@@ -6348,6 +6432,8 @@ public class WifiMetricsTest extends WifiBaseTest {
         assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakInternetValidatedCount);
         assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakSuccessCount);
         assertEquals(0, mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakLingerCompletedCount);
+        assertEquals(0,
+                mDecodedProto.wifiToWifiSwitchStats.makeBeforeBreakLingerDurationSeconds.length);
     }
 
     @Test
@@ -6413,5 +6499,39 @@ public class WifiMetricsTest extends WifiBaseTest {
         ExtendedMockito.verify(() -> WifiStatsLog.write(
                 WifiStatsLog.WIFI_HEALTH_STAT_REPORTED, 2000, true, true,
                 WifiStatsLog.WIFI_HEALTH_STAT_REPORTED__BAND__BAND_2G));
+    }
+
+    /**
+     * Test number of times connection failure status reported per
+     * WifiConfiguration.RecentFailureReason
+     */
+    @Test
+    public void testRecentFailureAssociationStatusCount() throws Exception {
+        mWifiMetrics.incrementRecentFailureAssociationStatusCount(
+                WifiConfiguration.RECENT_FAILURE_AP_UNABLE_TO_HANDLE_NEW_STA);
+        mWifiMetrics.incrementRecentFailureAssociationStatusCount(
+                WifiConfiguration.RECENT_FAILURE_AP_UNABLE_TO_HANDLE_NEW_STA);
+        mWifiMetrics.incrementRecentFailureAssociationStatusCount(
+                WifiConfiguration.RECENT_FAILURE_OCE_RSSI_BASED_ASSOCIATION_REJECTION);
+        mWifiMetrics.incrementRecentFailureAssociationStatusCount(
+                WifiConfiguration.RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AIR_INTERFACE_OVERLOADED);
+        mWifiMetrics.incrementRecentFailureAssociationStatusCount(
+                WifiConfiguration.RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AIR_INTERFACE_OVERLOADED);
+
+        dumpProtoAndDeserialize();
+
+        Int32Count[] expectedRecentFailureAssociationStatus = {
+                buildInt32Count(WifiConfiguration.RECENT_FAILURE_AP_UNABLE_TO_HANDLE_NEW_STA,
+                        2),
+                buildInt32Count(
+                        WifiConfiguration
+                                .RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AIR_INTERFACE_OVERLOADED, 2),
+                buildInt32Count(
+                        WifiConfiguration.RECENT_FAILURE_OCE_RSSI_BASED_ASSOCIATION_REJECTION, 1),
+        };
+
+        assertKeyCountsEqual(expectedRecentFailureAssociationStatus,
+                mDecodedProto.recentFailureAssociationStatus);
+
     }
 }
