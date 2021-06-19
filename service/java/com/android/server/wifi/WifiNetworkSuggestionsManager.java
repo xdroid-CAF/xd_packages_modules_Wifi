@@ -905,11 +905,14 @@ public class WifiNetworkSuggestionsManager {
             Log.e(TAG, "bad wifi suggestion from app: " + packageName);
             return WifiManager.STATUS_NETWORK_SUGGESTIONS_ERROR_ADD_NOT_ALLOWED;
         }
-
-        networkSuggestions.forEach(wns -> {
+        for (WifiNetworkSuggestion wns : networkSuggestions) {
             wns.wifiConfiguration.convertLegacyFieldsToSecurityParamsIfNeeded();
-            WifiConfigurationUtil.addUpgradableSecurityTypeIfNecessary(wns.wifiConfiguration);
-        });
+            if (!WifiConfigurationUtil.addUpgradableSecurityTypeIfNecessary(
+                    wns.wifiConfiguration)) {
+                Log.e(TAG, "Invalid suggestion add from app: " + packageName);
+                return WifiManager.STATUS_NETWORK_SUGGESTIONS_ERROR_ADD_INVALID;
+            }
+        }
 
         final String activeScorerPackage = mNetworkScoreManager.getActiveScorerPackage();
         PerAppInfo perAppInfo = mActiveNetworkSuggestionsPerApp.get(packageName);
@@ -1125,17 +1128,6 @@ public class WifiNetworkSuggestionsManager {
                 }
                 if (wns.wifiConfiguration.carrierMerged) {
                     Log.e(TAG, "Setting carrier merged network is only allowed from Android S.");
-                    return false;
-                }
-                if (wns.wifiConfiguration.macRandomizationSetting
-                        != WifiConfiguration.RANDOMIZATION_PERSISTENT) {
-                    Log.e(TAG, "Setting macRandomizationSetting is only allowed from Android S.");
-                    return false;
-                }
-                if (wns.passpointConfiguration != null
-                        && wns.passpointConfiguration.isEnhancedMacRandomizationEnabled()) {
-                    Log.e(TAG, "Setting enhanced MAC randomization is only allowed from "
-                            + "Android S.");
                     return false;
                 }
             }
@@ -1811,6 +1803,13 @@ public class WifiNetworkSuggestionsManager {
      */
     public @NonNull List<WifiConfiguration> getWifiConfigForMatchedNetworkSuggestionsSharedWithUser(
             List<ScanResult> scanResults) {
+        // Create a temporary look-up table.
+        // As they are all single type configurations, they should have unique keys.
+        Map<String, WifiConfiguration> wifiConfigMap = new HashMap<>();
+        WifiConfigurationUtil.convertMultiTypeConfigsToLegacyConfigs(
+                mWifiConfigManager.getConfiguredNetworks())
+                        .forEach(c -> wifiConfigMap.put(c.getProfileKey(), c));
+
         // Create a HashSet to avoid return multiple result for duplicate ScanResult.
         Set<String> networkKeys = new HashSet<>();
         List<WifiConfiguration> sharedWifiConfigs = new ArrayList<>();
@@ -1854,8 +1853,7 @@ public class WifiNetworkSuggestionsManager {
                         config.subscriptionId, ewns.perAppInfo.packageName)) {
                     continue;
                 }
-                WifiConfiguration wCmWifiConfig = mWifiConfigManager
-                        .getConfiguredNetwork(config.getProfileKey());
+                WifiConfiguration wCmWifiConfig = wifiConfigMap.get(config.getProfileKey());
                 if (wCmWifiConfig == null) {
                     continue;
                 }

@@ -30,118 +30,19 @@
         errorLine2="                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/util/ApConfigUtil.java"
-            line="568"
+            line="569"
             column="32"/>
     </issue>
 
     <issue
         id="NewApi"
-        message="Class requires API level 31 (current min is 30): `android.telephony.TelephonyCallback`"
-        errorLine1="    /* package */ class CoexTelephonyCallback extends TelephonyCallback implements"
-        errorLine2="                                                      ~~~~~~~~~~~~~~~~~">
+        message="Call requires API level 31 (current min is 30): `is6GhzPscOnlyEnabled`"
+        errorLine1="                if (SdkLevel.isAtLeastS() &amp;&amp; scanSettings.is6GhzPscOnlyEnabled()"
+        errorLine2="                                                          ~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/coex/CoexManager.java"
-            line="296"
-            column="55"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Class requires API level 31 (current min is 30): `android.telephony.TelephonyCallback.PhysicalChannelConfigListener`"
-        errorLine1="            TelephonyCallback.PhysicalChannelConfigListener,"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/coex/CoexManager.java"
-            line="297"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Class requires API level 31 (current min is 30): `android.telephony.TelephonyCallback.ActiveDataSubscriptionIdListener`"
-        errorLine1="            TelephonyCallback.ActiveDataSubscriptionIdListener {"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/coex/CoexManager.java"
-            line="298"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 31 (current min is 30): `android.net.wifi.ScanResult#convertChannelToFrequencyMhzIfSupported`"
-        errorLine1="        int centerFreqMhz = ScanResult.convertChannelToFrequencyMhzIfSupported(channel, band);"
-        errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/coex/CoexUtils.java"
-            line="143"
-            column="40"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 31 (current min is 30): `android.telephony.PhysicalChannelConfig#getNetworkType`"
-        errorLine1="            this(config.getNetworkType(),"
-        errorLine2="                        ~~~~~~~~~~~~~~">
-        <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/coex/CoexUtils.java"
-            line="578"
-            column="25"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 31 (current min is 30): `android.telephony.PhysicalChannelConfig#getBand`"
-        errorLine1="                    config.getBand(),"
-        errorLine2="                           ~~~~~~~">
-        <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/coex/CoexUtils.java"
-            line="579"
-            column="28"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 31 (current min is 30): `android.telephony.PhysicalChannelConfig#getDownlinkFrequencyKhz`"
-        errorLine1="                    config.getDownlinkFrequencyKhz(),"
-        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/coex/CoexUtils.java"
-            line="580"
-            column="28"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 31 (current min is 30): `android.telephony.PhysicalChannelConfig#getCellBandwidthDownlinkKhz`"
-        errorLine1="                    config.getCellBandwidthDownlinkKhz(),"
-        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/coex/CoexUtils.java"
-            line="581"
-            column="28"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 31 (current min is 30): `android.telephony.PhysicalChannelConfig#getUplinkFrequencyKhz`"
-        errorLine1="                    config.getUplinkFrequencyKhz(),"
-        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/coex/CoexUtils.java"
-            line="582"
-            column="28"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 31 (current min is 30): `android.telephony.PhysicalChannelConfig#getCellBandwidthUplinkKhz`"
-        errorLine1="                    config.getCellBandwidthUplinkKhz());"
-        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/coex/CoexUtils.java"
-            line="583"
-            column="28"/>
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/scanner/ChannelHelper.java"
+            line="155"
+            column="59"/>
     </issue>
 
     <issue
@@ -201,6 +102,61 @@
 
     <issue
         id="NewApi"
+        message="Call requires API level 31 (current min is 30): `CIPHER_GCMP_128`"
+        errorLine1="                    return ScanResult.CIPHER_GCMP_128;"
+        errorLine2="                                      ~~~~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/util/InformationElementUtil.java"
+            line="1107"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `CIPHER_BIP_GMAC_128`"
+        errorLine1="                    return ScanResult.CIPHER_BIP_GMAC_128;"
+        errorLine2="                                      ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/util/InformationElementUtil.java"
+            line="1109"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `CIPHER_BIP_GMAC_256`"
+        errorLine1="                    return ScanResult.CIPHER_BIP_GMAC_256;"
+        errorLine2="                                      ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/util/InformationElementUtil.java"
+            line="1111"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `CIPHER_BIP_CMAC_256`"
+        errorLine1="                    return ScanResult.CIPHER_BIP_CMAC_256;"
+        errorLine2="                                      ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/util/InformationElementUtil.java"
+            line="1113"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `android.net.wifi.WifiEnterpriseConfig#isEapMethodServerCertUsed`"
+        errorLine1="        if (config.isEnterprise() &amp;&amp; config.enterpriseConfig.isEapMethodServerCertUsed()"
+        errorLine2="                                                             ~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/NetworkSuggestionNominator.java"
+            line="253"
+            column="62"/>
+    </issue>
+
+    <issue
+        id="NewApi"
         message="Call requires API level 31 (current min is 30): `android.net.wifi.hotspot2.pps.HomeSp#getMatchAllOis`"
         errorLine1="        if (mConfig.getHomeSp().getMatchAllOis() != null) {"
         errorLine2="                                ~~~~~~~~~~~~~~">
@@ -250,7 +206,7 @@
         errorLine2="                                                                  ~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/hotspot2/PasspointXmlUtils.java"
-            line="298"
+            line="300"
             column="67"/>
     </issue>
 
@@ -261,7 +217,7 @@
         errorLine2="                                                                  ~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/hotspot2/PasspointXmlUtils.java"
-            line="299"
+            line="301"
             column="67"/>
     </issue>
 
@@ -272,7 +228,7 @@
         errorLine2="                           ~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/hotspot2/PasspointXmlUtils.java"
-            line="543"
+            line="545"
             column="28"/>
     </issue>
 
@@ -283,19 +239,8 @@
         errorLine2="                           ~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/hotspot2/PasspointXmlUtils.java"
-            line="546"
+            line="548"
             column="28"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 31 (current min is 30): `android.net.wifi.ScanResult#convertChannelToFrequencyMhzIfSupported`"
-        errorLine1="                int centerFreq = ScanResult.convertChannelToFrequencyMhzIfSupported("
-        errorLine2="                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/p2p/SupplicantP2pIfaceHal.java"
-            line="1510"
-            column="45"/>
     </issue>
 
     <issue
@@ -305,7 +250,7 @@
         errorLine2="               ~~~~~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/aware/WifiAwareStateManager.java"
-            line="552"
+            line="557"
             column="16"/>
     </issue>
 
@@ -322,12 +267,34 @@
 
     <issue
         id="NewApi"
+        message="Call requires API level 31 (current min is 30): `android.net.wifi.WifiNetworkSpecifier#getBand`"
+        errorLine1="        if (wns.getBand() != ScanResult.UNSPECIFIED) {"
+        errorLine2="                ~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiNetworkFactory.java"
+            line="675"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `android.net.wifi.WifiEnterpriseConfig#isEapMethodServerCertUsed`"
+        errorLine1="                    if (enterpriseConfig.isEapMethodServerCertUsed()"
+        errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiNetworkSuggestionsManager.java"
+            line="1085"
+            column="42"/>
+    </issue>
+
+    <issue
+        id="NewApi"
         message="Field requires API level 31 (current min is 30): `android.net.wifi.WifiManager.AddNetworkResult#networkId`"
         errorLine1="        return addOrUpdateNetworkInternal(config, packageName, callingUid).networkId;"
         errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiServiceImpl.java"
-            line="2691"
+            line="2704"
             column="16"/>
     </issue>
 
@@ -338,7 +305,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiServiceImpl.java"
-            line="2698"
+            line="2711"
             column="20"/>
     </issue>
 
@@ -349,7 +316,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiServiceImpl.java"
-            line="2710"
+            line="2723"
             column="24"/>
     </issue>
 
@@ -360,7 +327,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiServiceImpl.java"
-            line="2727"
+            line="2740"
             column="24"/>
     </issue>
 
@@ -371,19 +338,30 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiServiceImpl.java"
-            line="2731"
+            line="2744"
             column="20"/>
     </issue>
 
     <issue
         id="NewApi"
-        message="Call requires API level 31 (current min is 30): `new android.net.wifi.WifiManager.AddNetworkResult`"
-        errorLine1="            return new AddNetworkResult("
-        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~">
+        message="Call requires API level 31 (current min is 30): `android.net.wifi.WifiEnterpriseConfig#isEapMethodServerCertUsed`"
+        errorLine1="        if (config.isEnterprise() &amp;&amp; config.enterpriseConfig.isEapMethodServerCertUsed()"
+        errorLine2="                                                             ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiServiceImpl.java"
-            line="2738"
-            column="20"/>
+            line="2747"
+            column="62"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `new android.net.wifi.WifiManager.AddNetworkResult`"
+        errorLine1="                return new AddNetworkResult("
+        errorLine2="                       ~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiServiceImpl.java"
+            line="2754"
+            column="24"/>
     </issue>
 
     <issue
@@ -393,7 +371,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiServiceImpl.java"
-            line="2752"
+            line="2771"
             column="20"/>
     </issue>
 
@@ -404,7 +382,7 @@
         errorLine2="               ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiServiceImpl.java"
-            line="2754"
+            line="2773"
             column="16"/>
     </issue>
 
@@ -415,86 +393,173 @@
         errorLine2="                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiShellCommand.java"
-            line="366"
+            line="393"
             column="52"/>
     </issue>
 
     <issue
         id="NewApi"
-        message="Call requires API level 31 (current min is 30): `android.net.wifi.WifiEnterpriseConfig#isEapMethodServerCertUsed`"
-        errorLine1="        if (config.isEnterprise() &amp;&amp; config.enterpriseConfig.isEapMethodServerCertUsed()"
-        errorLine2="                                                     ~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Call requires API level 31 (current min is 30): `OP_MODE_STA`"
+        errorLine1="        if ((mode &amp; WifiAvailableChannel.OP_MODE_STA) != 0) {"
+        errorLine2="                                         ~~~~~~~~~~~">
         <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/NetworkSuggestionNominator.java"
-            line="253"
-            column="54"/>
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3767"
+            column="42"/>
     </issue>
 
     <issue
         id="NewApi"
-        message="Call requires API level 31 (current min is 30): `android.net.wifi.WifiEnterpriseConfig#isEapMethodServerCertUsed`"
-        errorLine1="                    if (enterpriseConfig.isEapMethodServerCertUsed()"
-        errorLine2="         ~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Call requires API level 31 (current min is 30): `OP_MODE_SAP`"
+        errorLine1="        if ((mode &amp; WifiAvailableChannel.OP_MODE_SAP) != 0) {"
+        errorLine2="                                         ~~~~~~~~~~~">
         <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiNetworkSuggestionsManager.java"
-            line="1085"
-            column="10"/>
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3770"
+            column="42"/>
     </issue>
 
     <issue
         id="NewApi"
-        message="Call requires API level 31 (current min is 30): `android.net.wifi.WifiEnterpriseConfig#isEapMethodServerCertUsed`"
-        errorLine1="        if (config.isEnterprise() &amp;&amp; config.enterpriseConfig.isEapMethodServerCertUsed()"
-        errorLine2="                                     ~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Call requires API level 31 (current min is 30): `OP_MODE_WIFI_DIRECT_CLI`"
+        errorLine1="        if ((mode &amp; WifiAvailableChannel.OP_MODE_WIFI_DIRECT_CLI) != 0) {"
+        errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiServiceImpl.java"
-            line="2739"
-            column="38"/>
-    </issue>
-
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 10000 (current min is 30): CIPHER_GCMP_128 [NewApi]"
-        errorLine1="                    return ScanResult.CIPHER_GCMP_128;"
-        errorLine2="                                      ~~~~~~~~~~~~~~~">
-        <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/util/InformationElementUtil.java"
-            line="1107"
-            column="39"/>
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3773"
+            column="42"/>
     </issue>
 
     <issue
         id="NewApi"
-        message="Call requires API level 10000 (current min is 30): CIPHER_BIP_GMAC_128 [NewApi]"
-        errorLine1="                    return ScanResult.CIPHER_BIP_GMAC_128;"
-        errorLine2="                                      ~~~~~~~~~~~~~~~">
+        message="Call requires API level 31 (current min is 30): `OP_MODE_WIFI_DIRECT_GO`"
+        errorLine1="        if ((mode &amp; WifiAvailableChannel.OP_MODE_WIFI_DIRECT_GO) != 0) {"
+        errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/util/InformationElementUtil.java"
-            line="1109"
-            column="39"/>
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3776"
+            column="42"/>
     </issue>
 
     <issue
         id="NewApi"
-        message="Call requires API level 10000 (current min is 30): CIPHER_BIP_GMAC_256 [NewApi]"
-        errorLine1="                    return ScanResult.CIPHER_BIP_GMAC_256;"
-        errorLine2="                                      ~~~~~~~~~~~~~~~">
+        message="Call requires API level 31 (current min is 30): `OP_MODE_WIFI_AWARE`"
+        errorLine1="        if ((mode &amp; WifiAvailableChannel.OP_MODE_WIFI_AWARE) != 0) {"
+        errorLine2="                                         ~~~~~~~~~~~~~~~~~~">
         <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/util/InformationElementUtil.java"
-            line="1111"
-            column="39"/>
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3779"
+            column="42"/>
     </issue>
 
     <issue
         id="NewApi"
-        message="Call requires API level 10000 (current min is 30): CIPHER_BIP_CMAC_256 [NewApi]"
-        errorLine1="                    return ScanResult.CIPHER_BIP_CMAC_256;"
-        errorLine2="                                      ~~~~~~~~~~~~~~~">
+        message="Call requires API level 31 (current min is 30): `OP_MODE_TDLS`"
+        errorLine1="        if ((mode &amp; WifiAvailableChannel.OP_MODE_TDLS) != 0) {"
+        errorLine2="                                         ~~~~~~~~~~~~">
         <location
-            file="packages/modules/Wifi/service/java/com/android/server/wifi/util/InformationElementUtil.java"
-            line="1113"
-            column="39"/>
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3782"
+            column="42"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `OP_MODE_STA`"
+        errorLine1="            mode |= WifiAvailableChannel.OP_MODE_STA;"
+        errorLine2="                                         ~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3794"
+            column="42"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `OP_MODE_SAP`"
+        errorLine1="            mode |= WifiAvailableChannel.OP_MODE_SAP;"
+        errorLine2="                                         ~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3797"
+            column="42"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `OP_MODE_WIFI_DIRECT_CLI`"
+        errorLine1="            mode |= WifiAvailableChannel.OP_MODE_WIFI_DIRECT_CLI;"
+        errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3800"
+            column="42"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `OP_MODE_WIFI_DIRECT_GO`"
+        errorLine1="            mode |= WifiAvailableChannel.OP_MODE_WIFI_DIRECT_GO;"
+        errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3803"
+            column="42"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `OP_MODE_WIFI_AWARE`"
+        errorLine1="            mode |= WifiAvailableChannel.OP_MODE_WIFI_AWARE;"
+        errorLine2="                                         ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3806"
+            column="42"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `OP_MODE_TDLS`"
+        errorLine1="            mode |= WifiAvailableChannel.OP_MODE_TDLS;"
+        errorLine2="                                         ~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3809"
+            column="42"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `FILTER_CONCURRENCY`"
+        errorLine1="        if ((filter &amp; WifiAvailableChannel.FILTER_CONCURRENCY) != 0) {"
+        errorLine2="                                           ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3820"
+            column="44"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `FILTER_CELLULAR_COEXISTENCE`"
+        errorLine1="        if ((filter &amp; WifiAvailableChannel.FILTER_CELLULAR_COEXISTENCE) != 0) {"
+        errorLine2="                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3823"
+            column="44"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 30): `WifiAvailableChannel`"
+        errorLine1="                                answer.value.add(new WifiAvailableChannel(ch.channel,"
+        errorLine2="                                                 ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="packages/modules/Wifi/service/java/com/android/server/wifi/WifiVendorHal.java"
+            line="3850"
+            column="50"/>
     </issue>
 
 </issues>
