@@ -134,8 +134,8 @@ public class WifiScoreCard {
             new long[NUM_LINK_BAND][NUM_LINK_DIRECTION][NUM_SIGNAL_LEVEL];
     private final long[][][] mBwEstErrorAccPercent =
             new long[NUM_LINK_BAND][NUM_LINK_DIRECTION][NUM_SIGNAL_LEVEL];
-    private final int[][][] mBwEstValue =
-            new int[NUM_LINK_BAND][NUM_LINK_DIRECTION][NUM_SIGNAL_LEVEL];
+    private final long[][][] mBwEstValue =
+            new long[NUM_LINK_BAND][NUM_LINK_DIRECTION][NUM_SIGNAL_LEVEL];
     private final int[][][] mBwEstCount =
             new int[NUM_LINK_BAND][NUM_LINK_DIRECTION][NUM_SIGNAL_LEVEL];
 
@@ -1015,8 +1015,9 @@ public class WifiScoreCard {
     // To be used in link bandwidth estimation, each TrafficStats poll sample needs to be above
     // the following values. Defined per signal level.
     // int [NUM_LINK_DIRECTION][NUM_SIGNAL_LEVEL]
+    // Use the low Tx threshold because xDSL UL speed could be below 1Mbps.
     static final int[][] LINK_BANDWIDTH_BYTE_DELTA_THR_KBYTE =
-            {{200, 500, 750, 1000, 1000}, {200, 500, 1000, 2500, 2500}};
+            {{200, 300, 300, 300, 300}, {200, 500, 1000, 2000, 2000}};
     // To be used in the long term avg, each count needs to be above the following value
     static final int BANDWIDTH_STATS_COUNT_THR = 5;
     private static final int TIME_CONSTANT_SMALL_SEC = 6;
@@ -1026,8 +1027,12 @@ public class WifiScoreCard {
     // Force weight to 0 if the elapsed time is above LARGE_TIME_DECAY_RATIO * time constant
     private static final int LARGE_TIME_DECAY_RATIO = 4;
     // Used to derive byte count threshold from avg BW
-    private static final int LOW_BW_TO_AVG_BW_RATIO_NUM = 3;
+    private static final int LOW_BW_TO_AVG_BW_RATIO_NUM = 6;
     private static final int LOW_BW_TO_AVG_BW_RATIO_DEN = 8;
+    // For some high speed connections, heavy DL traffic could falsely trigger UL BW update due to
+    // TCP ACK and the low Tx byte count threshold. To work around the issue, skip Tx BW update if
+    // Rx Bytes / Tx Bytes > RX_OVER_TX_BYTE_RATIO_MAX (heavy DL and light UL traffic)
+    private static final int RX_OVER_TX_BYTE_RATIO_MAX = 5;
     // radio on time below the following value is ignored.
     static final int RADIO_ON_TIME_MIN_MS = 200;
     static final int RADIO_ON_ELAPSED_TIME_DELTA_MAX_MS = 200;
@@ -1334,9 +1339,12 @@ public class WifiScoreCard {
             onTimeMs = Math.min(elapsedTimeMs, onTimeMs);
 
             long txBytesDelta = txBytes - mLastTxBytes;
-            updateBandwidthSample(txBytesDelta, LINK_TX, onTimeMs,
-                    wifiInfo.getMaxSupportedTxLinkSpeedMbps());
             long rxBytesDelta = rxBytes - mLastRxBytes;
+            if (txBytesDelta * RX_OVER_TX_BYTE_RATIO_MAX >= rxBytesDelta) {
+                updateBandwidthSample(txBytesDelta, LINK_TX, onTimeMs,
+                        wifiInfo.getMaxSupportedTxLinkSpeedMbps());
+            }
+
             updateBandwidthSample(rxBytesDelta, LINK_RX, onTimeMs,
                     wifiInfo.getMaxSupportedRxLinkSpeedMbps());
 
@@ -1373,6 +1381,7 @@ public class WifiScoreCard {
 
         private void updateBandwidthSample(long bytesDelta, int link, int onTimeMs,
                 int maxSupportedLinkSpeedMbps) {
+            checkAndPossiblyResetBandwidthStats(link, maxSupportedLinkSpeedMbps);
             if (bytesDelta < mByteDeltaAccThr[link]) {
                 return;
             }
@@ -1393,6 +1402,26 @@ public class WifiScoreCard {
                 perBssid.changed = true;
                 perBssid.bandwidthStatsValue[mBandIdx][link][mSignalLevel] += linkBandwidthKbps;
                 perBssid.bandwidthStatsCount[mBandIdx][link][mSignalLevel]++;
+            }
+        }
+
+        private void checkAndPossiblyResetBandwidthStats(int link, int maxSupportedLinkSpeedMbps) {
+            if (getAvgUsedLinkBandwidthKbps(link) > (maxSupportedLinkSpeedMbps * 1000)) {
+                resetBandwidthStats(link);
+            }
+        }
+
+        private void resetBandwidthStats(int link) {
+            changed = true;
+            // Reset SSID level stats
+            mBandwidthStatsValue[mBandIdx][link][mSignalLevel] = 0;
+            mBandwidthStatsCount[mBandIdx][link][mSignalLevel] = 0;
+            // Reset BSSID level stats
+            PerBssid perBssid = lookupBssid(ssid, mBssid);
+            if (perBssid != mPlaceholderPerBssid) {
+                perBssid.changed = true;
+                perBssid.bandwidthStatsValue[mBandIdx][link][mSignalLevel] = 0;
+                perBssid.bandwidthStatsCount[mBandIdx][link][mSignalLevel] = 0;
             }
         }
 
@@ -1563,7 +1592,7 @@ public class WifiScoreCard {
             int l2ErrPercent = calculateErrorPercent(l2Kbps, bwSampleKbps);
             mBwEstErrorAccPercent[mBandIdx][link][mSignalLevel] += Math.abs(bwEstExtErrPercent);
             mL2ErrorAccPercent[mBandIdx][link][mSignalLevel] += Math.abs(l2ErrPercent);
-            mBwEstValue[mBandIdx][link][mSignalLevel] = mAvgUsedKbps[link];
+            mBwEstValue[mBandIdx][link][mSignalLevel] += bwSampleKbps;
             mBwEstCount[mBandIdx][link][mSignalLevel]++;
             StringBuilder sb = new StringBuilder();
             logv(sb.append(link)
@@ -2613,10 +2642,10 @@ public class WifiScoreCard {
         BandwidthEstimatorStats.PerLevel stats = new BandwidthEstimatorStats.PerLevel();
         stats.signalLevel = level;
         stats.count = count;
-        stats.avgBandwidthKbps = mBwEstValue[bandIdx][linkIdx][level];
-        stats.l2ErrorPercent = calculateAvgError(
+        stats.avgBandwidthKbps = calculateAvg(mBwEstValue[bandIdx][linkIdx][level], count);
+        stats.l2ErrorPercent = calculateAvg(
                 mL2ErrorAccPercent[bandIdx][linkIdx][level], count);
-        stats.bandwidthEstErrorPercent = calculateAvgError(
+        stats.bandwidthEstErrorPercent = calculateAvg(
                 mBwEstErrorAccPercent[bandIdx][linkIdx][level], count);
 
         // reset counters for next run
@@ -2627,8 +2656,8 @@ public class WifiScoreCard {
         return stats;
     }
 
-    private int calculateAvgError(long errorAccPercent, int count) {
-        return (count > 0) ? (int) (errorAccPercent / count) : 0;
+    private int calculateAvg(long acc, int count) {
+        return (count > 0) ? (int) (acc / count) : 0;
     }
 
     /**
@@ -2654,7 +2683,7 @@ public class WifiScoreCard {
                 pw.println(" Count");
                 printValues(mBwEstCount[i][j], pw);
                 pw.println(" AvgKbps");
-                printValues(mBwEstValue[i][j], pw);
+                printAvgStats(mBwEstValue[i][j], mBwEstCount[i][j], pw);
                 pw.println(" BwEst error");
                 printAvgStats(mBwEstErrorAccPercent[i][j], mBwEstCount[i][j], pw);
                 pw.println(" L2 error");
@@ -2675,7 +2704,7 @@ public class WifiScoreCard {
     private void printAvgStats(long[] stats, int[] count, PrintWriter pw) {
         StringBuilder sb = new StringBuilder();
         for (int k = 0; k < NUM_SIGNAL_LEVEL; k++) {
-            sb.append(" " + calculateAvgError(stats[k], count[k]));
+            sb.append(" " + calculateAvg(stats[k], count[k]));
         }
         pw.println(sb.toString());
     }
