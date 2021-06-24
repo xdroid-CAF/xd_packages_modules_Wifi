@@ -414,6 +414,7 @@ public class WifiAwareDataPathStateManager {
                 }
             }
 
+            ndpInfo.peerDiscoveryMac = mac;
             return false; //ignore this for NDP set up flow: it is used to obtain app_info from Resp
         }
 
