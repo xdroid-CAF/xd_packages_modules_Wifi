@@ -168,8 +168,8 @@ abstract class SupplicantStaIfaceCallbackImpl extends ISupplicantStaIfaceCallbac
             mStaIfaceHal.logCallback("onStateChanged");
             SupplicantState newSupplicantState =
                     supplicantHidlStateToFrameworkState(newState);
-            WifiSsid wifiSsid =
-                    WifiSsid.createFromByteArray(NativeUtil.byteArrayFromArrayList(ssid));
+            WifiSsid wifiSsid = // wifigbk++
+                    WifiGbk.createWifiSsidFromByteArray(NativeUtil.byteArrayFromArrayList(ssid));
             String bssidStr = NativeUtil.macAddressFromByteArray(bssid);
             if (newState != State.DISCONNECTED) {
                 // onStateChanged(DISCONNECTED) may come before onDisconnected(), so add this

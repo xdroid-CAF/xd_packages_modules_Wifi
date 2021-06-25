@@ -1615,9 +1615,12 @@ public class WifiNative {
         List<byte[]> hiddenNetworkSsidsArrays = new ArrayList<>();
         for (String hiddenNetworkSsid : hiddenNetworkSSIDs) {
             try {
-                hiddenNetworkSsidsArrays.add(
-                        NativeUtil.byteArrayFromArrayList(
-                                NativeUtil.decodeSsid(hiddenNetworkSsid)));
+                byte[] hiddenSsidBytes = WifiGbk.getRandUtfOrGbkBytes(hiddenNetworkSsid);
+                if (hiddenSsidBytes.length > WifiGbk.MAX_SSID_LENGTH) {
+                    Log.e(TAG, "Skip too long Gbk->utf ssid[" + hiddenSsidBytes.length
+                       + "]=" + hiddenNetworkSsid);
+                }
+                hiddenNetworkSsidsArrays.add(hiddenSsidBytes);
             } catch (IllegalArgumentException e) {
                 Log.e(TAG, "Illegal argument " + hiddenNetworkSsid, e);
                 continue;
@@ -3157,7 +3160,22 @@ public class WifiNative {
                     android.net.wifi.nl80211.PnoNetwork nativeNetwork =
                             network.toNativePnoNetwork();
                     if (nativeNetwork != null) {
-                        pnoNetworks.add(nativeNetwork);
+                        if (nativeNetwork.getSsid().length <= WifiGbk.MAX_SSID_LENGTH) {
+                            pnoNetworks.add(nativeNetwork);
+                        }
+                        //wifigbk++
+                        if (!WifiGbk.isAllAscii(nativeNetwork.getSsid())) {
+                            byte gbkBytes[] = WifiGbk.toGbk(nativeNetwork.getSsid());
+                            if (gbkBytes != null) {
+                                android.net.wifi.nl80211.PnoNetwork gbkNetwork =
+                                    network.toNativePnoNetwork();
+                                gbkNetwork.setSsid(gbkBytes);
+                                pnoNetworks.add(gbkNetwork);
+                                Log.i(TAG, "WifiGbk fixed - pnoScan add extra Gbk ssid for "
+                                    + nativeNetwork.getSsid());
+                            }
+                        }
+                        //wifigbk--
                     }
                 }
             }
