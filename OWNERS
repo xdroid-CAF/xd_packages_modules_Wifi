@@ -1,3 +1,5 @@
-include /WIFI_OWNERS
+set noparent
 
-include platform/packages/modules/common:/MODULES_OWNERS  # see go/mainline-owners-policy
+dysu@google.com
+etancohen@google.com
+satk@google.com

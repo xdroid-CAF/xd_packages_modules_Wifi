@@ -30,14 +30,13 @@ public class ExtendedWifiInfo extends WifiInfo {
     private static final int SOURCE_LLSTATS = 2;
 
     private final WifiGlobals mWifiGlobals;
-    private final String mIfaceName;
 
     private int mLastSource = SOURCE_UNKNOWN;
     private long mLastPacketCountUpdateTimeStamp = RESET_TIME_STAMP;
 
-    ExtendedWifiInfo(WifiGlobals wifiGlobals, String ifaceName) {
+    ExtendedWifiInfo(WifiGlobals wifiGlobals) {
+        super();
         mWifiGlobals = wifiGlobals;
-        mIfaceName = ifaceName;
     }
 
     @Override
@@ -109,9 +108,5 @@ public class ExtendedWifiInfo extends WifiInfo {
         rxSuccess = rxgood;
         txRetries = txretries;
         mLastPacketCountUpdateTimeStamp = timeStamp;
-    }
-
-    public String getIfaceName() {
-        return mIfaceName;
     }
 }

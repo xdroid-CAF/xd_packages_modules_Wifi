@@ -339,15 +339,6 @@ public class SecurityParams {
     }
 
     /**
-     * Set PMF is required or not.
-     *
-     * @param required indicates whether PMF is required or not.
-     */
-    public void setRequirePmf(boolean required) {
-        mRequirePmf = required;
-    }
-
-    /**
      * Indicate PMF is required or not.
      */
     public boolean isRequirePmf() {

@@ -172,12 +172,9 @@ public class WifiNetworkSelectorTestUtil {
         for (int i = 0; i < savedConfigs.length; i++) {
             ScanResult scanResult = scanDetails.get(i).getScanResult();
             WifiConfiguration config = savedConfigs[i];
-            // Can check this only for configs with a single security type
-            if (config.getSecurityParamsList().size() < 2) {
-                assertEquals("Problem in entry " + i,
-                        ScanResultMatchInfo.fromScanResult(scanResult),
-                        ScanResultMatchInfo.fromWifiConfiguration(config));
-            }
+            assertEquals("Problem in entry " + i,
+                    ScanResultMatchInfo.fromScanResult(scanResult),
+                    ScanResultMatchInfo.fromWifiConfiguration(config));
         }
     }
 
@@ -283,8 +280,8 @@ public class WifiNetworkSelectorTestUtil {
 
             configs[index] = generateWifiConfig(id, 0, ssids[index], false, true, null,
                     null, securities[index]);
-            if ((securities[index] & SECURITY_PSK) != 0 || (securities[index] & SECURITY_SAE) != 0
-                    || (securities[index] & SECURITY_WAPI_PSK) != 0) {
+            if (securities[index] == SECURITY_PSK || securities[index] == SECURITY_SAE
+                    || securities[index] == SECURITY_WAPI_PSK) {
                 configs[index].preSharedKey = "\"PA55W0RD\""; // needed to validate with PSK
             }
             if (!WifiConfigurationUtil.validate(configs[index], true)) {
@@ -305,18 +302,6 @@ public class WifiNetworkSelectorTestUtil {
      */
     public static void prepareConfigStore(final WifiConfigManager wifiConfigManager,
                 final WifiConfiguration[] configs) {
-        when(wifiConfigManager.getSavedNetworkForScanDetail(any(ScanDetail.class)))
-                .then(new AnswerWithArguments() {
-                    public WifiConfiguration answer(ScanDetail scanDetail) {
-                        for (WifiConfiguration config : configs) {
-                            if (TextUtils.equals(config.SSID,
-                                    ScanResultUtil.createQuotedSSID(scanDetail.getSSID()))) {
-                                return config;
-                            }
-                        }
-                        return null;
-                    }
-                });
         when(wifiConfigManager.getConfiguredNetwork(anyInt()))
                 .then(new AnswerWithArguments() {
                     public WifiConfiguration answer(int netId) {

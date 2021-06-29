@@ -242,7 +242,7 @@ public class WifiAwareNativeManager {
             }
             mWifiNanIface = null;
             mReferenceCount = 0;
-            mWifiAwareStateManager.disableUsage(true);
+            mWifiAwareStateManager.disableUsage();
         }
     }
 

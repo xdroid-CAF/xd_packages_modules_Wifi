@@ -801,18 +801,6 @@ public class ApConfigUtil {
     }
 
     /**
-     * Helper function to get whether or not dynamic country code update is supported when Soft AP
-     * enabled.
-     *
-     * @param context the caller context used to get value from resource file.
-     * @return true if supported, false otherwise.
-     */
-    public static boolean isSoftApDynamicCountryCodeSupported(@NonNull Context context) {
-        return context.getResources().getBoolean(
-                R.bool.config_wifiSoftApDynamicCountryCodeUpdateSupported);
-    }
-
-    /**
      * Helper function for comparing two SoftApConfiguration.
      *
      * @param currentConfig the original configuration.
@@ -859,8 +847,7 @@ public class ApConfigUtil {
             return false;
         }
 
-        // The bands length should always 1 in R. Adding SdkLevel.isAtLeastS for lint check only.
-        if (config.getBands().length > 1 && SdkLevel.isAtLeastS()) {
+        if (config.getBands().length > 1) {
             int[] bands = config.getBands();
             if ((bands[0] & SoftApConfiguration.BAND_6GHZ) != 0
                     || (bands[0] & SoftApConfiguration.BAND_60GHZ) != 0

@@ -42,8 +42,6 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.SparseArray;
 
-import androidx.annotation.RequiresApi;
-
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.modules.utils.build.SdkLevel;
 import com.android.net.module.util.MacAddressUtils;
@@ -2750,7 +2748,6 @@ public class WifiConfiguration implements Parcelable {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int RECENT_FAILURE_MBO_ASSOC_DISALLOWED_UNSPECIFIED = 1005;
 
     /**
@@ -2760,7 +2757,6 @@ public class WifiConfiguration implements Parcelable {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int RECENT_FAILURE_MBO_ASSOC_DISALLOWED_MAX_NUM_STA_ASSOCIATED = 1006;
 
     /**
@@ -2770,7 +2766,6 @@ public class WifiConfiguration implements Parcelable {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AIR_INTERFACE_OVERLOADED = 1007;
 
     /**
@@ -2780,7 +2775,6 @@ public class WifiConfiguration implements Parcelable {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AUTH_SERVER_OVERLOADED = 1008;
 
     /**
@@ -2790,7 +2784,6 @@ public class WifiConfiguration implements Parcelable {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int RECENT_FAILURE_MBO_ASSOC_DISALLOWED_INSUFFICIENT_RSSI = 1009;
 
     /**
@@ -2800,7 +2793,6 @@ public class WifiConfiguration implements Parcelable {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int RECENT_FAILURE_OCE_RSSI_BASED_ASSOCIATION_REJECTION = 1010;
 
     /**
@@ -2809,7 +2801,6 @@ public class WifiConfiguration implements Parcelable {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int RECENT_FAILURE_NETWORK_NOT_FOUND = 1011;
 
     /**
@@ -3389,11 +3380,7 @@ public class WifiConfiguration implements Parcelable {
             key = SSID + KeyMgmt.strings[KeyMgmt.WPA_PSK];
         } else if (allowedKeyManagement.get(KeyMgmt.WPA_EAP)
                 || allowedKeyManagement.get(KeyMgmt.IEEE8021X)) {
-            if (!requirePmf) {
-                key = SSID + KeyMgmt.strings[KeyMgmt.WPA_EAP];
-            } else {
-                key = SSID + "WPA3_EAP";
-            }
+            key = SSID + KeyMgmt.strings[KeyMgmt.WPA_EAP];
         } else if (wepTxKeyIndex >= 0 && wepTxKeyIndex < wepKeys.length
                 && wepKeys[wepTxKeyIndex] != null) {
             key = SSID + "WEP";
@@ -3903,11 +3890,7 @@ public class WifiConfiguration implements Parcelable {
             key = KeyMgmt.strings[KeyMgmt.WPA_PSK];
         } else if (allowedKeyManagement.get(KeyMgmt.WPA_EAP)
                 || allowedKeyManagement.get(KeyMgmt.IEEE8021X)) {
-            if (!requirePmf) {
-                key = KeyMgmt.strings[KeyMgmt.WPA_EAP];
-            } else {
-                key = "WPA3_EAP";
-            }
+            key = KeyMgmt.strings[KeyMgmt.WPA_EAP];
         } else if (wepTxKeyIndex >= 0 && wepTxKeyIndex < wepKeys.length
                 && wepKeys[wepTxKeyIndex] != null) {
             key = "WEP";
@@ -3949,7 +3932,7 @@ public class WifiConfiguration implements Parcelable {
      * @hide
      */
     public static String getSecurityTypeName(@SecurityType int securityType) {
-        if (securityType < SECURITY_TYPE_OPEN || SECURITY_TYPE_NUM < securityType) {
+        if (securityType < SECURITY_TYPE_OPEN || SECURITY_TYPE_NUM > securityType) {
             return "unknown";
         }
         return SECURITY_TYPE_NAMES[securityType];

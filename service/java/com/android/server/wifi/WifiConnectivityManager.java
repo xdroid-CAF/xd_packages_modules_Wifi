@@ -151,7 +151,6 @@ public class WifiConnectivityManager {
     private final Clock mClock;
     private final ScoringParams mScoringParams;
     private final LocalLog mLocalLog;
-    private final WifiGlobals mWifiGlobals;
     /**
      * Keeps connection attempts within the last {@link #MAX_CONNECTION_ATTEMPTS_TIME_INTERVAL_MS}
      * milliseconds.
@@ -1014,8 +1013,7 @@ public class WifiConnectivityManager {
             WifiChannelUtilization wifiChannelUtilization,
             PasspointManager passpointManager,
             DeviceConfigFacade deviceConfigFacade,
-            ActiveModeWarden activeModeWarden,
-            WifiGlobals wifiGlobals) {
+            ActiveModeWarden activeModeWarden) {
         mContext = context;
         mScoringParams = scoringParams;
         mConfigManager = configManager;
@@ -1034,7 +1032,6 @@ public class WifiConnectivityManager {
         mPasspointManager = passpointManager;
         mDeviceConfigFacade = deviceConfigFacade;
         mActiveModeWarden = activeModeWarden;
-        mWifiGlobals = wifiGlobals;
 
         mAlarmManager = context.getSystemService(AlarmManager.class);
         mPowerManager = mContext.getSystemService(PowerManager.class);
@@ -2519,12 +2516,6 @@ public class WifiConnectivityManager {
             mNetworkSelector.resetOnDisable();
             mConfigManager.enableTemporaryDisabledNetworks();
             mConfigManager.stopRestrictingAutoJoinToSubscriptionId();
-            mConfigManager.clearUserTemporarilyDisabledList();
-            mConfigManager.removeAllEphemeralOrPasspointConfiguredNetworks();
-            // Flush ANQP cache if configured to do so
-            if (mWifiGlobals.flushAnqpCacheOnWifiToggleOffEvent()) {
-                mPasspointManager.clearAnqpRequestsAndFlushCache();
-            }
         }
         mWifiEnabled = enable;
         updateRunningState();

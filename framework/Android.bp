@@ -86,7 +86,7 @@ java_defaults {
     ],
     aidl: {
         include_dirs: [
-            "packages/modules/Connectivity/framework/aidl-export",
+            "frameworks/base/packages/Connectivity/framework/aidl-export",
         ],
     },
     srcs: [

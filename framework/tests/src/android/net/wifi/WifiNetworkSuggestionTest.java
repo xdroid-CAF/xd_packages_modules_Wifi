@@ -945,6 +945,7 @@ public class WifiNetworkSuggestionTest {
         assertEquals(WifiConfiguration.RANDOMIZATION_PERSISTENT,
                 suggestion.wifiConfiguration.macRandomizationSetting);
 
+        assumeTrue(SdkLevel.isAtLeastS());
         suggestion = new WifiNetworkSuggestion.Builder()
                 .setSsid(TEST_SSID)
                 .setMacRandomizationSetting(WifiNetworkSuggestion.RANDOMIZATION_PERSISTENT)
@@ -973,6 +974,7 @@ public class WifiNetworkSuggestionTest {
                 .build();
         assertEquals(false, suggestion.passpointConfiguration.isEnhancedMacRandomizationEnabled());
 
+        assumeTrue(SdkLevel.isAtLeastS());
         suggestion = new WifiNetworkSuggestion.Builder()
                 .setPasspointConfig(passpointConfiguration)
                 .setMacRandomizationSetting(
@@ -993,6 +995,7 @@ public class WifiNetworkSuggestionTest {
      */
     @Test(expected = IllegalArgumentException.class)
     public void testWifiNetworkSuggestionBuilderSetMacRandomizationInvalidParam() {
+        assumeTrue(SdkLevel.isAtLeastS());
         WifiNetworkSuggestion suggestion = new WifiNetworkSuggestion.Builder()
                 .setSsid(TEST_SSID)
                 .setMacRandomizationSetting(-1234)

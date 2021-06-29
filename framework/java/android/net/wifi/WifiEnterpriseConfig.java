@@ -201,9 +201,7 @@ public class WifiEnterpriseConfig implements Parcelable {
 
     /**
      * Require valid OCSP stapling response for all not-trusted certificates in the server
-     * certificate chain.
-     * @apiNote This option is not supported by most SSL libraries and should not be used.
-     * Specifying this option will most likely cause connection failures.
+     * certificate chain
      * @hide
      */
     @SystemApi
@@ -1594,7 +1592,6 @@ public class WifiEnterpriseConfig implements Parcelable {
      *
      * @param decoratedIdentityPrefix The prefix to add to the outer/anonymous identity
      */
-    @RequiresApi(Build.VERSION_CODES.S)
     public void setDecoratedIdentityPrefix(@Nullable String decoratedIdentityPrefix) {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();
@@ -1611,7 +1608,6 @@ public class WifiEnterpriseConfig implements Parcelable {
      *
      * @return The decorated identity prefix
      */
-    @RequiresApi(Build.VERSION_CODES.S)
     public @Nullable String getDecoratedIdentityPrefix() {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();

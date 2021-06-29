@@ -269,11 +269,6 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
     public static final int ENABLED                         = 1;
     public static final int DISABLED                        = 0;
 
-    private static final int P2P_CONNECT_TRIGGER_GROUP_NEG_REQ      = 1;
-    private static final int P2P_CONNECT_TRIGGER_INVITATION_REQ     = 2;
-    private static final int P2P_CONNECT_TRIGGER_OTHER              = 3;
-
-
     private final boolean mP2pSupported;
 
     private final WifiP2pDevice mThisDevice = new WifiP2pDevice();
@@ -887,6 +882,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                                 WifiManager.WIFI_STATE_UNKNOWN);
                         if (wifistate == WifiManager.WIFI_STATE_ENABLED) {
                             mIsWifiEnabled = true;
+                            checkAndReEnableP2p();
                         } else {
                             mIsWifiEnabled = false;
                             // Teardown P2P if it's up already.
@@ -1477,38 +1473,32 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                 }
             }
 
-            private boolean setupInterface() {
-                if (!mIsWifiEnabled) {
-                    Log.e(TAG, "Ignore P2P enable since wifi is " + mIsWifiEnabled);
-                    return false;
-                }
-                WorkSource requestorWs = createMergedRequestorWs();
-                mInterfaceName = mWifiNative.setupInterface((String ifaceName) -> {
-                    sendMessage(DISABLE_P2P);
-                    checkAndSendP2pStateChangedBroadcast();
-                }, getHandler(), requestorWs);
-                if (mInterfaceName == null) {
-                    Log.e(TAG, "Failed to setup interface for P2P");
-                    return false;
-                }
-                setupInterfaceFeatures(mInterfaceName);
-                try {
-                    mNetdWrapper.setInterfaceUp(mInterfaceName);
-                } catch (IllegalStateException ie) {
-                    loge("Unable to change interface settings: " + ie);
-                }
-                registerForWifiMonitorEvents();
-                return true;
-            }
-
             @Override
             public boolean processMessage(Message message) {
                 if (mVerboseLoggingEnabled) logd(getName() + message.toString());
                 switch (message.what) {
                     case ENABLE_P2P:
-                        if (setupInterface()) {
-                            transitionTo(mInactiveState);
+                        if (!mIsWifiEnabled) {
+                            Log.e(TAG, "Ignore P2P enable since wifi is " + mIsWifiEnabled);
+                            break;
                         }
+                        WorkSource requestorWs = createMergedRequestorWs();
+                        mInterfaceName = mWifiNative.setupInterface((String ifaceName) -> {
+                            sendMessage(DISABLE_P2P);
+                            checkAndSendP2pStateChangedBroadcast();
+                        }, getHandler(), requestorWs);
+                        if (mInterfaceName == null) {
+                            Log.e(TAG, "Failed to setup interface for P2P");
+                            break;
+                        }
+                        setupInterfaceFeatures(mInterfaceName);
+                        try {
+                            mNetdWrapper.setInterfaceUp(mInterfaceName);
+                        } catch (IllegalStateException ie) {
+                            loge("Unable to change interface settings: " + ie);
+                        }
+                        registerForWifiMonitorEvents();
+                        transitionTo(mInactiveState);
                         break;
                     case REMOVE_CLIENT_INFO:
                         if (!(message.obj instanceof IBinder)) {
@@ -1525,31 +1515,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                         }
                         break;
                     default:
-                        // only handle commands from clients.
-                        if (message.what < Protocol.BASE_WIFI_P2P_MANAGER
-                                || Protocol.BASE_WIFI_P2P_SERVICE <= message.what) {
-                            return NOT_HANDLED;
-                        }
-                        // If P2P is not ready, it might be disabled due
-                        // to another interface, ex. turn on softap from
-                        // the quicksettings.
-                        // As the new priority scheme, the foreground app
-                        // might be able to use P2P, so just try to enable
-                        // it.
-                        // Check & re-enable P2P if needed.
-                        // P2P interface will be created if all of the below are true:
-                        // a) Wifi is enabled.
-                        // b) There is at least 1 client app which invoked initialize().
-                        if (mVerboseLoggingEnabled) {
-                            Log.d(TAG, "Wifi enabled=" + mIsWifiEnabled + ", Number of clients="
-                                    + mDeathDataByBinder.size());
-                        }
-                        if (!mIsWifiEnabled) return NOT_HANDLED;
-                        if (mDeathDataByBinder.isEmpty()) return NOT_HANDLED;
-                        if (!setupInterface()) return NOT_HANDLED;
-                        deferMessage(message);
-                        transitionTo(mInactiveState);
-                        break;
+                        return NOT_HANDLED;
                 }
                 return HANDLED;
             }
@@ -2347,8 +2313,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                 switch (message.what) {
                     case PEER_CONNECTION_USER_ACCEPT:
                         mWifiNative.p2pStopFind();
-                        p2pConnectWithPinDisplay(mSavedPeerConfig,
-                                                 P2P_CONNECT_TRIGGER_GROUP_NEG_REQ);
+                        p2pConnectWithPinDisplay(mSavedPeerConfig, false);
                         mPeers.updateStatus(mSavedPeerConfig.deviceAddress, WifiP2pDevice.INVITED);
                         sendPeersChangedBroadcast();
                         transitionTo(mGroupNegotiationState);
@@ -2394,8 +2359,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                         mWifiNative.p2pStopFind();
                         if (!reinvokePersistentGroup(mSavedPeerConfig, true)) {
                             // Do negotiation when persistence fails
-                            p2pConnectWithPinDisplay(mSavedPeerConfig,
-                                                     P2P_CONNECT_TRIGGER_INVITATION_REQ);
+                            p2pConnectWithPinDisplay(mSavedPeerConfig, true);
                         }
                         mPeers.updateStatus(mSavedPeerConfig.deviceAddress, WifiP2pDevice.INVITED);
                         sendPeersChangedBroadcast();
@@ -2445,7 +2409,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                         }
                         if (mSavedPeerConfig.wps.setup == WpsInfo.PBC) {
                             if (mVerboseLoggingEnabled) logd("Found a match " + mSavedPeerConfig);
-                            p2pConnectWithPinDisplay(mSavedPeerConfig, P2P_CONNECT_TRIGGER_OTHER);
+                            p2pConnectWithPinDisplay(mSavedPeerConfig, false);
                             transitionTo(mGroupNegotiationState);
                         }
                         break;
@@ -2464,8 +2428,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                             if (mVerboseLoggingEnabled) logd("Found a match " + mSavedPeerConfig);
                             // we already have the pin
                             if (!TextUtils.isEmpty(mSavedPeerConfig.wps.pin)) {
-                                p2pConnectWithPinDisplay(mSavedPeerConfig,
-                                                         P2P_CONNECT_TRIGGER_OTHER);
+                                p2pConnectWithPinDisplay(mSavedPeerConfig, false);
                                 transitionTo(mGroupNegotiationState);
                             } else {
                                 mJoinExistingGroup = false;
@@ -2490,7 +2453,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                         if (mSavedPeerConfig.wps.setup == WpsInfo.DISPLAY) {
                             if (mVerboseLoggingEnabled) logd("Found a match " + mSavedPeerConfig);
                             mSavedPeerConfig.wps.pin = provDisc.pin;
-                            p2pConnectWithPinDisplay(mSavedPeerConfig, P2P_CONNECT_TRIGGER_OTHER);
+                            p2pConnectWithPinDisplay(mSavedPeerConfig, false);
                             notifyInvitationSent(provDisc.pin, device.deviceAddress);
                             transitionTo(mGroupNegotiationState);
                         }
@@ -2565,8 +2528,11 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                             // As a result, P2P sends a unicast intent to tether service to trigger
                             // the whole flow before entering GroupCreatedState.
                             setWifiP2pInfoOnGroupFormation(null);
-                            if (!sendP2pTetherRequestBroadcast()) {
-                                loge("Cannot start tethering, remove " + mGroup);
+                            String tetheringServicePackage = findTetheringServicePackage();
+                            if (!TextUtils.isEmpty(tetheringServicePackage)) {
+                                sendP2pTetherRequestBroadcast(tetheringServicePackage);
+                            } else {
+                                loge("No valid tethering service, remove " + mGroup);
                                 mWifiNative.p2pGroupRemove(mGroup.getInterface());
                             }
                             break;
@@ -2642,7 +2608,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
 
                             // Reinvocation has failed, try group negotiation
                             mSavedPeerConfig.netId = WifiP2pGroup.NETWORK_ID_PERSISTENT;
-                            p2pConnectWithPinDisplay(mSavedPeerConfig, P2P_CONNECT_TRIGGER_OTHER);
+                            p2pConnectWithPinDisplay(mSavedPeerConfig, false);
                         } else if (status == P2pStatus.INFORMATION_IS_CURRENTLY_UNAVAILABLE) {
 
                             // Devices setting persistent_reconnect to 0 in wpa_supplicant
@@ -2650,7 +2616,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                             // "information is currently unavailable" error.
                             // So, try another way to connect for interoperability.
                             mSavedPeerConfig.netId = WifiP2pGroup.NETWORK_ID_PERSISTENT;
-                            p2pConnectWithPinDisplay(mSavedPeerConfig, P2P_CONNECT_TRIGGER_OTHER);
+                            p2pConnectWithPinDisplay(mSavedPeerConfig, false);
                         } else if (status == P2pStatus.NO_COMMON_CHANNEL) {
                             transitionTo(mFrequencyConflictState);
                         } else {
@@ -3094,12 +3060,6 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                 resetWifiP2pInfo();
                 mDetailedState = NetworkInfo.DetailedState.DISCONNECTED;
                 sendP2pConnectionChangedBroadcast();
-                // When location mode is off, tethering service cannot receive regular
-                // p2p connection changed event to stop tethering, send a
-                // dedicated update to stop it.
-                if (!mWifiPermissionsUtil.isLocationModeEnabled()) {
-                    sendP2pTetherRequestBroadcast();
-                }
             }
         }
 
@@ -3178,6 +3138,18 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
             pw.println("mSavedPeerConfig " + mSavedPeerConfig);
             pw.println("mGroups" + mGroups);
             pw.println();
+        }
+
+        // Check & re-enable P2P if needed.
+        // P2P interface will be created if all of the below are true:
+        // a) Wifi is enabled.
+        // b) There is at least 1 client app which invoked initialize().
+        private void checkAndReEnableP2p() {
+            Log.d(TAG, "Wifi enabled=" + mIsWifiEnabled + ", Number of clients="
+                    + mDeathDataByBinder.size());
+            if (mIsWifiEnabled && !mDeathDataByBinder.isEmpty()) {
+                sendMessage(ENABLE_P2P);
+            }
         }
 
         private void checkAndSendP2pStateChangedBroadcast() {
@@ -3283,11 +3255,8 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
             return null;
         }
 
-        private boolean sendP2pTetherRequestBroadcast() {
-            String tetheringServicePackage = findTetheringServicePackage();
-            if (TextUtils.isEmpty(tetheringServicePackage)) return false;
-            Log.i(TAG, "sending p2p tether request broadcast to "
-                    + tetheringServicePackage);
+        private void sendP2pTetherRequestBroadcast(String tetheringServicePackage) {
+            if (mVerboseLoggingEnabled) logd("sending p2p tether request broadcast");
 
             Intent intent = new Intent(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);
             intent.setPackage(tetheringServicePackage);
@@ -3300,7 +3269,6 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
             Context context = mContext.createContextAsUser(UserHandle.ALL, 0);
             context.sendBroadcastWithMultiplePermissions(
                     intent, RECEIVER_PERMISSIONS_FOR_BROADCAST);
-            return true;
         }
 
         private void sendP2pPersistentGroupsChangedBroadcast() {
@@ -3655,7 +3623,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
          * Start a p2p group negotiation and display pin if necessary
          * @param config for the peer
          */
-        private void p2pConnectWithPinDisplay(WifiP2pConfig config, int triggerType) {
+        private void p2pConnectWithPinDisplay(WifiP2pConfig config, boolean isInvited) {
             if (config == null) {
                 Log.e(TAG, "Illegal argument(s)");
                 return;
@@ -3666,20 +3634,10 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                 return;
             }
             config.groupOwnerIntent = selectGroupOwnerIntentIfNecessary(config);
-            boolean action;
-            if (triggerType == P2P_CONNECT_TRIGGER_GROUP_NEG_REQ) {
-                // If this is called from the GO negotiation path, the sender initiated
-                // a group negotiation.
-                action = FORM_GROUP;
-            } else if (triggerType == P2P_CONNECT_TRIGGER_INVITATION_REQ) {
-                // The group owner won't report it is a Group Owner always.
-                // If this is called from the invitation path, the sender should be in
-                // a group, and the target should be a group owner.
-                action = JOIN_GROUP;
-            } else {
-                action = dev.isGroupOwner() ? JOIN_GROUP : FORM_GROUP;
-            }
-
+            // The group owner won't report it is a Group Owner always.
+            // If this is called from the invitation path, the sender should be in
+            // a group, and the target should be a group owner.
+            boolean action = (dev.isGroupOwner() || isInvited) ? JOIN_GROUP : FORM_GROUP;
             String pin = mWifiNative.p2pConnect(config, action);
             try {
                 Integer.parseInt(pin);

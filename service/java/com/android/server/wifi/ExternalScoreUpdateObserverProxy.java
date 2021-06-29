@@ -21,8 +21,6 @@ import android.net.wifi.IScoreUpdateObserver;
 import android.net.wifi.WifiManager;
 import android.util.Log;
 
-import com.android.modules.utils.build.SdkLevel;
-
 
 /**
  * This is the callback proxy used to listen to external scorer actions triggered via
@@ -93,9 +91,6 @@ public class ExternalScoreUpdateObserverProxy extends IScoreUpdateObserver.Stub 
 
     @Override
     public void notifyStatusUpdate(int sessionId, boolean isUsable) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         mWifiThreadRunner.post(() -> {
             if (mCallback == null) {
                 Log.wtf(TAG, "No callback registered, dropping notifyStatusUpdate");
@@ -107,9 +102,6 @@ public class ExternalScoreUpdateObserverProxy extends IScoreUpdateObserver.Stub 
 
     @Override
     public void requestNudOperation(int sessionId) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         mWifiThreadRunner.post(() -> {
             if (mCallback == null) {
                 Log.wtf(TAG, "No callback registered, dropping requestNudOperation");
@@ -121,9 +113,6 @@ public class ExternalScoreUpdateObserverProxy extends IScoreUpdateObserver.Stub 
 
     @Override
     public void blocklistCurrentBssid(int sessionId) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         mWifiThreadRunner.post(() -> {
             if (mCallback == null) {
                 Log.wtf(TAG, "No callback registered, dropping requestNudOperation");

@@ -433,14 +433,14 @@ public class NetworkListStoreDataTest extends WifiBaseTest {
      * @return List of WifiConfiguration
      */
     private List<WifiConfiguration> getTestNetworksConfig(boolean shared) {
-        WifiConfiguration openNetwork = WifiConfigurationTestUtil.createOpenOweNetwork();
+        WifiConfiguration openNetwork = WifiConfigurationTestUtil.createOpenNetwork();
         openNetwork.creatorName = TEST_CREATOR_NAME;
         openNetwork.shared = shared;
         openNetwork.setIpConfiguration(
                 WifiConfigurationTestUtil.createDHCPIpConfigurationWithNoProxy());
         openNetwork.setRandomizedMacAddress(TEST_RANDOMIZED_MAC);
         openNetwork.meteredOverride = WifiConfiguration.METERED_OVERRIDE_NOT_METERED;
-        WifiConfiguration eapNetwork = WifiConfigurationTestUtil.createWpa2Wpa3EnterpriseNetwork();
+        WifiConfiguration eapNetwork = WifiConfigurationTestUtil.createEapNetwork();
         eapNetwork.shared = shared;
         eapNetwork.creatorName = TEST_CREATOR_NAME;
         eapNetwork.setIpConfiguration(

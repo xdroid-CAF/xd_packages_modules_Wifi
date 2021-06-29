@@ -74,8 +74,6 @@ public class WifiScoreReport {
 
     // Cache of the last score
     private int mLegacyIntScore = ConnectedScore.WIFI_INITIAL_SCORE;
-    // Cache of the last usability status
-    private boolean mIsUsable = true;
 
     /**
      * If true, indicates that the associated {@link ClientModeImpl} instance is lingering
@@ -131,11 +129,8 @@ public class WifiScoreReport {
                 return;
             }
             long millis = mClock.getWallClockMillis();
-            if (SdkLevel.isAtLeastS()) {
-                mLegacyIntScore = score;
-                updateWifiMetrics(millis, -1);
-                return;
-            }
+            // TODO(b/171571687): Check the Sdk level and score is used for metric collection only
+            // in S.
             if (score < ConnectedScore.WIFI_TRANSITION_SCORE) {
                 if (mLegacyIntScore >= ConnectedScore.WIFI_TRANSITION_SCORE) {
                     mLastScoreBreachLowTimeMillis = millis;
@@ -208,7 +203,7 @@ public class WifiScoreReport {
             }
 
             // TODO(b/153075963): This should not be plumbed through WifiMetrics
-            mWifiMetrics.updateWifiUsabilityStatsEntries(mInterfaceName, mWifiInfo, stats);
+            mWifiMetrics.updateWifiUsabilityStatsEntries(mWifiInfo, stats);
         }
 
         @Override
@@ -225,30 +220,27 @@ public class WifiScoreReport {
             if (mNetworkAgent == null) {
                 return;
             }
-            if (mShouldReduceNetworkScore) {
-                return;
-            }
-            mIsUsable = isUsable;
-            // Wifi is set to be usable if adaptive connectivity is disabled.
+            int score = isUsable ? ConnectedScore.WIFI_TRANSITION_SCORE + 1 :
+                    ConnectedScore.WIFI_TRANSITION_SCORE - 1;
+            // Stay a notch above the transition score if adaptive connectivity is disabled.
             if (!mAdaptiveConnectivityEnabledSettingObserver.get()
                     || !mWifiSettingsStore.isWifiScoringEnabled()) {
-                mIsUsable = true;
+                score = ConnectedScore.WIFI_TRANSITION_SCORE + 1;
                 if (mVerboseLoggingEnabled) {
-                    Log.d(TAG, "Wifi scoring disabled - Notify that Wifi is usable");
+                    Log.d(TAG, "Wifi scoring disabled - Stay a notch above the transition score");
                 }
             }
-            // Send `exiting` to NetworkScore, but don't update and send mLegacyIntScore
+            // Send `legacyInt` and `exiting` to NetworkScore, but don't update mLegacyIntScore
             // and don't change any other fields. All we want to do is relay to ConnectivityService
             // whether the current network is usable.
             if (SdkLevel.isAtLeastS()) {
                 mNetworkAgent.sendNetworkScore(
                         getScoreBuilder()
-                                .setLegacyInt(mLegacyIntScore)
-                                .setExiting(!mIsUsable)
+                                .setLegacyInt(score)
+                                .setExiting(score < ConnectedScore.WIFI_TRANSITION_SCORE)
                                 .build());
             } else  {
-                mNetworkAgent.sendNetworkScore(mIsUsable ? ConnectedScore.WIFI_TRANSITION_SCORE + 1
-                        : ConnectedScore.WIFI_TRANSITION_SCORE - 1);
+                mNetworkAgent.sendNetworkScore(score);
             }
         }
 
@@ -509,7 +501,6 @@ public class WifiScoreReport {
     public void reset() {
         mSessionNumber++;
         mLegacyIntScore = ConnectedScore.WIFI_INITIAL_SCORE;
-        mIsUsable = true;
         mLastKnownNudCheckScore = ConnectedScore.WIFI_TRANSITION_SCORE;
         mAggressiveConnectedScore.reset();
         if (mVelocityBasedConnectedScore != null) {
@@ -684,11 +675,8 @@ public class WifiScoreReport {
         if (deltaMillis < NUD_THROTTLE_MILLIS) {
             return false;
         }
-        if (SdkLevel.isAtLeastS() && mWifiConnectedNetworkScorerHolder != null) {
-            if (!mWifiConnectedNetworkScorerHolder.getShouldCheckIpLayerOnce()) {
-                return false;
-            }
-            mNudYes++;
+        if (SdkLevel.isAtLeastS() && mWifiConnectedNetworkScorerHolder != null
+                && mWifiConnectedNetworkScorerHolder.getShouldCheckIpLayerOnce()) {
             return true;
         }
         int nud = mScoringParams.getNudKnob();
@@ -968,12 +956,10 @@ public class WifiScoreReport {
                 shouldForceKeepConnected
                         ? NetworkScore.KEEP_CONNECTED_FOR_HANDOVER
                         : NetworkScore.KEEP_CONNECTED_NONE;
-        boolean exiting = SdkLevel.isAtLeastS() && mWifiConnectedNetworkScorerHolder != null
-                ? !mIsUsable : mLegacyIntScore < ConnectedScore.WIFI_TRANSITION_SCORE;
         return new NetworkScore.Builder()
                 .setLegacyInt(mShouldReduceNetworkScore ? LINGERING_SCORE : mLegacyIntScore)
                 .setTransportPrimary(mCurrentRole == ActiveModeManager.ROLE_CLIENT_PRIMARY)
-                .setExiting(exiting)
+                .setExiting(mLegacyIntScore < ConnectedScore.WIFI_TRANSITION_SCORE)
                 .setKeepConnectedReason(keepConnectedReason);
     }
 
@@ -988,12 +974,6 @@ public class WifiScoreReport {
         //   and R platform + S Wifi module + S external scorer is not possible)
         // Thus, it's ok to return the raw int score on R.
         return mLegacyIntScore;
-    }
-
-    /** Get counts when we voted for a NUD. */
-    @VisibleForTesting
-    public int getNudYes() {
-        return mNudYes;
     }
 
     private void revertToDefaultConnectedScorer() {

@@ -48,25 +48,20 @@ public class WifiNotificationManager {
         mContext = context;
     }
 
-    private NotificationManager getNotificationManagerForCurrentUser() {
+    private void updateNotificationManagerForCurrentUser() {
         try {
-            return mContext.createPackageContextAsUser(mContext.getPackageName(), 0,
+            mNotificationManager = mContext.createPackageContextAsUser(mContext.getPackageName(), 0,
                     UserHandle.CURRENT).getSystemService(NotificationManager.class);
         } catch (PackageManager.NameNotFoundException e) {
             Log.e(TAG, "Failed to get NotificationManager for current user: " + e.getMessage());
         }
-        return null;
     }
 
     /**
      * Update to the notification manager fot current user and create notification channels.
      */
     public void createNotificationChannels() {
-        if (mNotificationManager != null) {
-            // Cancel all active notification from Wi-Fi Stack.
-            cleanAllWifiNotification();
-        }
-        mNotificationManager = getNotificationManagerForCurrentUser();
+        updateNotificationManagerForCurrentUser();
         if (mNotificationManager == null) {
             return;
         }
@@ -95,14 +90,7 @@ public class WifiNotificationManager {
         channelsList.add(networkAvailable);
 
         mNotificationManager.createNotificationChannels(channelsList);
-    }
-
-    private void cleanAllWifiNotification() {
-        for (StatusBarNotification notification : getActiveNotifications()) {
-            if (NOTIFICATION_TAG.equals(notification.getTag())) {
-                cancel(notification.getId());
-            }
-        }
+        mNotificationManager.cancelAll();
     }
 
     /**

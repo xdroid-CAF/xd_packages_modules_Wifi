@@ -17,10 +17,13 @@
 package android.net.wifi;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assume.assumeTrue;
 
 import android.os.Parcel;
 
 import androidx.test.filters.SmallTest;
+
+import com.android.modules.utils.build.SdkLevel;
 
 import org.junit.Test;
 
@@ -95,6 +98,8 @@ public class SoftApCapabilityTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void testGetSupportedChannelListWithInvalidBand() {
+        assumeTrue(SdkLevel.isAtLeastS());
+
         long testSoftApFeature = SoftApCapability.SOFTAP_FEATURE_CLIENT_FORCE_DISCONNECT
                 | SoftApCapability.SOFTAP_FEATURE_ACS_OFFLOAD;
         SoftApCapability capability = new SoftApCapability(testSoftApFeature);

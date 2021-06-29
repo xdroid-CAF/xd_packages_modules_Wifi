@@ -115,19 +115,6 @@ public class ScanResultMatchInfo {
                 ScanResultUtil.generateSecurityParamsListFromScanResult(scanResult));
     }
 
-    /**
-     * Get the best-matching security type between ScanResult and WifiConifiguration.
-     */
-    public static @Nullable SecurityParams getBestMatchingSecurityParams(
-            WifiConfiguration config,
-            List<SecurityParams> scanResultParamsList) {
-        if (null == config || null == scanResultParamsList) return null;
-
-        return findBestMatchingSecurityParams(
-                config.getSecurityParamsList(),
-                scanResultParamsList);
-    }
-
     public @Nullable SecurityParams getDefaultSecurityParams() {
         return securityParamsList.isEmpty() ? null : securityParamsList.get(0);
     }
@@ -194,11 +181,6 @@ public class ScanResultMatchInfo {
         return findBestMatchingSecurityParams(
                 allowedParamsList,
                 scanResultParamsList);
-    }
-
-    /** Check whether this matchinfo contains the type or not. */
-    public boolean isSecurityType(@WifiConfiguration.SecurityType int securityType) {
-        return securityParamsList.stream().anyMatch(p -> p.isSecurityType(securityType));
     }
 
     @Override

@@ -21,10 +21,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.net.Uri;
-import android.os.Build;
 import android.util.SparseArray;
-
-import androidx.annotation.RequiresApi;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -168,7 +165,6 @@ public abstract class EasyConnectStatusCallback {
     /**
      * Easy Connect Failure event: System failed to generate DPP URI.
      */
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_EVENT_FAILURE_URI_GENERATION = -13;
 
     /**
@@ -177,7 +173,6 @@ public abstract class EasyConnectStatusCallback {
      * is not included in the list of channels the Enrollee scanned in attempting to
      * discover the network prior to connection.
      */
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_EVENT_FAILURE_ENROLLEE_FAILED_TO_SCAN_NETWORK_CHANNEL =
             -14;
 
@@ -298,6 +293,5 @@ public abstract class EasyConnectStatusCallback {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public void onBootstrapUriGenerated(@NonNull Uri dppUri) {};
 }

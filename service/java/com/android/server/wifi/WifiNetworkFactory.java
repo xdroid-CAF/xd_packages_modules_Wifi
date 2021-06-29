@@ -61,7 +61,6 @@ import android.os.UserHandle;
 import android.os.WorkSource;
 import android.text.TextUtils;
 import android.util.Log;
-import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.wifi.proto.nano.WifiMetricsProto;
@@ -673,10 +672,6 @@ public class WifiNetworkFactory extends NetworkFactory {
             return false;
         }
         WifiNetworkSpecifier wns = (WifiNetworkSpecifier) networkRequest.getNetworkSpecifier();
-        if (wns.getBand() != ScanResult.UNSPECIFIED) {
-            Log.e(TAG, "Requesting specific frequency bands is not yet supported. Rejecting");
-            return false;
-        }
         if (!WifiConfigurationUtil.validateNetworkSpecifier(wns)) {
             Log.e(TAG, "Invalid wifi network specifier: " + wns + ". Rejecting ");
             return false;
@@ -795,8 +790,7 @@ public class WifiNetworkFactory extends NetworkFactory {
             mActiveSpecificNetworkRequest = networkRequest;
             WifiNetworkSpecifier wns = (WifiNetworkSpecifier) ns;
             mActiveSpecificNetworkRequestSpecifier = new WifiNetworkSpecifier(
-                    wns.ssidPatternMatcher, wns.bssidPatternMatcher, ScanResult.UNSPECIFIED,
-                    wns.wifiConfiguration);
+                    wns.ssidPatternMatcher, wns.bssidPatternMatcher, wns.wifiConfiguration);
             mWifiMetrics.incrementNetworkRequestApiNumRequest();
 
             if (!triggerConnectIfUserApprovedMatchFound()) {
@@ -874,31 +868,29 @@ public class WifiNetworkFactory extends NetworkFactory {
     }
 
     /**
-     * Return the uid of the specific network request being processed if connected to the requested
+     * Return true if the specific network request is being processed if connected to the requested
      * network.
      *
      * @param connectedNetwork WifiConfiguration corresponding to the connected network.
-     * @return Pair of uid & package name of the specific request (if any), else <-1, "">.
+     * @return true if the specific request is in progress, else false.
      */
-    public Pair<Integer, String> getSpecificNetworkRequestUidAndPackageName(
+    public boolean isSpecificRequestInProgress(
             @NonNull WifiConfiguration connectedNetwork, @NonNull String connectedBssid) {
         if (mUserSelectedNetwork == null || connectedNetwork == null) {
-            return Pair.create(Process.INVALID_UID, "");
+            return false;
         }
         if (!isUserSelectedNetwork(connectedNetwork, connectedBssid)) {
             Log.w(TAG, "Connected to unknown network " + connectedNetwork + ":" + connectedBssid
                     + ". Ignoring...");
-            return Pair.create(Process.INVALID_UID, "");
+            return false;
         }
         if (mConnectedSpecificNetworkRequestSpecifier != null) {
-            return Pair.create(mConnectedSpecificNetworkRequest.getRequestorUid(),
-                    mConnectedSpecificNetworkRequest.getRequestorPackageName());
+            return true;
         }
         if (mActiveSpecificNetworkRequestSpecifier != null) {
-            return Pair.create(mActiveSpecificNetworkRequest.getRequestorUid(),
-                    mActiveSpecificNetworkRequest.getRequestorPackageName());
+            return true;
         }
-        return Pair.create(Process.INVALID_UID, "");
+        return false;
     }
 
     // Helper method to add the provided network configuration to WifiConfigManager, if it does not
@@ -1007,9 +999,6 @@ public class WifiNetworkFactory extends NetworkFactory {
         // TODO (b/142035508): Use a more generic mechanism to fix this.
         networkToConnect.shared = false;
         networkToConnect.fromWifiNetworkSpecifier = true;
-
-        // TODO(b/188021807): Implement the band request from the specifier on the network to
-        // connect.
 
         // Store the user selected network.
         mUserSelectedNetwork = networkToConnect;
@@ -1745,12 +1734,13 @@ public class WifiNetworkFactory extends NetworkFactory {
         mActiveMatchedScanResults.putAll(matchedScanResults
                 .stream()
                 .collect(Collectors.toMap(
-                        scanResult -> scanResult.BSSID, scanResult -> scanResult, (a, b) -> a)));
+                        scanResult -> scanResult.BSSID, scanResult -> scanResult)));
         // Weed out any stale cached scan results.
         long currentTimeInMillis = mClock.getElapsedSinceBootMillis();
         mActiveMatchedScanResults.entrySet().removeIf(
                 e -> ((currentTimeInMillis - (e.getValue().timestamp / 1000))
                         >= CACHED_SCAN_RESULTS_MAX_AGE_IN_MILLIS));
+
     }
 
     /**

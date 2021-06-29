@@ -263,7 +263,6 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
     @Mock private ActiveModeWarden mActiveModeWarden;
     @Mock private ConcreteClientModeManager mPrimaryClientModeManager;
     @Mock private ConcreteClientModeManager mSecondaryClientModeManager;
-    @Mock private WifiGlobals mWifiGlobals;
     @Mock WifiCandidates.Candidate mCandidate1;
     @Mock WifiCandidates.Candidate mCandidate2;
     private WifiConfiguration mCandidateWifiConfig1;
@@ -475,7 +474,7 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
                 mWifiLastResortWatchdog, mOpenNetworkNotifier,
                 mWifiMetrics, new Handler(mLooper.getLooper()), mClock,
                 mLocalLog, mWifiScoreCard, mWifiBlocklistMonitor, mWifiChannelUtilization,
-                mPasspointManager, mDeviceConfigFacade, mActiveModeWarden, mWifiGlobals);
+                mPasspointManager, mDeviceConfigFacade, mActiveModeWarden);
         verify(mActiveModeWarden, atLeastOnce()).registerModeChangeCallback(
                 mModeChangeCallbackCaptor.capture());
         verify(mContext, atLeastOnce()).registerReceiver(
@@ -3115,40 +3114,20 @@ public class WifiConnectivityManagerTest extends WifiBaseTest {
     }
 
     /**
-     *  Verify blocklists and ephemeral networks are cleared from WifiConfigManager when exiting
-     *  Wifi client mode. And if requires, ANQP cache is also flushed.
+     *  Verify that temporarily disabled networks are re-enabled when exiting Wifi client mode.
      */
     @Test
     public void clearEnableTemporarilyDisabledNetworksWhenExitingWifiClientMode() {
         when(mWifiConnectivityHelper.isFirmwareRoamingSupported()).thenReturn(true);
-        when(mWifiGlobals.flushAnqpCacheOnWifiToggleOffEvent()).thenReturn(true);
+
         // Exit Wifi client mode.
         setWifiEnabled(false);
 
-        // Verify the blocklists is cleared again.
+        // Verify the blocklist is cleared again.
         verify(mWifiConfigManager).enableTemporaryDisabledNetworks();
         verify(mWifiConfigManager).stopRestrictingAutoJoinToSubscriptionId();
-        verify(mWifiConfigManager).removeAllEphemeralOrPasspointConfiguredNetworks();
-        verify(mWifiConfigManager).clearUserTemporarilyDisabledList();
-
-        // Verify ANQP cache is flushed.
-        verify(mPasspointManager).clearAnqpRequestsAndFlushCache();
         // Verify WifiNetworkSelector is informed of the disable.
         verify(mWifiNS).resetOnDisable();
-    }
-
-    /**
-     * Verifies that the ANQP cache is not flushed when the configuration does not permit it.
-     */
-    @Test
-    public void testAnqpFlushCacheSkippedIfNotConfigured() {
-        when(mWifiConnectivityHelper.isFirmwareRoamingSupported()).thenReturn(true);
-        when(mWifiGlobals.flushAnqpCacheOnWifiToggleOffEvent()).thenReturn(false);
-        // Exit Wifi client mode.
-        setWifiEnabled(false);
-
-        // Verify ANQP cache is not flushed.
-        verify(mPasspointManager, never()).clearAnqpRequestsAndFlushCache();
     }
 
     /**

@@ -126,9 +126,6 @@ public class ConcreteClientModeManager implements ClientModeManager {
     @Nullable
     private ClientRole mRole = null;
     @Nullable
-    private ClientRole mPreviousRole = null;
-    private long mLastRoleChangeSinceBootMs = 0;
-    @Nullable
     private WorkSource mRequestorWs = null;
     @NonNull
     private Listener<ConcreteClientModeManager> mModeListener;
@@ -435,16 +432,6 @@ public class ConcreteClientModeManager implements ClientModeManager {
         return mRole;
     }
 
-    @Override
-    @Nullable public ClientRole getPreviousRole() {
-        return mPreviousRole;
-    }
-
-    @Override
-    public long getLastRoleChangeSinceBootMs() {
-        return mLastRoleChangeSinceBootMs;
-    }
-
     /**
      * Class to hold info needed for role change.
      */
@@ -749,8 +736,6 @@ public class ConcreteClientModeManager implements ClientModeManager {
         }
 
         private void setRoleInternal(@NonNull RoleChangeInfo roleChangeInfo) {
-            mPreviousRole = mRole;
-            mLastRoleChangeSinceBootMs = mClock.getElapsedSinceBootMillis();
             mRole = roleChangeInfo.role;
             if (roleChangeInfo.requestorWs != null) {
                 mRequestorWs = roleChangeInfo.requestorWs;
@@ -783,16 +768,6 @@ public class ConcreteClientModeManager implements ClientModeManager {
                 Log.d(getTag(), "entering IdleState");
                 mClientInterfaceName = null;
                 mIfaceIsUp = false;
-            }
-
-            @Override
-            public void exit() {
-                // Sometimes the wifi handler thread may become blocked that the statemachine
-                // will exit in the IdleState without first entering StartedState. Trigger a
-                // cleanup here in case the above sequence happens. This the statemachine was
-                // started normally this will will not send a duplicate broadcast since mIsStopped
-                // will get set to false the first time the exit happens.
-                cleanupOnQuitIfApplicable();
             }
 
             @Override
@@ -1092,8 +1067,6 @@ public class ConcreteClientModeManager implements ClientModeManager {
      */
     private void cleanupOnQuitIfApplicable() {
         if (mIsStopped && mGraveyard.hasAllClientModeImplsQuit()) {
-            mPreviousRole = mRole;
-            mLastRoleChangeSinceBootMs = mClock.getElapsedSinceBootMillis();
             mRole = null;
             // only call onStopped() after role has been reset to null since ActiveModeWarden
             // expects the CMM to be fully stopped before onStopped().

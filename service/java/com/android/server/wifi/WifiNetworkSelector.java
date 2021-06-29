@@ -818,8 +818,6 @@ public class WifiNetworkSelector {
             registeredNominator.update(scanDetails);
         }
 
-        updateCandidatesSecurityParams(scanDetails);
-
         // Shall we start network selection at all?
         if (!isNetworkSelectionNeeded(scanDetails, cmmStates)) {
             return null;
@@ -912,78 +910,52 @@ public class WifiNetworkSelector {
         return wifiCandidates.getCandidates();
     }
 
-    /**
-     * For transition networks with only legacy networks,
-     * remove auto-upgrade type to use the legacy type to
-     * avoid roaming issues between two types.
-     */
-    private void removeAutoUpgradeSecurityParamsIfNecessary(
-            WifiConfiguration config,
-            List<SecurityParams> scanResultParamsList,
+    private void removeAutoUpgradeCandidateIfLegacyNetworkInRange(
+            Collection<WifiCandidates.Candidate> candidates,
             @WifiConfiguration.SecurityType int upgradableSecurityType,
-            boolean isLegacyNetworkInRange,
-            boolean isUpgradableTypeOnlyInRange,
-            boolean isAutoUpgradeEnabled) {
-        localLog("removeAutoUpgradeSecurityParamsIfNecessary:"
-                + " upgradableSecurityType: " + upgradableSecurityType
-                + " isLegacyNetworkInRange: " + isLegacyNetworkInRange
-                + " isUpgradableTypeOnlyInRange: " + isUpgradableTypeOnlyInRange
-                + " isAutoUpgradeEnabled: " + isAutoUpgradeEnabled);
-        if (isAutoUpgradeEnabled) {
-            // Consider removing the auto-upgraded type if legacy networks are in range.
-            if (!isLegacyNetworkInRange) return;
-            // If there are APs with standalone-upgradeable security type is in range,
-            // do not consider removing the auto-upgraded type.
-            if (isUpgradableTypeOnlyInRange) return;
-        }
+            boolean isLegacyNetworkInRange) {
+        if (!isLegacyNetworkInRange) return;
+
+        WifiCandidates.Candidate candidate = candidates.iterator().next();
+        WifiConfiguration config = mWifiConfigManager
+                .getConfiguredNetwork(candidate.getNetworkConfigId());
+        if (null == config) return;
 
         SecurityParams upgradableParams = config.getSecurityParams(upgradableSecurityType);
         if (null == upgradableParams) return;
         if (!upgradableParams.isAddedByAutoUpgrade()) return;
-        localLog("Remove upgradable security type " + upgradableSecurityType + " for the network.");
-        scanResultParamsList.removeIf(p -> p.isSecurityType(upgradableSecurityType));
+        localLog("Legacy network exists, disallow auto-upgrade type: "
+                + upgradableSecurityType);
+        candidates.removeIf(c ->
+                c.getKey().matchInfo.securityParamsList.stream().anyMatch(
+                        p -> p.isSecurityType(upgradableSecurityType)));
     }
 
-    /** Helper function to place all conditions which need to remove auto-upgrade types. */
-    private void removeSecurityParamsIfNecessary(
-            WifiConfiguration config,
-            List<SecurityParams> scanResultParamsList) {
-        // When offload is supported, both types are passed down.
+    private void removeCandidateIfNecessary(
+            Collection<WifiCandidates.Candidate> candidates) {
+        String ssid = candidates.iterator().next().getKey().matchInfo.networkSsid;
+        // If SAE auto-upgrade offload is not support, it results in
+        // romaing issue on roaming from SAE to PSK. As a result,
+        // The SAE candidate is only valid for SAE auto-upgrade mechanism
+        // when there is no legacy PSK network.
         if (!mWifiGlobals.isWpa3SaeUpgradeOffloadEnabled()) {
-            removeAutoUpgradeSecurityParamsIfNecessary(
-                    config, scanResultParamsList,
+            removeAutoUpgradeCandidateIfLegacyNetworkInRange(
+                    candidates,
                     WifiConfiguration.SECURITY_TYPE_SAE,
-                    mScanRequestProxy.isWpa2PersonalOnlyNetworkInRange(config.SSID),
-                    mScanRequestProxy.isWpa3PersonalOnlyNetworkInRange(config.SSID),
-                    mWifiGlobals.isWpa3SaeUpgradeEnabled());
+                    mScanRequestProxy.isLegacyWpa2NetworkInRange(ssid));
         }
-        removeAutoUpgradeSecurityParamsIfNecessary(
-                config, scanResultParamsList,
+        // There is no OWE offload flag yet, always assume that OWE auto-upgrade
+        // is not supported.
+        removeAutoUpgradeCandidateIfLegacyNetworkInRange(
+                candidates,
                 WifiConfiguration.SECURITY_TYPE_OWE,
-                mScanRequestProxy.isOpenOnlyNetworkInRange(config.SSID),
-                mScanRequestProxy.isOweOnlyNetworkInRange(config.SSID),
-                mWifiGlobals.isOweUpgradeEnabled());
-        removeAutoUpgradeSecurityParamsIfNecessary(
-                config, scanResultParamsList,
+                mScanRequestProxy.isLegacyOpenNetworkInRange(ssid));
+        // There is no WPA3 Enterprise offload flag yet, always assume that
+        // WPA3 Enterprise auto-upgrade offload is not supported.
+        removeAutoUpgradeCandidateIfLegacyNetworkInRange(
+                candidates,
                 WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE,
-                mScanRequestProxy.isWpa2EnterpriseOnlyNetworkInRange(config.SSID),
-                mScanRequestProxy.isWpa3EnterpriseOnlyNetworkInRange(config.SSID),
-                true);
-    }
-
-    /**
-     * For the transition mode, MFPC should be true, and MFPR should be false,
-     * see WPA3 SAE specification section 2.3 and 3.3.
-     */
-    private void updateSecurityParamsForTransitionModeIfNecessary(
-            ScanResult scanResult, SecurityParams params) {
-        if (params.isSecurityType(WifiConfiguration.SECURITY_TYPE_SAE)
-                && ScanResultUtil.isScanResultForPskSaeTransitionNetwork(scanResult)) {
-            params.setRequirePmf(false);
-        } else if (params.isSecurityType(WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE)
-                && ScanResultUtil.isScanResultForWpa3EnterpriseTransitionNetwork(scanResult)) {
-            params.setRequirePmf(false);
-        }
+                mScanRequestProxy.isLegacyWpa2EnterpriseNetworkInRange(ssid));
     }
 
     /**
@@ -1003,25 +975,16 @@ public class WifiNetworkSelector {
         // This is needed for the legacy user connect choice, at least
         Collection<Collection<WifiCandidates.Candidate>> groupedCandidates =
                 wifiCandidates.getGroupedCandidates();
+        groupedCandidates.stream().forEach(group -> removeCandidateIfNecessary(group));
         for (Collection<WifiCandidates.Candidate> group : groupedCandidates) {
             WifiCandidates.ScoredCandidate choice = activeScorer.scoreCandidates(group);
             if (choice == null) continue;
             ScanDetail scanDetail = getScanDetailForCandidateKey(choice.candidateKey);
             if (scanDetail == null) continue;
-            WifiConfiguration config = mWifiConfigManager
-                    .getConfiguredNetwork(choice.candidateKey.networkId);
-            if (config == null) continue;
-            List<SecurityParams> scanResultParamsList = ScanResultUtil
-                    .generateSecurityParamsListFromScanResult(scanDetail.getScanResult());
-            if (scanResultParamsList == null) continue;
-            // Under some conditions, the legacy type is preferred to have better
-            // connectivity behaviors, and the auto-upgrade type should be removed.
-            removeSecurityParamsIfNecessary(config, scanResultParamsList);
             SecurityParams params = ScanResultMatchInfo.getBestMatchingSecurityParams(
-                    config,
-                    scanResultParamsList);
+                    mWifiConfigManager.getConfiguredNetwork(choice.candidateKey.networkId),
+                    scanDetail.getScanResult());
             if (params == null) continue;
-            updateSecurityParamsForTransitionModeIfNecessary(scanDetail.getScanResult(), params);
             mWifiConfigManager.setNetworkCandidateScanResult(choice.candidateKey.networkId,
                     scanDetail.getScanResult(), 0, params);
         }
@@ -1283,23 +1246,5 @@ public class WifiNetworkSelector {
         mWifiChannelUtilization = wifiChannelUtilization;
         mWifiGlobals = wifiGlobals;
         mScanRequestProxy = scanRequestProxy;
-    }
-
-    private void updateCandidatesSecurityParams(List<ScanDetail> scanDetails) {
-        for (ScanDetail scanDetail : scanDetails) {
-            WifiConfiguration network =
-                    mWifiConfigManager.getSavedNetworkForScanDetail(scanDetail);
-            if (network == null || network.getSecurityParamsList().size() < 2) continue;
-
-            List<SecurityParams> scanResultParamsList = ScanResultUtil
-                    .generateSecurityParamsListFromScanResult(scanDetail.getScanResult());
-            if (scanResultParamsList == null) continue;
-
-            SecurityParams params = ScanResultMatchInfo.getBestMatchingSecurityParams(network,
-                    scanResultParamsList);
-            if (params == null) continue;
-
-            network.getNetworkSelectionStatus().setCandidateSecurityParams(params);
-        }
     }
 }

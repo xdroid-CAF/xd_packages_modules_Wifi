@@ -24,7 +24,6 @@ import static org.junit.Assert.*;
 import android.content.pm.UserInfo;
 import android.net.IpConfiguration;
 import android.net.MacAddress;
-import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiEnterpriseConfig;
 import android.net.wifi.WifiManager;
@@ -507,19 +506,6 @@ public class WifiConfigurationUtilTest extends WifiBaseTest {
     }
 
     /**
-     * Verify that the validate method fails to validate WifiConfiguration with bad key mgmt values.
-     */
-    @Test
-    public void testValidateNegativeCases_BadSuiteBKeyMgmt() {
-        WifiConfiguration config = WifiConfigurationTestUtil.createEapSuiteBNetwork();
-        assertTrue(WifiConfigurationUtil.validate(config, WifiConfigurationUtil.VALIDATE_FOR_ADD));
-
-        config.allowedKeyManagement.clear(WifiConfiguration.KeyMgmt.IEEE8021X);
-        config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA2_PSK);
-        assertFalse(WifiConfigurationUtil.validate(config, WifiConfigurationUtil.VALIDATE_FOR_ADD));
-    }
-
-    /**
      * Verify that the validate method fails to validate WifiConfiguration with bad ipconfiguration
      * values.
      */
@@ -623,7 +609,6 @@ public class WifiConfigurationUtilTest extends WifiBaseTest {
         WifiNetworkSpecifier specifier = new WifiNetworkSpecifier(
                 new PatternMatcher(TEST_SSID, PatternMatcher.PATTERN_LITERAL),
                 Pair.create(WifiManager.ALL_ZEROS_MAC_ADDRESS, WifiManager.ALL_ZEROS_MAC_ADDRESS),
-                ScanResult.UNSPECIFIED,
                 WifiConfigurationTestUtil.createOpenNetwork());
         assertTrue(WifiConfigurationUtil.validateNetworkSpecifier(specifier));
     }
@@ -637,7 +622,6 @@ public class WifiConfigurationUtilTest extends WifiBaseTest {
         WifiNetworkSpecifier specifier = new WifiNetworkSpecifier(
                 new PatternMatcher(".*", PatternMatcher.PATTERN_SIMPLE_GLOB),
                 Pair.create(MacAddress.fromString(TEST_BSSID), MacAddress.BROADCAST_ADDRESS),
-                ScanResult.UNSPECIFIED,
                 WifiConfigurationTestUtil.createOpenNetwork());
         assertTrue(WifiConfigurationUtil.validateNetworkSpecifier(specifier));
     }
@@ -651,26 +635,9 @@ public class WifiConfigurationUtilTest extends WifiBaseTest {
         WifiNetworkSpecifier specifier = new WifiNetworkSpecifier(
                 new PatternMatcher(TEST_SSID, PatternMatcher.PATTERN_LITERAL),
                 Pair.create(MacAddress.fromString(TEST_BSSID), MacAddress.BROADCAST_ADDRESS),
-                ScanResult.UNSPECIFIED,
                 WifiConfigurationTestUtil.createOpenNetwork());
         assertTrue(WifiConfigurationUtil.validateNetworkSpecifier(specifier));
     }
-
-    /**
-     * Verify that the validate method validates a WifiNetworkSpecifier that specifies ssid, bssid,
-     * and band. Note that such requests will currently still be rejected by WifiNetworkFactory, but
-     * requesting specific bands may be supported in future releases.
-     */
-    @Test
-    public void testValidateNetworkSpecifierPositiveCases_SsidPatternAndBssidPatternAndBand() {
-        WifiNetworkSpecifier specifier = new WifiNetworkSpecifier(
-                new PatternMatcher(TEST_SSID, PatternMatcher.PATTERN_LITERAL),
-                Pair.create(MacAddress.fromString(TEST_BSSID), MacAddress.BROADCAST_ADDRESS),
-                ScanResult.WIFI_BAND_5_GHZ,
-                WifiConfigurationTestUtil.createOpenNetwork());
-        assertTrue(WifiConfigurationUtil.validateNetworkSpecifier(specifier));
-    }
-
 
     /**
      * Verify that the validate method fails to validate WifiNetworkSpecifier with no
@@ -681,7 +648,6 @@ public class WifiConfigurationUtilTest extends WifiBaseTest {
         WifiNetworkSpecifier specifier = new WifiNetworkSpecifier(
                 new PatternMatcher(".*", PatternMatcher.PATTERN_SIMPLE_GLOB),
                 Pair.create(WifiManager.ALL_ZEROS_MAC_ADDRESS, WifiManager.ALL_ZEROS_MAC_ADDRESS),
-                ScanResult.UNSPECIFIED,
                 WifiConfigurationTestUtil.createOpenNetwork());
         assertFalse(WifiConfigurationUtil.validateNetworkSpecifier(specifier));
     }
@@ -695,7 +661,6 @@ public class WifiConfigurationUtilTest extends WifiBaseTest {
         WifiNetworkSpecifier specifier = new WifiNetworkSpecifier(
                 new PatternMatcher("", PatternMatcher.PATTERN_LITERAL),
                 Pair.create(WifiManager.ALL_ZEROS_MAC_ADDRESS, WifiManager.ALL_ZEROS_MAC_ADDRESS),
-                ScanResult.UNSPECIFIED,
                 WifiConfigurationTestUtil.createOpenNetwork());
         assertFalse(WifiConfigurationUtil.validateNetworkSpecifier(specifier));
     }
@@ -709,7 +674,6 @@ public class WifiConfigurationUtilTest extends WifiBaseTest {
         WifiNetworkSpecifier specifier = new WifiNetworkSpecifier(
                 new PatternMatcher(TEST_SSID, PatternMatcher.PATTERN_LITERAL),
                 Pair.create(MacAddress.BROADCAST_ADDRESS, MacAddress.BROADCAST_ADDRESS),
-                ScanResult.UNSPECIFIED,
                 WifiConfigurationTestUtil.createOpenNetwork());
         assertFalse(WifiConfigurationUtil.validateNetworkSpecifier(specifier));
     }
@@ -723,7 +687,6 @@ public class WifiConfigurationUtilTest extends WifiBaseTest {
         WifiNetworkSpecifier specifier = new WifiNetworkSpecifier(
                 new PatternMatcher(TEST_SSID, PatternMatcher.PATTERN_LITERAL),
                 Pair.create(MacAddress.fromString(TEST_BSSID), WifiManager.ALL_ZEROS_MAC_ADDRESS),
-                ScanResult.UNSPECIFIED,
                 WifiConfigurationTestUtil.createOpenNetwork());
         assertFalse(WifiConfigurationUtil.validateNetworkSpecifier(specifier));
     }
@@ -737,21 +700,7 @@ public class WifiConfigurationUtilTest extends WifiBaseTest {
         WifiNetworkSpecifier specifier = new WifiNetworkSpecifier(
                 new PatternMatcher(TEST_SSID, PatternMatcher.PATTERN_PREFIX),
                 Pair.create(WifiManager.ALL_ZEROS_MAC_ADDRESS, WifiManager.ALL_ZEROS_MAC_ADDRESS),
-                ScanResult.UNSPECIFIED,
                 WifiConfigurationTestUtil.createOpenHiddenNetwork());
-        assertFalse(WifiConfigurationUtil.validateNetworkSpecifier(specifier));
-    }
-
-    /**
-     * Verify that the validate method fails to validate WifiNetworkSpecifier with an invalid band.
-     */
-    @Test
-    public void testValidateNetworkSpecifierNegativeCases_InvalidBand() {
-        WifiNetworkSpecifier specifier = new WifiNetworkSpecifier(
-                new PatternMatcher(TEST_SSID, PatternMatcher.PATTERN_LITERAL),
-                Pair.create(MacAddress.fromString(TEST_BSSID), MacAddress.BROADCAST_ADDRESS),
-                42,  // invalid
-                WifiConfigurationTestUtil.createOpenNetwork());
         assertFalse(WifiConfigurationUtil.validateNetworkSpecifier(specifier));
     }
 
@@ -1165,25 +1114,5 @@ public class WifiConfigurationUtilTest extends WifiBaseTest {
         WifiConfiguration wapiCertConfig = new WifiConfiguration();
         wapiCertConfig.setSecurityParams(WifiConfiguration.SECURITY_TYPE_WAPI_CERT);
         assertFalse(WifiConfigurationUtil.isConfigForOpenNetwork(wapiCertConfig));
-    }
-
-
-    /**
-     * Verify that the validate method fails to validate WifiConfiguration with malformed
-     * enterprise configuration
-     */
-    @Test
-    public void testValidateNegativeCases_MalformedEnterpriseConfig() {
-        WifiConfiguration config = new WifiConfiguration();
-        config.SSID = "\"someNetwork\"";
-        config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_EAP);
-        // EAP method is kept as Eap.NONE - should not crash, but return invalid ID
-        assertFalse(WifiConfigurationUtil.validate(config, WifiConfigurationUtil.VALIDATE_FOR_ADD));
-
-        config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE);
-        assertFalse(WifiConfigurationUtil.validate(config, WifiConfigurationUtil.VALIDATE_FOR_ADD));
-
-        config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE_192_BIT);
-        assertFalse(WifiConfigurationUtil.validate(config, WifiConfigurationUtil.VALIDATE_FOR_ADD));
     }
 }

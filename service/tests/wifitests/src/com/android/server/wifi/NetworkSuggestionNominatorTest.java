@@ -35,7 +35,6 @@ import android.util.Pair;
 
 import androidx.test.filters.SmallTest;
 
-import com.android.modules.utils.build.SdkLevel;
 import com.android.server.wifi.WifiNetworkSuggestionsManager.ExtendedWifiNetworkSuggestion;
 import com.android.server.wifi.WifiNetworkSuggestionsManager.PerAppInfo;
 import com.android.server.wifi.hotspot2.PasspointNetworkNominateHelper;
@@ -74,7 +73,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
     private @Mock PasspointNetworkNominateHelper mPasspointNetworkNominateHelper;
     private @Mock Clock mClock;
     private @Mock WifiCarrierInfoManager mWifiCarrierInfoManager;
-    private @Mock WifiMetrics mWifiMetrics;
     private NetworkSuggestionNominator mNetworkSuggestionNominator;
 
     /** Sets up test. */
@@ -83,7 +81,7 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
         MockitoAnnotations.initMocks(this);
         mNetworkSuggestionNominator = new NetworkSuggestionNominator(
                 mWifiNetworkSuggestionsManager, mWifiConfigManager, mPasspointNetworkNominateHelper,
-                new LocalLog(100), mWifiCarrierInfoManager, mWifiMetrics);
+                new LocalLog(100), mWifiCarrierInfoManager);
         when(mWifiCarrierInfoManager.getBestMatchSubscriptionId(any())).thenReturn(
                 SubscriptionManager.INVALID_SUBSCRIPTION_ID);
         when(mWifiConfigManager.isNetworkTemporarilyDisabledByUser(anyString())).thenReturn(false);
@@ -127,8 +125,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
 
         assertTrue(connectableNetworks.isEmpty());
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -170,8 +166,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
 
         validateConnectableNetworks(connectableNetworks, scanSsids[0]);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     @Test
@@ -213,8 +207,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
 
         // Verify no network is nominated.
         assertTrue(connectableNetworks.isEmpty());
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -257,8 +249,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
 
         validateConnectableNetworks(connectableNetworks, scanSsids[0], scanSsids[1]);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -302,8 +292,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
 
         validateConnectableNetworks(connectableNetworks, scanSsids[0]);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -351,14 +339,13 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
 
         validateConnectableNetworks(connectableNetworks, scanSsids[0], scanSsids[2]);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
-     * Ensure that we nominate all profiles when multiple suggestor suggested same network.
+     * Ensure that we nominate one network when multiple suggestor suggested same network.
      *
-     * Expected connectable Networks: {suggestionSsids[0], suggestionSsids[1], suggestionSsids[2]}
+     * Expected connectable Networks: {suggestionSsids[0],
+     *                                 (suggestionSsids[1] || suggestionSsids[2]}
      */
     @Test
     public void testSelectNetworkSuggestionForMultipleMatchWithMultipleSuggestions() {
@@ -396,8 +383,7 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                     connectableNetworks.add(Pair.create(scanDetail, configuration));
                 });
 
-        validateConnectableNetworks(connectableNetworks, scanSsids[0], scanSsids[1], scanSsids[1]);
-        verify(mWifiMetrics).incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
+        validateConnectableNetworks(connectableNetworks, scanSsids);
     }
 
     /**
@@ -452,8 +438,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
 
         validateConnectableNetworks(connectableNetworks, scanSsids[1], scanSsids[2], scanSsids[3]);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -502,8 +486,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
         // Verify we did not try to add any new networks or other interactions with
         // WifiConfigManager.
         verifyNoMoreInteractions(mWifiConfigManager);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -543,7 +525,7 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
         setupAddToWifiConfigManager(suggestions[0]);
         // Existing saved network matching the credentials.
         when(mWifiConfigManager.getConfiguredNetwork(suggestions[0]
-                .createInternalWifiConfiguration(mWifiCarrierInfoManager).getKey()))
+                .createInternalWifiConfiguration(mWifiCarrierInfoManager).getProfileKey()))
                 .thenReturn(suggestions[0].wns.wifiConfiguration);
 
         List<Pair<ScanDetail, WifiConfiguration>> connectableNetworks = new ArrayList<>();
@@ -558,20 +540,14 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
         // check for any saved networks.
         verify(mWifiConfigManager, times(suggestionSsids.length))
                 .isNetworkTemporarilyDisabledByUser(anyString());
-        verify(mWifiConfigManager).getConfiguredNetwork(suggestions[0]
-                .createInternalWifiConfiguration(mWifiCarrierInfoManager).getProfileKey());
+        verify(mWifiConfigManager)
+                .getConfiguredNetwork(suggestions[0]
+                        .createInternalWifiConfiguration(mWifiCarrierInfoManager)
+                        .getProfileKey());
         verify(mWifiConfigManager).isNonCarrierMergedNetworkTemporarilyDisabled(any());
-        if (SdkLevel.isAtLeastS()) {
-            verify(mWifiConfigManager).getConfiguredNetwork(suggestions[0]
-                    .createInternalWifiConfiguration(mWifiCarrierInfoManager).getKey());
-        }
         // Verify we did not try to add any new networks or other interactions with
         // WifiConfigManager.
         verifyNoMoreInteractions(mWifiConfigManager);
-        if (SdkLevel.isAtLeastS()) {
-            verify(mWifiMetrics).addSuggestionExistsForSavedNetwork(
-                    suggestions[0].wns.wifiConfiguration.getKey());
-        }
     }
 
     /**
@@ -621,8 +597,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
 
         verify(mWifiConfigManager, times(suggestionSsids.length))
                 .isNetworkTemporarilyDisabledByUser(anyString());
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -680,15 +654,9 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 suggestions[0].wns.wifiConfiguration.getProfileKey()));
         verify(mWifiConfigManager).tryEnableNetwork(eq(
                 suggestions[0].wns.wifiConfiguration.networkId));
-        if (SdkLevel.isAtLeastS()) {
-            verify(mWifiConfigManager).getConfiguredNetwork(eq(
-                    suggestions[0].wns.wifiConfiguration.getKey()));
-        }
         // Verify we did not try to add any new networks or other interactions with
         // WifiConfigManager.
         verifyNoMoreInteractions(mWifiConfigManager);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -753,15 +721,9 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
         verify(mWifiConfigManager).tryEnableNetwork(eq(
                 suggestions[0].wns.wifiConfiguration.networkId));
         verify(mWifiConfigManager).isNonCarrierMergedNetworkTemporarilyDisabled(any());
-        if (SdkLevel.isAtLeastS()) {
-            verify(mWifiConfigManager).getConfiguredNetwork(eq(suggestions[0]
-                    .createInternalWifiConfiguration(mWifiCarrierInfoManager).getKey()));
-        }
         // Verify we did not try to add any new networks or other interactions with
         // WifiConfigManager.
         verifyNoMoreInteractions(mWifiConfigManager);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -812,8 +774,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
         assertEquals(1, connectableNetworks.size());
         validateConnectableNetworks(connectableNetworks, new String[] {scanSsids[0]});
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -865,8 +825,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                     connectableNetworks.add(Pair.create(scanDetail, configuration));
                 });
         assertTrue(connectableNetworks.isEmpty());
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -911,8 +869,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
 
         // Verify no network is nominated.
         assertTrue(connectableNetworks.isEmpty());
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     @Test
@@ -957,8 +913,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
 
         // Verify no network is nominated.
         assertTrue(connectableNetworks.isEmpty());
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     @Test
@@ -1007,8 +961,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
 
         // Verify no network is nominated.
         assertTrue(connectableNetworks.isEmpty());
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -1051,8 +1003,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
 
         assertTrue(connectableNetworks.isEmpty());
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -1096,9 +1046,8 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                     connectableNetworks.add(Pair.create(scanDetail, configuration));
                 });
 
+
         validateConnectableNetworks(connectableNetworks, scanSsids[0]);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -1141,8 +1090,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
 
         assertTrue(connectableNetworks.isEmpty());
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
 
@@ -1187,9 +1134,8 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                     connectableNetworks.add(Pair.create(scanDetail, configuration));
                 });
 
+
         validateConnectableNetworks(connectableNetworks, scanSsids[0]);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -1232,8 +1178,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
 
         assertTrue(connectableNetworks.isEmpty());
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
 
@@ -1278,9 +1222,8 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                     connectableNetworks.add(Pair.create(scanDetail, configuration));
                 });
 
+
         validateConnectableNetworks(connectableNetworks, scanSsids[0]);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -1328,9 +1271,8 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                     connectableNetworks.add(Pair.create(scanDetail, configuration));
                 });
 
+
         validateConnectableNetworks(connectableNetworks, scanSsids[0]);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -1378,8 +1320,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
 
         assertTrue(connectableNetworks.isEmpty());
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -1427,9 +1367,8 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                     connectableNetworks.add(Pair.create(scanDetail, configuration));
                 });
 
+
         validateConnectableNetworks(connectableNetworks, scanSsids[0]);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -1477,9 +1416,8 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                     connectableNetworks.add(Pair.create(scanDetail, configuration));
                 });
 
+
         validateConnectableNetworks(connectableNetworks, scanSsids[0]);
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
 
@@ -1526,8 +1464,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
 
         assertTrue(connectableNetworks.isEmpty());
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     /**
@@ -1573,8 +1509,6 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
                 });
 
         assertTrue(connectableNetworks.isEmpty());
-        verify(mWifiMetrics, never())
-                .incrementNetworkSuggestionMoreThanOneSuggestionForSingleScanResult();
     }
 
     private void setupAddToWifiConfigManager(ExtendedWifiNetworkSuggestion...candidates) {
@@ -1716,8 +1650,10 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
             }
         } else if (suggestions.length > scanDetails.length) {
             // All the additional suggestions match the last scan detail.
-            HashSet<ExtendedWifiNetworkSuggestion> matchingSuggestions = new HashSet<>(
-                    Arrays.asList(suggestions).subList(minLength - 1, suggestions.length));
+            HashSet<ExtendedWifiNetworkSuggestion> matchingSuggestions = new HashSet<>();
+            for (int i = minLength; i < suggestions.length; i++) {
+                matchingSuggestions.add(suggestions[i]);
+            }
             ScanDetail lastScanDetail = scanDetails[minLength - 1];
             when(mWifiNetworkSuggestionsManager.getNetworkSuggestionsForScanDetail(
                     eq(lastScanDetail))).thenReturn((matchingSuggestions));
@@ -1726,15 +1662,15 @@ public class NetworkSuggestionNominatorTest extends WifiBaseTest {
 
     private void validateConnectableNetworks(List<Pair<ScanDetail, WifiConfiguration>> actual,
                                              String...expectedSsids) {
-        assertEquals(expectedSsids.length, actual.size());
-        Set<String> actualSsids = new HashSet<>();
+        Set<String> expectedSsidSet = new HashSet<>(Arrays.asList(expectedSsids));
+        assertEquals(expectedSsidSet.size(), actual.size());
 
         for (Pair<ScanDetail, WifiConfiguration> candidate : actual) {
             // check if the scan detail matches the wificonfiguration.
             assertEquals("\"" + candidate.first.getSSID() + "\"", candidate.second.SSID);
-            actualSsids.add(candidate.first.getSSID());
+            // check if both match one of the expected ssid's.
+            assertTrue(expectedSsidSet.remove(candidate.first.getSSID()));
         }
-        // Verify actual matches the expected.
-        assertTrue(actualSsids.containsAll(Arrays.asList(expectedSsids)));
+        assertTrue(expectedSsidSet.isEmpty());
     }
 }

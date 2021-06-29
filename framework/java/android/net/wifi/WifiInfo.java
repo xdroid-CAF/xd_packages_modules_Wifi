@@ -104,6 +104,8 @@ public class WifiInfo implements TransportInfo, Parcelable {
         stateMap.put(SupplicantState.INVALID, DetailedState.FAILED);
     }
 
+    private final long mRedactions;
+
     private SupplicantState mSupplicantState;
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private String mBSSID;
@@ -432,6 +434,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
     /** @hide */
     @UnsupportedAppUsage
     public WifiInfo() {
+        mRedactions = NetworkCapabilities.REDACT_ALL;
         mWifiSsid = null;
         mBSSID = null;
         mNetworkId = -1;
@@ -446,6 +449,12 @@ public class WifiInfo implements TransportInfo, Parcelable {
 
     /** @hide */
     public void reset() {
+        if (mRedactions != NetworkCapabilities.REDACT_ALL) {
+            // To ensure that we don't accidentally set this bit on the master copy of WifiInfo
+            // (reset is only invoked in the master copy)
+            throw new UnsupportedOperationException(
+                    "Cannot clear WifiInfo when mRedactions is set");
+        }
         setInetAddress(null);
         setBSSID(null);
         setSSID(null);
@@ -488,7 +497,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
      * @hide
      */
     public WifiInfo(WifiInfo source) {
-        this(source, NetworkCapabilities.REDACT_NONE);
+        this(source, NetworkCapabilities.REDACT_ALL);
     }
 
     /**
@@ -496,23 +505,19 @@ public class WifiInfo implements TransportInfo, Parcelable {
      * @hide
      */
     private WifiInfo(WifiInfo source, long redactions) {
+        mRedactions = redactions;
         if (source != null) {
             mSupplicantState = source.mSupplicantState;
-            mBSSID = shouldRedactLocationSensitiveFields(redactions)
-                    ? DEFAULT_MAC_ADDRESS : source.mBSSID;
-            mWifiSsid = shouldRedactLocationSensitiveFields(redactions)
-                    ? WifiSsid.createFromHex(null) : source.mWifiSsid;
-            mNetworkId = shouldRedactLocationSensitiveFields(redactions)
-                    ? INVALID_NETWORK_ID : source.mNetworkId;
+            mBSSID = source.mBSSID;
+            mWifiSsid = source.mWifiSsid;
+            mNetworkId = source.mNetworkId;
             mRssi = source.mRssi;
             mLinkSpeed = source.mLinkSpeed;
             mTxLinkSpeed = source.mTxLinkSpeed;
             mRxLinkSpeed = source.mRxLinkSpeed;
             mFrequency = source.mFrequency;
             mIpAddress = source.mIpAddress;
-            mMacAddress = (shouldRedactLocalMacAddressFields(redactions)
-                    || shouldRedactLocationSensitiveFields(redactions))
-                            ? DEFAULT_MAC_ADDRESS : source.mMacAddress;
+            mMacAddress = source.mMacAddress;
             mMeteredHint = source.mMeteredHint;
             mEphemeral = source.mEphemeral;
             mTrusted = source.mTrusted;
@@ -522,10 +527,8 @@ public class WifiInfo implements TransportInfo, Parcelable {
             mRequestingPackageName =
                     source.mRequestingPackageName;
             mOsuAp = source.mOsuAp;
-            mFqdn = shouldRedactLocationSensitiveFields(redactions)
-                    ? null : source.mFqdn;
-            mProviderFriendlyName = shouldRedactLocationSensitiveFields(redactions)
-                    ? null : source.mProviderFriendlyName;
+            mFqdn = source.mFqdn;
+            mProviderFriendlyName = source.mProviderFriendlyName;
             mSubscriptionId = source.mSubscriptionId;
             mVhtMax8SpatialStreamsSupport = source.mVhtMax8SpatialStreamsSupport;
             mHe8ssCapableAp = source.mHe8ssCapableAp;
@@ -541,14 +544,11 @@ public class WifiInfo implements TransportInfo, Parcelable {
             mWifiStandard = source.mWifiStandard;
             mMaxSupportedTxLinkSpeed = source.mMaxSupportedTxLinkSpeed;
             mMaxSupportedRxLinkSpeed = source.mMaxSupportedRxLinkSpeed;
-            mPasspointUniqueId = shouldRedactLocationSensitiveFields(redactions)
-                    ? null : source.mPasspointUniqueId;
-            if (source.mInformationElements != null
-                    && !shouldRedactLocationSensitiveFields(redactions)) {
+            mPasspointUniqueId = source.mPasspointUniqueId;
+            if (source.mInformationElements != null) {
                 mInformationElements = new ArrayList<>(source.mInformationElements);
             }
-            mIsPrimary = shouldRedactNetworkSettingsFields(redactions)
-                    ? IS_PRIMARY_NO_PERMISSION : source.mIsPrimary;
+            mIsPrimary = source.mIsPrimary;
             mSecurityType = source.mSecurityType;
         }
     }
@@ -1234,21 +1234,23 @@ public class WifiInfo implements TransportInfo, Parcelable {
         return 0;
     }
 
-    private boolean shouldRedactLocationSensitiveFields(long redactions) {
-        return (redactions & NetworkCapabilities.REDACT_FOR_ACCESS_FINE_LOCATION) != 0;
+    private boolean shouldParcelLocationSensitiveFields() {
+        return (mRedactions & NetworkCapabilities.REDACT_FOR_ACCESS_FINE_LOCATION) == 0;
     }
 
-    private boolean shouldRedactLocalMacAddressFields(long redactions) {
-        return (redactions & NetworkCapabilities.REDACT_FOR_LOCAL_MAC_ADDRESS) != 0;
+    private boolean shouldParcelLocalMacAddressFields() {
+        return (mRedactions & NetworkCapabilities.REDACT_FOR_LOCAL_MAC_ADDRESS) == 0;
     }
 
-    private boolean shouldRedactNetworkSettingsFields(long redactions) {
-        return (redactions & NetworkCapabilities.REDACT_FOR_NETWORK_SETTINGS) != 0;
+    private boolean shouldParcelNetworkSettingsFields() {
+        return (mRedactions & NetworkCapabilities.REDACT_FOR_NETWORK_SETTINGS) == 0;
     }
 
     /** Implement the Parcelable interface {@hide} */
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeInt(mNetworkId);
+        // TODO (b/162602799): Should we proactively redact instance fields in memory instead of
+        // current approach of redacting while parceling.
+        dest.writeInt(shouldParcelLocationSensitiveFields() ? mNetworkId : INVALID_NETWORK_ID);
         dest.writeInt(mRssi);
         dest.writeInt(mLinkSpeed);
         dest.writeInt(mTxLinkSpeed);
@@ -1262,12 +1264,20 @@ public class WifiInfo implements TransportInfo, Parcelable {
         }
         if (mWifiSsid != null) {
             dest.writeInt(1);
-            mWifiSsid.writeToParcel(dest, flags);
+            final WifiSsid ssid;
+            if (shouldParcelLocationSensitiveFields()) {
+                ssid = mWifiSsid;
+            } else {
+                ssid = WifiSsid.createFromHex(null);
+            }
+            ssid.writeToParcel(dest, flags);
         } else {
             dest.writeInt(0);
         }
-        dest.writeString(mBSSID);
-        dest.writeString(mMacAddress);
+        dest.writeString(shouldParcelLocationSensitiveFields() ? mBSSID : DEFAULT_MAC_ADDRESS);
+        dest.writeString(
+                shouldParcelLocalMacAddressFields() && shouldParcelLocationSensitiveFields()
+                        ? mMacAddress : DEFAULT_MAC_ADDRESS);
         dest.writeInt(mMeteredHint ? 1 : 0);
         dest.writeInt(mEphemeral ? 1 : 0);
         dest.writeInt(mTrusted ? 1 : 0);
@@ -1286,18 +1296,21 @@ public class WifiInfo implements TransportInfo, Parcelable {
         mSupplicantState.writeToParcel(dest, flags);
         dest.writeInt(mOsuAp ? 1 : 0);
         dest.writeString(mRequestingPackageName);
-        dest.writeString(mFqdn);
-        dest.writeString(mProviderFriendlyName);
+        dest.writeString(shouldParcelLocationSensitiveFields() ? mFqdn : null);
+        dest.writeString(shouldParcelLocationSensitiveFields() ? mProviderFriendlyName : null);
         dest.writeInt(mVhtMax8SpatialStreamsSupport ? 1 : 0);
         dest.writeInt(mHe8ssCapableAp ? 1 : 0);
         dest.writeInt(mWifiStandard);
         dest.writeInt(mMaxSupportedTxLinkSpeed);
         dest.writeInt(mMaxSupportedRxLinkSpeed);
-        dest.writeString(mPasspointUniqueId);
+        dest.writeString(shouldParcelLocationSensitiveFields() ? mPasspointUniqueId : null);
         dest.writeInt(mSubscriptionId);
-        dest.writeTypedList(mInformationElements);
         if (SdkLevel.isAtLeastS()) {
-            dest.writeInt(mIsPrimary);
+            dest.writeTypedList(
+                    shouldParcelLocationSensitiveFields() ? mInformationElements : null);
+            // IS_PRIMARY_NO_PERMISSION indicates no permission to access field.
+            dest.writeInt(shouldParcelNetworkSettingsFields()
+                    ? mIsPrimary : IS_PRIMARY_NO_PERMISSION);
         }
         dest.writeInt(mSecurityType);
     }
@@ -1351,9 +1364,9 @@ public class WifiInfo implements TransportInfo, Parcelable {
                 info.mMaxSupportedRxLinkSpeed = in.readInt();
                 info.mPasspointUniqueId = in.readString();
                 info.mSubscriptionId = in.readInt();
-                info.mInformationElements = in.createTypedArrayList(
-                        ScanResult.InformationElement.CREATOR);
                 if (SdkLevel.isAtLeastS()) {
+                    info.mInformationElements = in.createTypedArrayList(
+                            ScanResult.InformationElement.CREATOR);
                     info.mIsPrimary = in.readInt();
                 }
                 info.mSecurityType = in.readInt();
@@ -1409,6 +1422,9 @@ public class WifiInfo implements TransportInfo, Parcelable {
     @Nullable
     @SuppressWarnings("NullableCollection")
     public List<ScanResult.InformationElement> getInformationElements() {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
         if (mInformationElements == null) return null;
         return new ArrayList<>(mInformationElements);
     }
@@ -1435,7 +1451,6 @@ public class WifiInfo implements TransportInfo, Parcelable {
      *
      * @hide
      */
-    @RequiresApi(Build.VERSION_CODES.S)
     @RequiresPermission(Manifest.permission.NETWORK_SETTINGS)
     @SystemApi
     public boolean isPrimary() {

@@ -16,32 +16,8 @@
 
 package com.android.server.wifi;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.anyBoolean;
-import static org.mockito.Mockito.anyInt;
-import static org.mockito.Mockito.anyString;
-import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.eq;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.validateMockitoUsage;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.withSettings;
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
 import android.annotation.Nullable;
 import android.app.ActivityManager;
@@ -1676,7 +1652,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
      */
     @Test
     public void testMultipleUpdatesSingleNetwork() {
-        WifiConfiguration network = WifiConfigurationTestUtil.createOpenOweNetwork();
+        WifiConfiguration network = WifiConfigurationTestUtil.createOpenNetwork();
         verifyAddNetworkToWifiConfigManager(network);
 
         // Now add |wepKeys| to the network. We don't need to update the |allowedKeyManagement|
@@ -1738,7 +1714,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
      */
     @Test
     public void testUpdateSingleNetworkWithNullValues() {
-        WifiConfiguration network = WifiConfigurationTestUtil.createWpa2Wpa3EnterpriseNetwork();
+        WifiConfiguration network = WifiConfigurationTestUtil.createEapNetwork();
         verifyAddNetworkToWifiConfigManager(network);
 
         // Save a copy of the original network for comparison.
@@ -1750,6 +1726,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         network.allowedKeyManagement.clear();
         network.allowedPairwiseCiphers.clear();
         network.allowedGroupCiphers.clear();
+        network.enterpriseConfig = null;
 
         // Update the network.
         NetworkUpdateResult result = updateNetworkToWifiConfigManager(network);
@@ -1770,22 +1747,6 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         WifiConfigurationTestUtil.assertConfigurationEqualForConfigManagerAddOrUpdate(
                 originalNetwork,
                 mWifiConfigManager.getConfiguredNetworkWithPassword(originalNetwork.networkId));
-
-        // Save a copy of the original network for comparison.
-        network = new WifiConfiguration(originalNetwork);
-
-        // Now set all the public fields to null including enterprise config and try updating the
-        // network.
-        network.allowedAuthAlgorithms.clear();
-        network.allowedProtocols.clear();
-        network.allowedKeyManagement.clear();
-        network.allowedPairwiseCiphers.clear();
-        network.allowedGroupCiphers.clear();
-        network.enterpriseConfig = null;
-
-        // Update the network.
-        result = updateNetworkToWifiConfigManager(network);
-        assertTrue(result.getNetworkId() == WifiConfiguration.INVALID_NETWORK_ID);
     }
 
     /**
@@ -2823,7 +2784,6 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         // Verify the recent failure association status is set properly
         List<WifiConfiguration> configs = mWifiConfigManager.getSavedNetworks(Process.WIFI_UID);
         assertEquals(1, configs.size());
-        verify(mWifiMetrics).incrementRecentFailureAssociationStatusCount(eq(expectedStatusCode));
         assertEquals(expectedStatusCode, configs.get(0).getRecentFailureReason());
         assertEquals(updateTimeMs,
                 configs.get(0).recentFailure.getLastUpdateTimeSinceBootMillis());
@@ -5072,36 +5032,6 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         assertFalse(mWifiConfigManager.isNetworkTemporarilyDisabledByUser(network));
     }
 
-    @Test
-    public void testMaxDisableDurationEnableDisabledNetwork() {
-        WifiConfiguration openNetwork = WifiConfigurationTestUtil.createOpenNetwork();
-        List<WifiConfiguration> networks = new ArrayList<>();
-        networks.add(openNetwork);
-        verifyAddNetworkToWifiConfigManager(openNetwork);
-        List<WifiConfiguration> retrievedNetworks =
-                mWifiConfigManager.getConfiguredNetworksWithPasswords();
-        WifiConfigurationTestUtil.assertConfigurationsEqualForConfigManagerAddOrUpdate(
-                networks, retrievedNetworks);
-
-        // Disable the network.
-        long maxDisableDuration = ALL_NON_CARRIER_MERGED_WIFI_MAX_DISABLE_DURATION_MINUTES
-                * 60 * 1000;
-        when(mClock.getWallClockMillis()).thenReturn(0L);
-        String network = openNetwork.SSID;
-        mWifiConfigManager.userTemporarilyDisabledNetwork(network, TEST_UPDATE_UID);
-
-        // Verify that the network is disabled.
-        assertTrue(mWifiConfigManager.isNetworkTemporarilyDisabledByUser(network));
-
-        // Before the maxDisableDuration, the network should still be disabled.
-        when(mClock.getWallClockMillis()).thenReturn(maxDisableDuration);
-        assertTrue(mWifiConfigManager.isNetworkTemporarilyDisabledByUser(network));
-
-        // After the maxDisableDuration, the network should be enabled.
-        when(mClock.getWallClockMillis()).thenReturn(maxDisableDuration + 1);
-        assertFalse(mWifiConfigManager.isNetworkTemporarilyDisabledByUser(network));
-    }
-
     /**
      * Verify that when startRestrictingAutoJoinToSubscriptionId is called, all
      * non-carrier-merged networks are disabled for a duration, and non-carrier-merged networks
@@ -6019,13 +5949,13 @@ public class WifiConfigManagerTest extends WifiBaseTest {
      */
     @Test
     public void testScanComparator() {
-        WifiConfiguration network1 = WifiConfigurationTestUtil.createOpenOweNetwork();
+        WifiConfiguration network1 = WifiConfigurationTestUtil.createOpenNetwork();
         verifyAddNetworkToWifiConfigManager(network1);
-        WifiConfiguration network2 = WifiConfigurationTestUtil.createOpenOweNetwork();
+        WifiConfiguration network2 = WifiConfigurationTestUtil.createOpenNetwork();
         verifyAddNetworkToWifiConfigManager(network2);
-        WifiConfiguration network3 = WifiConfigurationTestUtil.createOpenOweNetwork();
+        WifiConfiguration network3 = WifiConfigurationTestUtil.createOpenNetwork();
         verifyAddNetworkToWifiConfigManager(network3);
-        WifiConfiguration network4 = WifiConfigurationTestUtil.createOpenOweNetwork();
+        WifiConfiguration network4 = WifiConfigurationTestUtil.createOpenNetwork();
         verifyAddNetworkToWifiConfigManager(network4);
 
         // Connect two network in order, network3 --> network2
@@ -6984,7 +6914,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
      */
     @Test
     public void testRemoveExcessNetworksOnAdd() {
-        mResources.setInteger(R.integer.config_wifiMaxNumWifiConfigurations, 9);
+        mResources.setInteger(R.integer.config_wifiMaxNumWifiConfigurations, 8);
         List<WifiConfiguration> configsInDeletionOrder = new ArrayList<>();
         WifiConfiguration currentConfig = WifiConfigurationTestUtil.createPskNetwork();
         currentConfig.status = WifiConfiguration.Status.CURRENT;
@@ -7004,13 +6934,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         WifiConfiguration noAssociationConfig = WifiConfigurationTestUtil.createOpenNetwork();
         noAssociationConfig.numRebootsSinceLastUse = 1;
         noAssociationConfig.numAssociation = 0;
-        WifiConfiguration invalidKeyMgmtConfig = WifiConfigurationTestUtil.createEapNetwork();
-        invalidKeyMgmtConfig.allowedKeyManagement.clear(WifiConfiguration.KeyMgmt.IEEE8021X);
-        invalidKeyMgmtConfig.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA2_PSK);
-        noAssociationConfig.numRebootsSinceLastUse = 1;
-        noAssociationConfig.numAssociation = 0;
 
-        configsInDeletionOrder.add(invalidKeyMgmtConfig);
         configsInDeletionOrder.add(noAssociationConfig);
         configsInDeletionOrder.add(oneRebootOpenConfig);
         configsInDeletionOrder.add(oneRebootSaeConfig);
@@ -7087,33 +7011,5 @@ public class WifiConfigManagerTest extends WifiBaseTest {
 
         assertEquals(0,
                 mWifiConfigManager.getConfiguredNetwork(config.networkId).numRebootsSinceLastUse);
-    }
-
-    /**
-     * Verifies the addition of a network with incomplete security parameters using
-     * {@link WifiConfigManager#addOrUpdateNetwork(WifiConfiguration, int)} does not cause a crash.
-     */
-    @Test
-    public void testAddIncompleteEnterpriseConfig() {
-        WifiConfiguration config = new WifiConfiguration();
-        config.SSID = "\"someNetwork\"";
-        config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_EAP);
-        // EAP method is kept as Eap.NONE - should not crash, but return invalid ID
-        NetworkUpdateResult result = addNetworkToWifiConfigManager(config);
-        assertTrue(result.getNetworkId() == WifiConfiguration.INVALID_NETWORK_ID);
-
-        // Now add this network correctly
-        config.enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.SIM);
-        result = addNetworkToWifiConfigManager(config);
-        assertTrue(result.getNetworkId() != WifiConfiguration.INVALID_NETWORK_ID);
-
-        // Now try to update
-        config = new WifiConfiguration();
-        config.SSID = "\"someNetwork\"";
-        config.enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.SIM);
-        config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE);
-        config.networkId = result.getNetworkId();
-        NetworkUpdateResult updateResult = addNetworkToWifiConfigManager(config);
-        assertTrue(result.getNetworkId() == updateResult.getNetworkId());
     }
 }

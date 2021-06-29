@@ -610,6 +610,9 @@ public final class WifiNetworkSuggestion implements Parcelable {
          */
         public @NonNull Builder setMacRandomizationSetting(
                 @MacRandomizationSetting int macRandomizationSetting) {
+            if (!SdkLevel.isAtLeastS()) {
+                throw new UnsupportedOperationException();
+            }
             switch (macRandomizationSetting) {
                 case RANDOMIZATION_PERSISTENT:
                 case RANDOMIZATION_NON_PERSISTENT:
@@ -1288,6 +1291,9 @@ public final class WifiNetworkSuggestion implements Parcelable {
                 wifiConfiguration.subscriptionId, wifiConfiguration.carrierId);
     }
 
+    /**
+     * Equals for network suggestions.
+     */
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -1317,14 +1323,7 @@ public final class WifiNetworkSuggestion implements Parcelable {
                 .append("SSID=").append(wifiConfiguration.SSID)
                 .append(", BSSID=").append(wifiConfiguration.BSSID)
                 .append(", FQDN=").append(wifiConfiguration.FQDN)
-                .append(", SecurityParams=");
-        wifiConfiguration.getSecurityParamsList().stream()
-                .forEach(param -> {
-                    sb.append(" ");
-                    sb.append(WifiConfiguration.getSecurityTypeName(param.getSecurityType()));
-                    if (param.isAddedByAutoUpgrade()) sb.append("^");
-                });
-        sb.append(", isAppInteractionRequired=").append(isAppInteractionRequired)
+                .append(", isAppInteractionRequired=").append(isAppInteractionRequired)
                 .append(", isUserInteractionRequired=").append(isUserInteractionRequired)
                 .append(", isCredentialSharedWithUser=").append(isUserAllowedToManuallyConnect)
                 .append(", isInitialAutoJoinEnabled=").append(isInitialAutoJoinEnabled)

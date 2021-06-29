@@ -33,8 +33,6 @@ import java.util.Random;
 @SmallTest
 public class WifiLinkLayerStatsTest extends WifiBaseTest {
 
-    private static final String WIFI_IFACE_NAME = "wlanTest";
-
     ExtendedWifiInfo mWifiInfo;
     WifiLinkLayerStats mWifiLinkLayerStats;
     Random mRandom = new Random();
@@ -44,7 +42,7 @@ public class WifiLinkLayerStatsTest extends WifiBaseTest {
      */
     @Before
     public void setUp() throws Exception {
-        mWifiInfo = new ExtendedWifiInfo(mock(WifiGlobals.class), WIFI_IFACE_NAME);
+        mWifiInfo = new ExtendedWifiInfo(mock(WifiGlobals.class));
         mWifiLinkLayerStats = new WifiLinkLayerStats();
     }
 

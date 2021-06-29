@@ -1297,9 +1297,7 @@ public class WifiConfigManager {
                             existingInternalConfig, config, uid, packageName);
         }
 
-        if (!WifiConfigurationUtil.addUpgradableSecurityTypeIfNecessary(newInternalConfig)) {
-            return new NetworkUpdateResult(WifiConfiguration.INVALID_NETWORK_ID);
-        }
+        WifiConfigurationUtil.addUpgradableSecurityTypeIfNecessary(newInternalConfig);
 
         // Only add networks with proxy settings if the user has permission to
         if (WifiConfigurationUtil.hasProxyChanged(existingInternalConfig, newInternalConfig)
@@ -1517,14 +1515,9 @@ public class WifiConfigManager {
                         .thenComparing((WifiConfiguration config) ->
                                 Math.max(config.lastConnected, config.lastUpdated))
                         .thenComparing((WifiConfiguration config) -> {
-                            try {
-                                int authType = config.getAuthType();
-                                return !(authType == WifiConfiguration.KeyMgmt.NONE
-                                        || authType == WifiConfiguration.KeyMgmt.OWE);
-                            } catch (IllegalStateException e) {
-                                // An invalid keymgmt configuration should be pruned first.
-                                return false;
-                            }
+                            int authType = config.getAuthType();
+                            return !(authType == WifiConfiguration.KeyMgmt.NONE
+                                    || authType == WifiConfiguration.KeyMgmt.OWE);
                         })
                         .thenComparing((WifiConfiguration config) -> config.numAssociation))
                 .limit(numExcessNetworks)
@@ -2739,9 +2732,7 @@ public class WifiConfigManager {
      * The network will be re-enabled when:
      * a) User select to connect the network.
      * b) The network is not in range for {@link #USER_DISCONNECT_NETWORK_BLOCK_EXPIRY_MS}
-     * c) The maximum disable duration configured by
-     * config_wifiAllNonCarrierMergedWifiMaxDisableDurationMinutes has passed.
-     * d) Toggle wifi off, reset network settings or device reboot.
+     * c) Toggle wifi off, reset network settings or device reboot.
      *
      * @param network Input can be SSID or FQDN. And caller must ensure that the SSID passed thru
      *                this API matched the WifiConfiguration.SSID rules, and thus be surrounded by
@@ -2749,13 +2740,9 @@ public class WifiConfigManager {
      *        uid     UID of the calling process.
      */
     public void userTemporarilyDisabledNetwork(String network, int uid) {
-        int maxDisableDurationMinutes = mContext.getResources().getInteger(R.integer
-                .config_wifiAllNonCarrierMergedWifiMaxDisableDurationMinutes);
-        mUserTemporarilyDisabledList.add(network, USER_DISCONNECT_NETWORK_BLOCK_EXPIRY_MS,
-                maxDisableDurationMinutes * 60 * 1000);
+        mUserTemporarilyDisabledList.add(network, USER_DISCONNECT_NETWORK_BLOCK_EXPIRY_MS);
         Log.d(TAG, "Temporarily disable network: " + network + " uid=" + uid + " num="
-                + mUserTemporarilyDisabledList.size() + ", maxDisableDurationMinutes:"
-                + maxDisableDurationMinutes);
+                + mUserTemporarilyDisabledList.size());
         removeUserChoiceFromDisabledNetwork(network, uid);
         saveToStore(false);
     }
@@ -2773,12 +2760,11 @@ public class WifiConfigManager {
         localLog("startRestrictingAutoJoinToSubscriptionId: " + subscriptionId
                 + " minDisableDurationMinutes:" + minDisableDurationMinutes
                 + " maxDisableDurationMinutes:" + maxDisableDurationMinutes);
-        long maxDisableDurationMs = maxDisableDurationMinutes * 60 * 1000;
         // do a clear to make sure we start at a clean state.
         mNonCarrierMergedNetworksStatusTracker.clear();
         mNonCarrierMergedNetworksStatusTracker.disableAllNonCarrierMergedNetworks(subscriptionId,
                 minDisableDurationMinutes * 60 * 1000,
-                maxDisableDurationMs);
+                maxDisableDurationMinutes * 60 * 1000);
         for (WifiConfiguration config : getInternalConfiguredNetworks()) {
             ScanDetailCache scanDetailCache = getScanDetailCacheForNetwork(config.networkId);
             if (scanDetailCache == null) {
@@ -2795,7 +2781,7 @@ public class WifiConfigManager {
                     continue;
                 }
                 mNonCarrierMergedNetworksStatusTracker.temporarilyDisableNetwork(config,
-                        USER_DISCONNECT_NETWORK_BLOCK_EXPIRY_MS, maxDisableDurationMs);
+                        USER_DISCONNECT_NETWORK_BLOCK_EXPIRY_MS);
             }
         }
     }
@@ -3482,7 +3468,6 @@ public class WifiConfigManager {
         if (config == null) {
             return;
         }
-        mWifiMetrics.incrementRecentFailureAssociationStatusCount(reason);
         int previousReason = config.recentFailure.getAssociationStatus();
         config.recentFailure.setAssociationStatus(reason, mClock.getElapsedSinceBootMillis());
         if (previousReason != reason) {

@@ -39,8 +39,6 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.SparseArray;
 
-import androidx.annotation.RequiresApi;
-
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.WakeupMessage;
 import com.android.modules.utils.build.SdkLevel;
@@ -409,7 +407,6 @@ public class DppManager {
     public void startDppAsEnrolleeResponder(int uid, @Nullable String clientIfaceName,
             IBinder binder, @Nullable String deviceInfo,
             @WifiManager.EasyConnectCryptographyCurve int curve, IDppCallback callback) {
-        mDppMetrics.updateDppEnrolleeResponderRequests();
         if (isSessionInProgress()) {
             try {
                 Log.e(TAG, "DPP request already in progress");
@@ -448,15 +445,11 @@ public class DppManager {
 
         String info = deviceInfo == null ? "" : deviceInfo;
         // Generate a QR code based bootstrap info
-        WifiNative.DppBootstrapQrCodeInfo bootstrapInfo = null;
-        if (SdkLevel.isAtLeastS()) {
-            bootstrapInfo =
-                    mWifiNative.generateDppBootstrapInfoForResponder(mClientIfaceName, deviceInfo,
-                            convertEasyConnectCryptographyCurveToHidlDppCurve(curve));
-        }
+        WifiNative.DppBootstrapQrCodeInfo bootstrapInfo =
+                mWifiNative.generateDppBootstrapInfoForResponder(mClientIfaceName, deviceInfo,
+                convertEasyConnectCryptographyCurveToHidlDppCurve(curve));
 
-        if (bootstrapInfo == null || bootstrapInfo.bootstrapId < 0
-                || TextUtils.isEmpty(bootstrapInfo.uri)) {
+        if (bootstrapInfo.bootstrapId < 0 || TextUtils.isEmpty(bootstrapInfo.uri)) {
             Log.e(TAG, "DPP request to generate URI failed");
             onFailure(DppFailureCode.URI_GENERATION);
             return;
@@ -589,9 +582,6 @@ public class DppManager {
 
                 if (networkUpdateResult.isSuccess()) {
                     mDppMetrics.updateDppEnrolleeSuccess();
-                    if (mDppRequestInfo.authRole == DPP_AUTH_ROLE_RESPONDER) {
-                        mDppMetrics.updateDppEnrolleeResponderSuccess();
-                    }
                     mDppRequestInfo.callback.onSuccessConfigReceived(
                             networkUpdateResult.getNetworkId());
                 } else {
@@ -876,13 +866,8 @@ public class DppManager {
                     break;
 
                 case DppFailureCode.URI_GENERATION:
-                    if (SdkLevel.isAtLeastS()) {
-                        dppFailureCode = EasyConnectStatusCallback
-                                .EASY_CONNECT_EVENT_FAILURE_URI_GENERATION;
-                    } else {
-                        dppFailureCode = EasyConnectStatusCallback
-                                .EASY_CONNECT_EVENT_FAILURE_GENERIC;
-                    }
+                    dppFailureCode = EasyConnectStatusCallback
+                            .EASY_CONNECT_EVENT_FAILURE_URI_GENERATION;
                     break;
 
                 case DppFailureCode.FAILURE:
@@ -939,7 +924,6 @@ public class DppManager {
         return true;
     }
 
-    @RequiresApi(Build.VERSION_CODES.S)
     private int convertEasyConnectCryptographyCurveToHidlDppCurve(
             @WifiManager.EasyConnectCryptographyCurve int curve) {
         switch (curve) {

@@ -306,9 +306,6 @@
     <!-- Indicates that STA + bridged AP concurrency mode is supported on this device -->
     <bool translatable="false" name="config_wifiStaWithBridgedSoftApConcurrencySupported">false</bool>
 
-    <!-- Indicates that dynamic country code update in AP mode is supported on this device -->
-    <bool translatable="false" name="config_wifiSoftApDynamicCountryCodeUpdateSupported">false</bool>
-
     <!-- list of SSIDs to enable aggressive MAC randomization on -->
     <string-array translatable="false" name="config_wifi_aggressive_randomization_ssid_allowlist">
         <!-- SSIDs are expected in quoted format:
@@ -334,11 +331,8 @@
     <integer translatable="false"
              name="config_wifiAllNonCarrierMergedWifiMinDisableDurationMinutes">30</integer>
 
-    <!-- Configures 2 things:
-    1. The maximum duration in minutes that all non-carrier-merged wifi becomes disabled when
-    WifiManager#startRestrictingAutoJoinToSubscriptionId is called.
-    2. The maximum duration in minutes that a network is disabled when the user manually
-    triggers the "disconnect" feature.-->
+    <!-- The maximum duration in minutes that all non-carrier-merged wifi becomes disabled when
+    WifiManager#startRestrictingAutoJoinToSubscriptionId is called. -->
     <integer translatable="false"
              name="config_wifiAllNonCarrierMergedWifiMaxDisableDurationMinutes">480</integer>
 
@@ -558,6 +552,9 @@
 
     <!-- Enable Open to OWE auto-upgrade -->
     <bool translatable="false" name="config_wifiOweUpgradeEnabled">true</bool>
+
+    <!-- Enable WPA2 Enterprise to WPA3 Enterprise auto-upgrade -->
+    <bool translatable="false" name="config_wifiWpa3EnterpriseUpgradeEnabled">true</bool>
 
     <!-- Number of self recoveries to be attempted per hour. Any fatal errors beyond this will
          cause the wifi stack to turn wifi off and wait for user input.

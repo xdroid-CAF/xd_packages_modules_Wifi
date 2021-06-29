@@ -389,7 +389,6 @@ public final class ScanResult implements Parcelable {
      */
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(prefix = {"WIFI_BAND_"}, value = {
-            UNSPECIFIED,
             WIFI_BAND_24_GHZ,
             WIFI_BAND_5_GHZ,
             WIFI_BAND_6_GHZ,
@@ -968,13 +967,6 @@ public final class ScanResult implements Parcelable {
 
         /** @hide */
         public InformationElement() {
-        }
-
-        /** @hide */
-        public InformationElement(int id, int idExt, byte[] bytes) {
-            this.id = id;
-            this.idExt = idExt;
-            this.bytes = bytes.clone();
         }
 
         public InformationElement(@NonNull InformationElement rhs) {
