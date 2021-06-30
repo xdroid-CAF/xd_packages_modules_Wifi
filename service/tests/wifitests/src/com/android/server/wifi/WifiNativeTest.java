@@ -251,7 +251,9 @@ public class WifiNativeTest extends WifiBaseTest {
     @Mock private WifiInjector mWifiInjector;
     @Mock private NetdWrapper mNetdWrapper;
     @Mock private CoexManager mCoexManager;
+    @Mock BuildProperties mBuildProperties;
     @Mock private WifiNative.InterfaceCallback mInterfaceCallback;
+    @Mock private WifiCountryCode.ChangeListener mWifiCountryCodeChangeListener;
 
     ArgumentCaptor<WifiNl80211Manager.ScanEventCallback> mScanCallbackCaptor =
             ArgumentCaptor.forClass(WifiNl80211Manager.ScanEventCallback.class);
@@ -269,6 +271,10 @@ public class WifiNativeTest extends WifiBaseTest {
         when(mWifiVendorHal.startVendorHalAp()).thenReturn(true);
         when(mWifiVendorHal.createStaIface(any(), any())).thenReturn(WIFI_IFACE_NAME);
 
+        when(mBuildProperties.isEngBuild()).thenReturn(false);
+        when(mBuildProperties.isUserdebugBuild()).thenReturn(false);
+        when(mBuildProperties.isUserBuild()).thenReturn(true);
+
         when(mWificondControl.setupInterfaceForClientMode(any(), any(), any(), any())).thenReturn(
                 true);
 
@@ -284,7 +290,7 @@ public class WifiNativeTest extends WifiBaseTest {
         mWifiNative = new WifiNative(
                 mWifiVendorHal, mStaIfaceHal, mHostapdHal, mWificondControl,
                 mWifiMonitor, mPropertyService, mWifiMetrics,
-                mHandler, mRandom, mWifiInjector);
+                mHandler, mRandom, mBuildProperties, mWifiInjector);
         mWifiNative.initialize();
     }
 
@@ -1261,11 +1267,85 @@ public class WifiNativeTest extends WifiBaseTest {
         ArgumentCaptor<WifiNl80211Manager.CountryCodeChangedListener>
                 mCountryCodeChangedListenerCaptor = ArgumentCaptor.forClass(
                 WifiNl80211Manager.CountryCodeChangedListener.class);
-        WifiCountryCode.ChangeListener changeListener = mock(WifiCountryCode.ChangeListener.class);
-        mWifiNative.registerCountryCodeEventListener(changeListener);
+        mWifiNative.registerCountryCodeEventListener(mWifiCountryCodeChangeListener);
         verify(mWificondControl).registerCountryCodeChangedListener(any(),
                 mCountryCodeChangedListenerCaptor.capture());
         mCountryCodeChangedListenerCaptor.getValue().onCountryCodeChanged(testCountryCode);
-        verify(changeListener).onDriverCountryCodeChanged(testCountryCode);
+        verify(mWifiCountryCodeChangeListener).onDriverCountryCodeChanged(testCountryCode);
+    }
+
+    @Test
+    public void testSetStaCountryCodeSuccessful() {
+        when(mStaIfaceHal.setCountryCode(any(), any())).thenReturn(true);
+        final String testCountryCode = "US";
+        mWifiNative.registerCountryCodeEventListener(mWifiCountryCodeChangeListener);
+        mWifiNative.setStaCountryCode(WIFI_IFACE_NAME, testCountryCode);
+        verify(mStaIfaceHal).setCountryCode(WIFI_IFACE_NAME, testCountryCode);
+        if (SdkLevel.isAtLeastS()) {
+            verify(mWifiCountryCodeChangeListener).onSetCountryCodeSucceeded(testCountryCode);
+        }
+    }
+
+    @Test
+    public void testSetStaCountryCodeFailure() {
+        when(mStaIfaceHal.setCountryCode(any(), any())).thenReturn(false);
+        final String testCountryCode = "US";
+        mWifiNative.registerCountryCodeEventListener(mWifiCountryCodeChangeListener);
+        mWifiNative.setStaCountryCode(WIFI_IFACE_NAME, testCountryCode);
+        verify(mStaIfaceHal).setCountryCode(WIFI_IFACE_NAME, testCountryCode);
+        if (SdkLevel.isAtLeastS()) {
+            verify(mWifiCountryCodeChangeListener, never())
+                    .onSetCountryCodeSucceeded(testCountryCode);
+        }
+    }
+
+    @Test
+    public void testSetApCountryCodeSuccessful() {
+        when(mWifiVendorHal.setApCountryCode(any(), any())).thenReturn(true);
+        final String testCountryCode = "US";
+        mWifiNative.registerCountryCodeEventListener(mWifiCountryCodeChangeListener);
+        mWifiNative.setApCountryCode(WIFI_IFACE_NAME, testCountryCode);
+        verify(mWifiVendorHal).setApCountryCode(WIFI_IFACE_NAME, testCountryCode);
+        if (SdkLevel.isAtLeastS()) {
+            verify(mWifiCountryCodeChangeListener).onSetCountryCodeSucceeded(testCountryCode);
+        }
+    }
+
+    @Test
+    public void testSetApCountryCodeFailure() {
+        when(mWifiVendorHal.setApCountryCode(any(), any())).thenReturn(false);
+        final String testCountryCode = "US";
+        mWifiNative.registerCountryCodeEventListener(mWifiCountryCodeChangeListener);
+        mWifiNative.setApCountryCode(WIFI_IFACE_NAME, testCountryCode);
+        verify(mWifiVendorHal).setApCountryCode(WIFI_IFACE_NAME, testCountryCode);
+        if (SdkLevel.isAtLeastS()) {
+            verify(mWifiCountryCodeChangeListener, never())
+                    .onSetCountryCodeSucceeded(testCountryCode);
+        }
+    }
+
+    @Test
+    public void testSetChipCountryCodeSuccessful() {
+        when(mWifiVendorHal.setChipCountryCode(any())).thenReturn(true);
+        final String testCountryCode = "US";
+        mWifiNative.registerCountryCodeEventListener(mWifiCountryCodeChangeListener);
+        mWifiNative.setChipCountryCode(testCountryCode);
+        verify(mWifiVendorHal).setChipCountryCode(testCountryCode);
+        if (SdkLevel.isAtLeastS()) {
+            verify(mWifiCountryCodeChangeListener).onSetCountryCodeSucceeded(testCountryCode);
+        }
+    }
+
+    @Test
+    public void testSetChipCountryCodeFailure() {
+        when(mWifiVendorHal.setChipCountryCode(any())).thenReturn(false);
+        final String testCountryCode = "US";
+        mWifiNative.registerCountryCodeEventListener(mWifiCountryCodeChangeListener);
+        mWifiNative.setChipCountryCode(testCountryCode);
+        verify(mWifiVendorHal).setChipCountryCode(testCountryCode);
+        if (SdkLevel.isAtLeastS()) {
+            verify(mWifiCountryCodeChangeListener, never())
+                .onSetCountryCodeSucceeded(testCountryCode);
+        }
     }
 }

@@ -1549,8 +1549,6 @@ public class HostapdHal {
         vNetworkParamsV1_2.V1_0 = nwParamsV1_2.V1_0;
         vNetworkParamsV1_2.passphrase = nwParamsV1_2.passphrase;
         vNetworkParamsV1_2.vendorEncryptionType = getVendorEncryptionType(config);
-        vNetworkParamsV1_2.enableOCV = false;
-        vNetworkParamsV1_2.enableBeaconProtection = false;
         return vNetworkParamsV1_2;
     }
 
