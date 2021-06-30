@@ -100,6 +100,9 @@ public class WifiSettingsConfigStore {
     public static final Key<String> WIFI_DEFAULT_COUNTRY_CODE =
             new Key<>("wifi_default_country_code", WifiCountryCode.getOemDefaultCountryCode());
 
+    public static final Key<Boolean> WIFI_COVERAGE_EXTEND_FEATURE_ENABLED =
+            new Key<>("wifi_coverage_extend_feature_enabled", false);
+
     /******** Wifi shared pref keys ***************/
 
     private final Context mContext;
