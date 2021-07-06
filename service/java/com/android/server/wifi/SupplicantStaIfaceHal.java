@@ -994,9 +994,11 @@ public class SupplicantStaIfaceHal {
      */
     public boolean connectToNetwork(@NonNull String ifaceName, @NonNull WifiConfiguration config) {
         synchronized (mLock) {
-            logd("connectToNetwork " + config.getProfileKey());
+            boolean isMixedGbkUtf = WifiGbk.isMixedGbkUtf(config); // wifigbk++
+            logd("connectToNetwork " + config.getProfileKey()
+                    + " isMixedGbkUtf=" + isMixedGbkUtf);
             WifiConfiguration currentConfig = getCurrentNetworkLocalConfig(ifaceName);
-            if (WifiConfigurationUtil.isSameNetwork(config, currentConfig)) {
+            if (WifiConfigurationUtil.isSameNetwork(config, currentConfig) && !isMixedGbkUtf) {
                 String networkSelectionBSSID = config.getNetworkSelectionStatus()
                         .getNetworkSelectionBSSID();
                 String networkSelectionBSSIDCurrent =
