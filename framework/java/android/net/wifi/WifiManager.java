@@ -1489,9 +1489,6 @@ public class WifiManager {
     @RequiresPermission(ACCESS_WIFI_STATE)
     @NonNull
     public List<WifiConfiguration> getCallerConfiguredNetworks() {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         try {
             ParceledListSlice<WifiConfiguration> parceledList =
                     mService.getConfiguredNetworks(mContext.getOpPackageName(),
@@ -2470,9 +2467,6 @@ public class WifiManager {
      */
     @RequiresPermission(android.Manifest.permission.CHANGE_WIFI_STATE)
     public boolean removeNonCallerConfiguredNetworks() {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         try {
             return mService.removeNonCallerConfiguredNetworks(mContext.getOpPackageName());
         } catch (RemoteException e) {
@@ -3385,6 +3379,7 @@ public class WifiManager {
      *
      * @hide
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     @SystemApi
     @RequiresPermission(android.Manifest.permission.MANAGE_WIFI_COUNTRY_CODE)
     public void setOverrideCountryCode(@NonNull String country) {
@@ -3402,6 +3397,7 @@ public class WifiManager {
      *
      * @hide
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     @SystemApi
     @RequiresPermission(android.Manifest.permission.MANAGE_WIFI_COUNTRY_CODE)
     public void clearOverrideCountryCode() {
@@ -3419,6 +3415,7 @@ public class WifiManager {
      *
      * @hide
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     @SystemApi
     @RequiresPermission(android.Manifest.permission.MANAGE_WIFI_COUNTRY_CODE)
     public void setDefaultCountryCode(@NonNull String country) {
@@ -3497,6 +3494,7 @@ public class WifiManager {
      * restarting. The Wi-Fi subsystem can restart due to internal recovery mechanisms or via user
      * action.
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     public abstract static class SubsystemRestartTrackingCallback {
         private final SubsystemRestartTrackingCallback.SubsystemRestartCallbackProxy mProxy;
 
@@ -3589,6 +3587,7 @@ public class WifiManager {
      * @param executor Executor to execute callback on
      * @param callback {@link SubsystemRestartTrackingCallback} to register
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE)
     public void registerSubsystemRestartTrackingCallback(
             @NonNull @CallbackExecutor Executor executor,
@@ -3611,6 +3610,7 @@ public class WifiManager {
      *
      * @param callback {@link SubsystemRestartTrackingCallback} to unregister
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     @RequiresPermission(android.Manifest.permission.ACCESS_WIFI_STATE)
     public void unregisterSubsystemRestartTrackingCallback(
             @NonNull SubsystemRestartTrackingCallback callback) {
@@ -3642,6 +3642,7 @@ public class WifiManager {
      *
      * @hide
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     @SystemApi
     @RequiresPermission(android.Manifest.permission.RESTART_WIFI_SUBSYSTEM)
     public void restartWifiSubsystem() {
@@ -3774,6 +3775,7 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
+    @RequiresApi(Build.VERSION_CODES.S)
     public static final int COEX_RESTRICTION_WIFI_DIRECT = 0x1 << 0;
 
     /**
@@ -3784,6 +3786,7 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
+    @RequiresApi(Build.VERSION_CODES.S)
     public static final int COEX_RESTRICTION_SOFTAP = 0x1 << 1;
 
     /**
@@ -3794,9 +3797,11 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
+    @RequiresApi(Build.VERSION_CODES.S)
     public static final int COEX_RESTRICTION_WIFI_AWARE = 0x1 << 2;
 
     /** @hide */
+    @RequiresApi(Build.VERSION_CODES.S)
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(flag = true, prefix = {"COEX_RESTRICTION_"}, value = {
             COEX_RESTRICTION_WIFI_DIRECT,
@@ -3833,6 +3838,7 @@ public class WifiManager {
      */
     @SystemApi
     @RequiresPermission(android.Manifest.permission.WIFI_UPDATE_COEX_UNSAFE_CHANNELS)
+    @RequiresApi(Build.VERSION_CODES.S)
     public void setCoexUnsafeChannels(
             @NonNull List<CoexUnsafeChannel> unsafeChannels, @CoexRestriction int restrictions) {
         if (unsafeChannels == null) {
@@ -3858,6 +3864,7 @@ public class WifiManager {
      */
     @SystemApi
     @RequiresPermission(android.Manifest.permission.WIFI_ACCESS_COEX_UNSAFE_CHANNELS)
+    @RequiresApi(Build.VERSION_CODES.S)
     public void registerCoexCallback(
             @NonNull @CallbackExecutor Executor executor, @NonNull CoexCallback callback) {
         if (executor == null) throw new IllegalArgumentException("executor must not be null");
@@ -3880,6 +3887,7 @@ public class WifiManager {
      */
     @SystemApi
     @RequiresPermission(android.Manifest.permission.WIFI_ACCESS_COEX_UNSAFE_CHANNELS)
+    @RequiresApi(Build.VERSION_CODES.S)
     public void unregisterCoexCallback(@NonNull CoexCallback callback) {
         if (callback == null) throw new IllegalArgumentException("callback must not be null");
         CoexCallback.CoexCallbackProxy proxy = callback.getProxy();
@@ -3899,6 +3907,7 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
+    @RequiresApi(Build.VERSION_CODES.S)
     public abstract static class CoexCallback {
         private final CoexCallbackProxy mCoexCallbackProxy;
 
@@ -4375,6 +4384,8 @@ public class WifiManager {
      * or {@link SoftApConfiguration.Builder#setClientControlByUserEnabled(boolean)}
      * or {@link SoftApConfiguration.Builder#setBlockedClientList(List)}
      * or {@link SoftApConfiguration.Builder#setAllowedClientList(List)}
+     * or {@link SoftApConfiguration.Builder#setAutoShutdownEnabled(boolean)}
+     * or {@link SoftApConfiguration.Builder#setBridgedModeOpportunisticShutdownEnabled(boolean)}
      *
      * Otherwise, the configuration changes will be applied when the Soft AP is next started
      * (the framework will not stop/start the AP).
@@ -4721,7 +4732,13 @@ public class WifiManager {
 
             List<SoftApInfo> changedInfoList = new ArrayList<>(infos.values());
             Map<SoftApInfo, List<WifiClient>> changedInfoClients = new HashMap<>();
+            // Some devices may not support infos callback, allow them to support client
+            // connection changed callback.
+            boolean areClientsChangedWithoutInfosChanged =
+                    infos.size() == 0 && getConnectedClientList(clients).size()
+                    != getConnectedClientList(mCurrentClients).size();
             boolean isInfoChanged = infos.size() != mCurrentInfos.size();
+
             if (isRegistration) {
                 // Check if there are clients connected, put it to changedInfoClients
                 for (SoftApInfo currentInfo : infos.values()) {
@@ -4760,7 +4777,7 @@ public class WifiManager {
             mCurrentClients = clients;
             mCurrentInfos = infos;
             if (!isInfoChanged && changedInfoClients.isEmpty()
-                    && !isRegistration) {
+                    && !isRegistration && !areClientsChangedWithoutInfosChanged) {
                 Log.v(TAG, "SoftApCallbackProxy: No changed & Not Registration,"
                         + " don't need to notify the client");
                 return;
@@ -4792,7 +4809,8 @@ public class WifiManager {
                 });
             }
 
-            if (isRegistration || !changedInfoClients.isEmpty()) {
+            if (isRegistration || !changedInfoClients.isEmpty()
+                    || areClientsChangedWithoutInfosChanged) {
                 Log.v(TAG, "SoftApCallbackProxy: send onConnectedClientsChanged(clients): "
                         + getConnectedClientList(clients));
                 mExecutor.execute(() -> {
@@ -5342,6 +5360,7 @@ public class WifiManager {
     @RequiresPermission(anyOf = {
             android.Manifest.permission.NETWORK_SETTINGS,
             android.Manifest.permission.NETWORK_SETUP_WIZARD})
+    @RequiresApi(Build.VERSION_CODES.S)
     public void startRestrictingAutoJoinToSubscriptionId(int subscriptionId) {
         try {
             mService.startRestrictingAutoJoinToSubscriptionId(subscriptionId);
@@ -5359,6 +5378,7 @@ public class WifiManager {
     @RequiresPermission(anyOf = {
             android.Manifest.permission.NETWORK_SETTINGS,
             android.Manifest.permission.NETWORK_SETUP_WIZARD})
+    @RequiresApi(Build.VERSION_CODES.S)
     public void stopRestrictingAutoJoinToSubscriptionId() {
         try {
             mService.stopRestrictingAutoJoinToSubscriptionId();
@@ -6683,6 +6703,7 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
+    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_CRYPTOGRAPHY_CURVE_PRIME256V1 = 0;
 
     /**
@@ -6691,6 +6712,7 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
+    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_CRYPTOGRAPHY_CURVE_SECP384R1 = 1;
 
     /**
@@ -6699,6 +6721,7 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
+    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_CRYPTOGRAPHY_CURVE_SECP521R1 = 2;
 
 
@@ -6708,6 +6731,7 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
+    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_CRYPTOGRAPHY_CURVE_BRAINPOOLP256R1 = 3;
 
 
@@ -6717,6 +6741,7 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
+    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_CRYPTOGRAPHY_CURVE_BRAINPOOLP384R1 = 4;
 
 
@@ -6726,6 +6751,7 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
+    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_CRYPTOGRAPHY_CURVE_BRAINPOOLP512R1 = 5;
 
     /** @hide */
@@ -6867,6 +6893,7 @@ public class WifiManager {
     @RequiresPermission(anyOf = {
             android.Manifest.permission.NETWORK_SETTINGS,
             android.Manifest.permission.NETWORK_SETUP_WIZARD})
+    @RequiresApi(Build.VERSION_CODES.S)
     public void startEasyConnectAsEnrolleeResponder(@Nullable String deviceInfo,
             @EasyConnectCryptographyCurve int curve,
             @NonNull @CallbackExecutor Executor executor,
@@ -6970,6 +6997,10 @@ public class WifiManager {
         @Override
         public void onBootstrapUriGenerated(@NonNull String uri) {
             Log.d(TAG, "Easy Connect onBootstrapUriGenerated callback");
+            if (!SdkLevel.isAtLeastS()) {
+                Log.e(TAG, "Easy Connect bootstrap URI callback supported only on S+");
+                return;
+            }
             Binder.clearCallingIdentity();
             mExecutor.execute(() -> {
                 mEasyConnectStatusCallback.onBootstrapUriGenerated(Uri.parse(uri));
@@ -7547,6 +7578,7 @@ public class WifiManager {
          *                 may be sent to ConnectivityService and used for setting default network.
          *                 Populated by connected network scorer in applications.
          */
+        @RequiresApi(Build.VERSION_CODES.S)
         default void notifyStatusUpdate(int sessionId, boolean isUsable) {}
 
         /**
@@ -7558,6 +7590,7 @@ public class WifiManager {
          * @param sessionId The ID to indicate current Wi-Fi network connection obtained from
          *                  {@link WifiConnectedNetworkScorer#onStart(int)}.
          */
+        @RequiresApi(Build.VERSION_CODES.S)
         default void requestNudOperation(int sessionId) {}
 
         /**
@@ -7567,6 +7600,7 @@ public class WifiManager {
          * @param sessionId The ID to indicate current Wi-Fi network connection obtained from
          *                  {@link WifiConnectedNetworkScorer#onStart(int)}.
          */
+        @RequiresApi(Build.VERSION_CODES.S)
         default void blocklistCurrentBssid(int sessionId) {}
     }
 
@@ -8056,9 +8090,6 @@ public class WifiManager {
     @SystemApi
     @RequiresPermission(android.Manifest.permission.NETWORK_SETTINGS)
     public boolean setWifiScoringEnabled(boolean enabled) {
-        if (!SdkLevel.isAtLeastS()) {
-            throw new UnsupportedOperationException();
-        }
         if (mVerboseLoggingEnabled) {
             Log.v(TAG, "setWifiScoringEnabled: " + enabled);
         }
@@ -8106,6 +8137,7 @@ public class WifiManager {
      * @throws UnsupportedOperationException if this API is not supported on this device.
      * @hide
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     @SystemApi
     @NonNull
     @RequiresPermission(android.Manifest.permission.LOCATION_HARDWARE)
@@ -8138,6 +8170,7 @@ public class WifiManager {
      * @throws UnsupportedOperationException if this API is not supported on this device.
      * @hide
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     @SystemApi
     @NonNull
     @RequiresPermission(android.Manifest.permission.LOCATION_HARDWARE)

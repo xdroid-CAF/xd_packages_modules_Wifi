@@ -122,6 +122,8 @@ import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Log;
 
+import androidx.annotation.RequiresApi;
+
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.modules.utils.ParceledListSlice;
@@ -688,7 +690,7 @@ public class WifiServiceImpl extends BaseWifiService {
             // There is no explicit disconnection event in clientModeImpl during shutdown.
             // Call resetConnectionState() so that connection duration is calculated
             // before memory store write triggered by mMemoryStoreImpl.stop().
-            mWifiScoreCard.resetConnectionState();
+            mWifiScoreCard.resetAllConnectionStates();
             mMemoryStoreImpl.stop();
         });
     }
@@ -932,6 +934,7 @@ public class WifiServiceImpl extends BaseWifiService {
         return true;
     }
 
+    @RequiresApi(Build.VERSION_CODES.S)
     @Override
     public void registerSubsystemRestartCallback(ISubsystemRestartCallback callback) {
         if (!SdkLevel.isAtLeastS()) {
@@ -949,6 +952,7 @@ public class WifiServiceImpl extends BaseWifiService {
         });
     }
 
+    @RequiresApi(Build.VERSION_CODES.S)
     @Override
     public void unregisterSubsystemRestartCallback(ISubsystemRestartCallback callback) {
         if (!SdkLevel.isAtLeastS()) {
@@ -965,6 +969,7 @@ public class WifiServiceImpl extends BaseWifiService {
         });
     }
 
+    @RequiresApi(Build.VERSION_CODES.S)
     @Override
     public void restartWifiSubsystem() {
         if (!SdkLevel.isAtLeastS()) {
@@ -1054,6 +1059,7 @@ public class WifiServiceImpl extends BaseWifiService {
      *                     uses of the specified channels.
      */
     @Override
+    @RequiresApi(Build.VERSION_CODES.S)
     public void setCoexUnsafeChannels(
             @NonNull List<CoexUnsafeChannel> unsafeChannels, int restrictions) {
         if (!SdkLevel.isAtLeastS()) {
@@ -1075,6 +1081,7 @@ public class WifiServiceImpl extends BaseWifiService {
     /**
      * See {@link WifiManager#registerCoexCallback(WifiManager.CoexCallback)}
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     public void registerCoexCallback(@NonNull ICoexCallback callback) {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();
@@ -1093,6 +1100,7 @@ public class WifiServiceImpl extends BaseWifiService {
     /**
      * See {@link WifiManager#unregisterCoexCallback(WifiManager.CoexCallback)}
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     public void unregisterCoexCallback(@NonNull ICoexCallback callback) {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();
@@ -2478,7 +2486,8 @@ public class WifiServiceImpl extends BaseWifiService {
                 () -> mWifiConfigManager.getSavedNetworks(finalTargetConfigUid),
                 Collections.emptyList());
         if (isTargetSdkLessThanQOrPrivileged && !callerNetworksOnly) {
-            return new ParceledListSlice<>(configs);
+            return new ParceledListSlice<>(
+                    WifiConfigurationUtil.convertMultiTypeConfigsToLegacyConfigs(configs));
         }
         // Should only get its own configs
         List<WifiConfiguration> creatorConfigs = new ArrayList<>();
@@ -2487,7 +2496,8 @@ public class WifiServiceImpl extends BaseWifiService {
                 creatorConfigs.add(config);
             }
         }
-        return new ParceledListSlice<>(creatorConfigs);
+        return new ParceledListSlice<>(
+                WifiConfigurationUtil.convertMultiTypeConfigsToLegacyConfigs(creatorConfigs));
     }
 
     /**
@@ -2520,7 +2530,8 @@ public class WifiServiceImpl extends BaseWifiService {
         List<WifiConfiguration> configs = mWifiThreadRunner.call(
                 () -> mWifiConfigManager.getConfiguredNetworksWithPasswords(),
                 Collections.emptyList());
-        return new ParceledListSlice<>(configs);
+        return new ParceledListSlice<>(
+                WifiConfigurationUtil.convertMultiTypeConfigsToLegacyConfigs(configs));
     }
 
     /**
@@ -2918,6 +2929,7 @@ public class WifiServiceImpl extends BaseWifiService {
      *                       disabled.
      */
     @Override
+    @RequiresApi(Build.VERSION_CODES.S)
     public void startRestrictingAutoJoinToSubscriptionId(int subscriptionId) {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();
@@ -2943,6 +2955,7 @@ public class WifiServiceImpl extends BaseWifiService {
      * See {@link android.net.wifi.WifiManager#stopRestrictingAutoJoinToSubscriptionId()}
      */
     @Override
+    @RequiresApi(Build.VERSION_CODES.S)
     public void stopRestrictingAutoJoinToSubscriptionId() {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();
@@ -3354,6 +3367,7 @@ public class WifiServiceImpl extends BaseWifiService {
      * @param countryCode A 2-Character alphanumeric country code.
      *
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     @Override
     public void setOverrideCountryCode(@NonNull String countryCode) {
         if (!SdkLevel.isAtLeastS()) {
@@ -3378,6 +3392,7 @@ public class WifiServiceImpl extends BaseWifiService {
      * Clear the country code previously set through setOverrideCountryCode method.
      *
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     @Override
     public void clearOverrideCountryCode() {
         if (!SdkLevel.isAtLeastS()) {
@@ -3397,6 +3412,7 @@ public class WifiServiceImpl extends BaseWifiService {
      * @param countryCode A 2-Character alphanumeric country code.
      *
      */
+    @RequiresApi(Build.VERSION_CODES.S)
     @Override
     public void setDefaultCountryCode(@NonNull String countryCode) {
         if (!SdkLevel.isAtLeastS()) {
@@ -4637,6 +4653,7 @@ public class WifiServiceImpl extends BaseWifiService {
      * @param callback Callback for status updates
      */
     @Override
+    @RequiresApi(Build.VERSION_CODES.S)
     public void startDppAsEnrolleeResponder(IBinder binder, @Nullable String deviceInfo,
             @WifiManager.EasyConnectCryptographyCurve int curve, IDppCallback callback) {
         if (!SdkLevel.isAtLeastS()) {

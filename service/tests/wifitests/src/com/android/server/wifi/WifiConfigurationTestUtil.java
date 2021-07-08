@@ -46,16 +46,16 @@ public class WifiConfigurationTestUtil {
      * These values are used to describe AP's security setting. One AP can support multiple of them,
      * only if there is no conflict.
      */
-    public static final int SECURITY_NONE = 0;
-    public static final int SECURITY_WEP =  1 << 0;
-    public static final int SECURITY_PSK =  1 << 1;
-    public static final int SECURITY_EAP =  1 << 2;
-    public static final int SECURITY_SAE =  1 << 3;
-    public static final int SECURITY_OWE =  1 << 4;
-    public static final int SECURITY_EAP_SUITE_B =  1 << 5;
-    public static final int SECURITY_WAPI_PSK =     1 << 6;
-    public static final int SECURITY_WAPI_CERT =    1 << 7;
-    public static final int SECURITY_WPA3_ENTERPRISE = 1 << 8;
+    public static final int SECURITY_NONE = 1 << 0;
+    public static final int SECURITY_WEP =  1 << 1;
+    public static final int SECURITY_PSK =  1 << 2;
+    public static final int SECURITY_EAP =  1 << 3;
+    public static final int SECURITY_SAE =  1 << 4;
+    public static final int SECURITY_OWE =  1 << 5;
+    public static final int SECURITY_EAP_SUITE_B =  1 << 6;
+    public static final int SECURITY_WAPI_PSK =     1 << 7;
+    public static final int SECURITY_WAPI_CERT =    1 << 8;
+    public static final int SECURITY_WPA3_ENTERPRISE = 1 << 9;
 
     /**
      * These values are used to describe ip configuration parameters for a network.
@@ -149,52 +149,50 @@ public class WifiConfigurationTestUtil {
         WifiConfiguration config = generateWifiConfig(networkId, uid, ssid, shared, enabled, fqdn,
                 providerFriendlyName);
 
-        if (security == SECURITY_NONE) {
+        if ((security & SECURITY_NONE) != 0) {
             config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_OPEN);
-        } else {
-            if ((security & SECURITY_WEP) != 0) {
-                config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_WEP);
-            }
-            if ((security & SECURITY_PSK) != 0) {
-                config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_PSK);
-            }
+        }
+        if ((security & SECURITY_WEP) != 0) {
+            config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_WEP);
+        }
+        if ((security & SECURITY_PSK) != 0) {
+            config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_PSK);
+        }
 
-            if ((security & SECURITY_SAE) != 0) {
-                config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_SAE);
-            }
+        if ((security & SECURITY_SAE) != 0) {
+            config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_SAE);
+        }
 
-            if ((security & SECURITY_OWE) != 0) {
-                config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_OWE);
-            }
+        if ((security & SECURITY_OWE) != 0) {
+            config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_OWE);
+        }
 
-            if ((security & SECURITY_EAP) != 0) {
-                config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_EAP);
-                config.enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.TTLS);
-                config.enterpriseConfig.setCaPath(TEST_CA_CERT_PATH);
-                config.enterpriseConfig.setDomainSuffixMatch(TEST_DOM_SUBJECT_MATCH);
-            }
+        if ((security & SECURITY_EAP) != 0) {
+            config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_EAP);
+            config.enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.TTLS);
+            config.enterpriseConfig.setCaPath(TEST_CA_CERT_PATH);
+            config.enterpriseConfig.setDomainSuffixMatch(TEST_DOM_SUBJECT_MATCH);
+        }
 
-            if ((security & SECURITY_WPA3_ENTERPRISE) != 0) {
-                config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE);
-                config.enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.TTLS);
-                config.enterpriseConfig.setCaPath(TEST_CA_CERT_PATH);
-                config.enterpriseConfig.setDomainSuffixMatch(TEST_DOM_SUBJECT_MATCH);
-            }
+        if ((security & SECURITY_WPA3_ENTERPRISE) != 0) {
+            config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE);
+            config.enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.TTLS);
+            config.enterpriseConfig.setCaPath(TEST_CA_CERT_PATH);
+            config.enterpriseConfig.setDomainSuffixMatch(TEST_DOM_SUBJECT_MATCH);
+        }
 
-            if ((security & SECURITY_EAP_SUITE_B) != 0) {
-                config.addSecurityParams(
-                        WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE_192_BIT);
-            }
+        if ((security & SECURITY_EAP_SUITE_B) != 0) {
+            config.addSecurityParams(
+                    WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE_192_BIT);
+        }
 
-            if ((security & SECURITY_WAPI_PSK) != 0) {
-                config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_WAPI_PSK);
-            }
+        if ((security & SECURITY_WAPI_PSK) != 0) {
+            config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_WAPI_PSK);
+        }
 
-            if ((security & SECURITY_WAPI_CERT) != 0) {
-                config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_WAPI_CERT);
-                config.enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.WAPI_CERT);
-            }
-
+        if ((security & SECURITY_WAPI_CERT) != 0) {
+            config.addSecurityParams(WifiConfiguration.SECURITY_TYPE_WAPI_CERT);
+            config.enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.WAPI_CERT);
         }
         return config;
     }
@@ -293,6 +291,17 @@ public class WifiConfigurationTestUtil {
         WifiConfiguration config = generateWifiConfig(
                 TEST_NETWORK_ID, TEST_UID, ssid, true, true, null,
                 null, SECURITY_NONE);
+        return config;
+    }
+
+    public static WifiConfiguration createOpenOweNetwork() {
+        return createOpenOweNetwork(createNewSSID());
+    }
+
+    public static WifiConfiguration createOpenOweNetwork(String ssid) {
+        WifiConfiguration config = generateWifiConfig(
+                TEST_NETWORK_ID, TEST_UID, ssid, true, true, null,
+                null, SECURITY_NONE);
         // the upgradable type is always added.
         SecurityParams params = SecurityParams
                 .createSecurityParamsBySecurityType(WifiConfiguration.SECURITY_TYPE_OWE);
@@ -322,6 +331,18 @@ public class WifiConfigurationTestUtil {
     }
 
     public static WifiConfiguration createPskNetwork(String ssid) {
+        WifiConfiguration configuration =
+                generateWifiConfig(TEST_NETWORK_ID, TEST_UID, ssid, true, true, null,
+                        null, SECURITY_PSK);
+        configuration.preSharedKey = TEST_PSK;
+        return configuration;
+    }
+
+    public static WifiConfiguration createPskSaeNetwork() {
+        return createPskSaeNetwork(createNewSSID());
+    }
+
+    public static WifiConfiguration createPskSaeNetwork(String ssid) {
         WifiConfiguration configuration =
                 generateWifiConfig(TEST_NETWORK_ID, TEST_UID, ssid, true, true, null,
                         null, SECURITY_PSK);
@@ -392,6 +413,34 @@ public class WifiConfigurationTestUtil {
     }
 
     public static WifiConfiguration createEapNetwork(String ssid, int eapMethod, int phase2Method) {
+        WifiConfiguration configuration =
+                generateWifiConfig(TEST_NETWORK_ID, TEST_UID, ssid, true, true,
+                        null, null, SECURITY_EAP);
+        if (eapMethod != WifiEnterpriseConfig.Eap.NONE) {
+            configuration.enterpriseConfig.setEapMethod(eapMethod);
+            configuration.enterpriseConfig.setPhase2Method(phase2Method);
+        }
+        return configuration;
+    }
+
+    public static WifiConfiguration createWpa2Wpa3EnterpriseNetwork() {
+        return createWpa2Wpa3EnterpriseNetwork(createNewSSID());
+    }
+
+    public static WifiConfiguration createWpa2Wpa3EnterpriseNetwork(
+            int eapMethod, int phase2Method) {
+        return createWpa2Wpa3EnterpriseNetwork(createNewSSID(), eapMethod, phase2Method);
+    }
+
+    public static WifiConfiguration createWpa2Wpa3EnterpriseNetwork(String ssid) {
+        return createWpa2Wpa3EnterpriseNetwork(
+                ssid,
+                WifiEnterpriseConfig.Eap.NONE,
+                WifiEnterpriseConfig.Phase2.NONE);
+    }
+
+    public static WifiConfiguration createWpa2Wpa3EnterpriseNetwork(
+            String ssid, int eapMethod, int phase2Method) {
         WifiConfiguration configuration =
                 generateWifiConfig(TEST_NETWORK_ID, TEST_UID, ssid, true, true,
                         null, null, SECURITY_EAP);
@@ -574,31 +623,35 @@ public class WifiConfigurationTestUtil {
      * Gets scan result capabilities for a particular network configuration.
      */
     public static String getScanResultCapsForNetwork(WifiConfiguration configuration) {
-        String caps;
-        // Only convert the first type to the scan result capabilities for test purpose.
-        SecurityParams params = configuration.getDefaultSecurityParams();
-        if (params.isSecurityType(WifiConfiguration.SECURITY_TYPE_PSK)) {
-            caps = "[RSN-PSK-CCMP]";
-        } else if (params.isSecurityType(WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE)) {
-            caps = "[RSN-EAP/SHA256-CCMP][MFPC][MFPR]";
-        } else if (params.isSecurityType(WifiConfiguration.SECURITY_TYPE_EAP)) {
-            caps = "[RSN-EAP/SHA1-CCMP]";
-        } else if (params.isSecurityType(WifiConfiguration.SECURITY_TYPE_WEP)
+        String caps = "";
+        if (configuration.isSecurityType(WifiConfiguration.SECURITY_TYPE_PSK)) {
+            caps += "[RSN-PSK-CCMP]";
+        }
+        if (configuration.isSecurityType(WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE)) {
+            caps += "[RSN-EAP/SHA256-CCMP][MFPC][MFPR]";
+        }
+        if (configuration.isSecurityType(WifiConfiguration.SECURITY_TYPE_EAP)) {
+            caps += "[RSN-EAP/SHA1-CCMP]";
+        }
+        if (configuration.isSecurityType(WifiConfiguration.SECURITY_TYPE_WEP)
                 && WifiConfigurationUtil.hasAnyValidWepKey(configuration.wepKeys)) {
-            caps = "[WEP]";
-        } else if (params.isSecurityType(WifiConfiguration.SECURITY_TYPE_SAE)) {
-            caps = "[RSN-SAE-CCMP]";
-        } else if (params.isSecurityType(WifiConfiguration.SECURITY_TYPE_OWE)) {
-            caps = "[RSN-OWE-CCMP]";
-        } else if (params.isSecurityType(
+            caps += "[WEP]";
+        }
+        if (configuration.isSecurityType(WifiConfiguration.SECURITY_TYPE_SAE)) {
+            caps += "[RSN-SAE-CCMP]";
+        }
+        if (configuration.isSecurityType(WifiConfiguration.SECURITY_TYPE_OWE)) {
+            caps += "[RSN-OWE-CCMP]";
+        }
+        if (configuration.isSecurityType(
                 WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE_192_BIT)) {
-            caps = "[RSN-SUITE_B_192-CCMP][MFPR]";
-        } else if (params.isSecurityType(WifiConfiguration.SECURITY_TYPE_WAPI_PSK)) {
-            caps = "[WAPI-WAPI-PSK-SMS4]";
-        } else if (params.isSecurityType(WifiConfiguration.SECURITY_TYPE_WAPI_CERT)) {
-            caps = "[WAPI-WAPI-CERT-SMS4]";
-        } else {
-            caps = "[]";
+            caps += "[RSN-SUITE_B_192-CCMP][MFPR]";
+        }
+        if (configuration.isSecurityType(WifiConfiguration.SECURITY_TYPE_WAPI_PSK)) {
+            caps += "[WAPI-WAPI-PSK-SMS4]";
+        }
+        if (configuration.isSecurityType(WifiConfiguration.SECURITY_TYPE_WAPI_CERT)) {
+            caps += "[WAPI-WAPI-CERT-SMS4]";
         }
         return caps;
     }

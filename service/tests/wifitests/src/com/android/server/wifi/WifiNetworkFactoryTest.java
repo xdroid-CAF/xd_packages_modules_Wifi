@@ -63,6 +63,7 @@ import android.net.wifi.WifiSsid;
 import android.os.IBinder;
 import android.os.PatternMatcher;
 import android.os.PowerManager;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.WorkSource;
@@ -360,6 +361,25 @@ public class WifiNetworkFactoryTest extends WifiBaseTest {
         assertFalse(mWifiNetworkFactory.acceptRequest(mNetworkRequest));
         mLooper.dispatchAll();
         verify(mConnectivityManager, never()).declareNetworkRequestUnfulfillable(any());
+    }
+
+    /**
+     * Validates that requests that specify a frequency band are rejected.
+     */
+    @Test
+    public void testHandleAcceptNetworkRequestWithBand() throws Exception {
+        WifiNetworkSpecifier specifier = new WifiNetworkSpecifier.Builder()
+                .setBand(ScanResult.WIFI_BAND_5_GHZ)
+                .build();
+        mNetworkCapabilities.setNetworkSpecifier(specifier);
+        mNetworkRequest = new NetworkRequest.Builder()
+                .setCapabilities(mNetworkCapabilities)
+                .build();
+
+        // request should be rejected and released.
+        assertFalse(mWifiNetworkFactory.acceptRequest(mNetworkRequest));
+        mLooper.dispatchAll();
+        verify(mConnectivityManager).declareNetworkRequestUnfulfillable(any());
     }
 
     /**
@@ -2244,10 +2264,17 @@ public class WifiNetworkFactoryTest extends WifiBaseTest {
                                 secondaryConnectionDurationMillis)));
     }
 
+
+    /**
+     * Verify we return the correct UID when processing network request with network specifier.
+     */
     @Test
-    public void testHandleNetworkRequestWithSpecifierIsInProgress() throws Exception {
-        assertFalse(mWifiNetworkFactory.isSpecificRequestInProgress(
-                new WifiConfiguration(), ""));
+    public void testHandleNetworkRequestWithSpecifierGetUid() throws Exception {
+        assertEquals(Integer.valueOf(Process.INVALID_UID),
+                mWifiNetworkFactory.getSpecificNetworkRequestUidAndPackageName(
+                        new WifiConfiguration(), new String()).first);
+        assertTrue(mWifiNetworkFactory.getSpecificNetworkRequestUidAndPackageName(
+                new WifiConfiguration(), new String()).second.isEmpty());
 
         sendNetworkRequestAndSetupForConnectionStatus();
         assertNotNull(mSelectedNetwork);
@@ -2255,14 +2282,21 @@ public class WifiNetworkFactoryTest extends WifiBaseTest {
         // connected to a different network.
         WifiConfiguration connectedNetwork = new WifiConfiguration(mSelectedNetwork);
         connectedNetwork.SSID += "test";
-        assertFalse(mWifiNetworkFactory.isSpecificRequestInProgress(
-                new WifiConfiguration(), ""));
+        assertEquals(Integer.valueOf(Process.INVALID_UID),
+                mWifiNetworkFactory.getSpecificNetworkRequestUidAndPackageName(
+                        new WifiConfiguration(), new String()).first);
+        assertTrue(mWifiNetworkFactory.getSpecificNetworkRequestUidAndPackageName(
+                new WifiConfiguration(), new String()).second.isEmpty());
 
         // connected to the correct network.
         connectedNetwork = new WifiConfiguration(mSelectedNetwork);
         String connectedBssid = TEST_BSSID_1;
-        assertTrue(mWifiNetworkFactory.isSpecificRequestInProgress(
-                connectedNetwork, connectedBssid));
+        assertEquals(Integer.valueOf(TEST_UID_1),
+                mWifiNetworkFactory.getSpecificNetworkRequestUidAndPackageName(
+                        connectedNetwork, connectedBssid).first);
+        assertEquals(TEST_PACKAGE_NAME_1,
+                mWifiNetworkFactory.getSpecificNetworkRequestUidAndPackageName(
+                        connectedNetwork, connectedBssid).second);
     }
 
     /**
@@ -3432,7 +3466,8 @@ public class WifiNetworkFactoryTest extends WifiBaseTest {
         mNetworkCapabilities.setRequestorUid(uid);
         mNetworkCapabilities.setRequestorPackageName(packageName);
         mNetworkCapabilities.setNetworkSpecifier(
-                new WifiNetworkSpecifier(ssidPatternMatch, bssidPatternMatch, wifiConfiguration));
+                new WifiNetworkSpecifier(ssidPatternMatch, bssidPatternMatch,
+                        ScanResult.UNSPECIFIED, wifiConfiguration));
         mNetworkRequest = new NetworkRequest.Builder()
                 .setCapabilities(mNetworkCapabilities)
                 .build();
