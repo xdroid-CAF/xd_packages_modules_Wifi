@@ -1978,6 +1978,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
             public void enter() {
                 if (mVerboseLoggingEnabled) logd(getName());
                 mSavedPeerConfig.invalidate();
+                mDetailedState = NetworkInfo.DetailedState.IDLE;
                 scheduleIdleShutdown();
             }
 
