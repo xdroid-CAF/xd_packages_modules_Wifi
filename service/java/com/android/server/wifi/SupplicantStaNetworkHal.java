@@ -1377,7 +1377,7 @@ public class SupplicantStaNetworkHal {
     }
 
     /** See ISupplicantNetwork.hal for documentation */
-    private boolean getId() {
+    public boolean getId() {
         synchronized (mLock) {
             final String methodStr = "getId";
             if (!checkISupplicantStaNetworkAndLogFailure(methodStr)) return false;

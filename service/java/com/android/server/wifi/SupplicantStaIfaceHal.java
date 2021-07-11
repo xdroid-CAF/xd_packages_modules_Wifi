@@ -3778,7 +3778,12 @@ public class SupplicantStaIfaceHal {
                 return false;
             }
 
-            if (!removeAllNetworksExcept(ifaceName, networkId)) {
+            if (!currentHandle.getId()) {
+                Log.e(TAG, "current network getId failed");
+                return false;
+            }
+
+            if (!removeAllNetworksExcept(ifaceName, currentHandle.getNetworkId())) {
                 Log.e(TAG, "couldn't remove non-current supplicant networks");
                 return false;
             }
