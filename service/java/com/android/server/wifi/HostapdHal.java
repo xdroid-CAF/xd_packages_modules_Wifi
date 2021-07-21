@@ -1331,6 +1331,9 @@ public class HostapdHal {
                 encryptionType =
                   vendor.qti.hardware.wifi.hostapd.V1_2.IHostapdVendor.VendorEncryptionType.SAE_TRANSITION;
                 break;
+            case SoftApConfiguration.SECURITY_TYPE_OWE:
+                encryptionType = vendor.qti.hardware.wifi.hostapd.V1_1.IHostapdVendor.VendorEncryptionType.OWE;
+                break;
             default:
                 // We really shouldn't default to None, but this was how NetworkManagementService
                 // used to do this.
@@ -1492,7 +1495,7 @@ public class HostapdHal {
         vIfaceParamsV1_1.vendorChannelParams.channelParams =
           vIfaceParamsV1_0.ifaceParams.channelParams;
         vIfaceParamsV1_1.vendorEncryptionType = getVendorEncryptionType(config);
-        vIfaceParamsV1_1.oweTransIfaceName = "";
+        vIfaceParamsV1_1.oweTransIfaceName = (config.getOweTransIfaceName() != null) ? config.getOweTransIfaceName() : "";
         if (vIfaceParamsV1_0.ifaceParams.channelParams.enableAcs) {
             if ((config.getBand() & SoftApConfiguration.BAND_2GHZ) != 0) {
                 vIfaceParamsV1_1.vendorChannelParams.acsChannelRanges.addAll(

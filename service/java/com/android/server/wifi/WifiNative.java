@@ -930,11 +930,13 @@ public class WifiNative {
      * teardown any existing iface.
      */
     private String createApIface(@NonNull Iface iface, @NonNull WorkSource requestorWs,
-            @SoftApConfiguration.BandType int band, boolean isBridged) {
+            @SoftApConfiguration.BandType int band, boolean isBridged, int type) {
         synchronized (mLock) {
             if (mWifiVendorHal.isVendorHalSupported()) {
                 // Hostapd vendor V1_2: bridge iface setup start
-                mVendorBridgeModeActive = isBridged && mHostapdHal.useVendorHostapdHal();
+                mVendorBridgeModeActive = ((band & SoftApConfiguration.BAND_6GHZ) == 0
+                                             && type == SoftApConfiguration.SECURITY_TYPE_OWE)
+                                          || (isBridged && mHostapdHal.useVendorHostapdHal());
                 Log.i(TAG, "CreateApIface - vendor bridge=" + mVendorBridgeModeActive);
                 if (isVendorBridgeModeActive()) {
                     return createVendorBridgeIface(iface, requestorWs, band);
@@ -1275,6 +1277,12 @@ public class WifiNative {
     public String setupInterfaceForSoftApMode(
             @NonNull InterfaceCallback interfaceCallback, @NonNull WorkSource requestorWs,
             @SoftApConfiguration.BandType int band, boolean isBridged) {
+        return setupInterfaceForSoftApMode(interfaceCallback, requestorWs, band, isBridged, -1);
+    }
+
+    public String setupInterfaceForSoftApMode(
+            @NonNull InterfaceCallback interfaceCallback, @NonNull WorkSource requestorWs,
+            @SoftApConfiguration.BandType int band, boolean isBridged, int type) {
         synchronized (mLock) {
             if (!startHal()) {
                 Log.e(TAG, "Failed to start Hal");
@@ -1292,7 +1300,7 @@ public class WifiNative {
                 return null;
             }
             iface.externalListener = interfaceCallback;
-            iface.name = createApIface(iface, requestorWs, band, isBridged);
+            iface.name = createApIface(iface, requestorWs, band, isBridged, type);
             if (TextUtils.isEmpty(iface.name)) {
                 Log.e(TAG, "Failed to create AP iface in vendor HAL");
                 mIfaceMgr.removeIface(iface.id);
@@ -3460,7 +3468,11 @@ public class WifiNative {
      * @return true for success
      */
     public boolean setApCountryCode(@NonNull String ifaceName, String countryCode) {
-        if (mWifiVendorHal.setApCountryCode(ifaceName, countryCode)) {
+        String ifaceForCountry = ifaceName;
+        if (isVendorBridgeModeActive() && !TextUtils.isEmpty(mdualApInterfaces[0]))
+            ifaceForCountry = mdualApInterfaces[0];
+
+        if (mWifiVendorHal.setApCountryCode(ifaceForCountry, countryCode)) {
             if (mCountryCodeChangeListener != null) {
                 mCountryCodeChangeListener.onSetCountryCodeSucceeded(countryCode);
             }
@@ -4167,9 +4179,14 @@ public class WifiNative {
     /* ######################### Vendor hostapd hal V1_2 adaptor  ###################### */
     private boolean mVendorBridgeModeActive;
     private String[] mdualApInterfaces = new String[2];
+    private static String mVendorBridgeIfaceName = null;
+
+    public static void setBridgeIfaceName(String suffixIface) {
+        mVendorBridgeIfaceName = "ap_br_" + suffixIface; // Refer kApBridgeIfacePrefix
+    }
 
     public static String getBridgeIfaceName() {
-        return "ap_br_0"; // Refer kApBridgeIfacePrefix
+        return (mVendorBridgeIfaceName == null) ? "" : mVendorBridgeIfaceName;
     }
 
     public boolean isVendorBridgeModeActive() {
@@ -4192,6 +4209,9 @@ public class WifiNative {
             mWifiVendorHal.removeApIface(mdualApInterfaces[0]);
             return null;
         }
+
+        // Use second interface to differentiate from AOSP
+        setBridgeIfaceName(mdualApInterfaces[1]);
 
         // return bridge name
         return getBridgeIfaceName();
@@ -4222,29 +4242,70 @@ public class WifiNative {
          return ret1 && ret2;
     }
 
+    private boolean setupOweSap(SoftApConfiguration config, SoftApListener listener) {
+        SoftApConfiguration.Builder openConfigBuilder = new SoftApConfiguration.Builder(config);
+        SoftApConfiguration.Builder oweConfigBuilder = new SoftApConfiguration.Builder(config);
+
+        SoftApConfiguration localConfig;
+
+        // setup hidden OWE SAP
+        // hashCode() generates integer hash for given string
+        // As maximum string size of a integer is 12 bytes SSID size never crosses 32 bytes
+        localConfig = oweConfigBuilder.setOweTransIfaceName(mdualApInterfaces[1])
+                          .setSsid("OWE_" + config.getSsid().hashCode())
+                          .setHiddenSsid(true)
+                          .build();
+
+        Log.d(TAG, "Generated OWE SSID: " + localConfig.getSsid());
+
+        if (!mHostapdHal.addVendorAccessPoint(
+               mdualApInterfaces[0], localConfig, listener::onFailure)) {
+            Log.e(TAG, "Failed to addVendorAP[0] - " + mdualApInterfaces[0]);
+            return false;
+        }
+
+        // setup Open SAP
+        localConfig = openConfigBuilder.setOweTransIfaceName(mdualApInterfaces[0])
+                         .setPassphrase(null, SoftApConfiguration.SECURITY_TYPE_OPEN)
+                         .build();
+
+        if (!mHostapdHal.addVendorAccessPoint(
+               mdualApInterfaces[1], localConfig, listener::onFailure)) {
+            Log.e(TAG, "Failed to addVendorAP[1] - " + mdualApInterfaces[1]);
+            return false;
+        }
+
+        return true;
+    }
+
     private boolean addAccessPoint(@NonNull String ifaceName,
           @NonNull SoftApConfiguration config, boolean isMetered, SoftApListener listener) {
-
         if (isVendorBridgeModeActive()) {
-            SoftApConfiguration.Builder localConfigBuilder =
-                    new SoftApConfiguration.Builder(config);
-            int channelNum = config.getChannels().size();
-            if (channelNum != 2) return false;
-
-            // AP + AP UP
-            for (int i = 0; i < channelNum; i++) {
-                SoftApConfiguration localConfig;
-                int band = config.getChannels().keyAt(i);
-                int channel = config.getChannels().valueAt(i);
-                if (channel == 0) {
-                     localConfig = localConfigBuilder.setBand(band).build();
-                } else {
-                     localConfig = localConfigBuilder.setChannel(channel, band).build();
-                }
-                if (!mHostapdHal.addVendorAccessPoint(
-                      mdualApInterfaces[i], localConfig, listener::onFailure)) {
-                    Log.e(TAG, "Failed to addVendorAP["+ i + "] - " + mdualApInterfaces[i]);
+            if (config != null && config.getSecurityType() == SoftApConfiguration.SECURITY_TYPE_OWE) {
+                Log.d(TAG, "Setup for OWE mode Softap");
+                if (!setupOweSap(config, listener))
                     return false;
+            } else {
+                // AP + AP UP
+                SoftApConfiguration.Builder localConfigBuilder =
+                        new SoftApConfiguration.Builder(config);
+                int channelNum = config.getChannels().size();
+                if (channelNum != 2) return false;
+
+                for (int i = 0; i < channelNum; i++) {
+                    SoftApConfiguration localConfig;
+                    int band = config.getChannels().keyAt(i);
+                    int channel = config.getChannels().valueAt(i);
+                    if (channel == 0) {
+                         localConfig = localConfigBuilder.setBand(band).build();
+                    } else {
+                         localConfig = localConfigBuilder.setChannel(channel, band).build();
+                    }
+                    if (!mHostapdHal.addVendorAccessPoint(
+                          mdualApInterfaces[i], localConfig, listener::onFailure)) {
+                        Log.e(TAG, "Failed to addVendorAP["+ i + "] - " + mdualApInterfaces[i]);
+                        return false;
+                    }
                 }
             }
 
@@ -4254,7 +4315,9 @@ public class WifiNative {
                 Log.e(TAG, "Failed to set interface up - " + bridgeInterface);
                 return false;
             }
-        } else if (mHostapdHal.useVendorHostapdHal()) {
+        } else if (mHostapdHal.useVendorHostapdHal()
+                   || (config != null && config.getSecurityType()
+                              == SoftApConfiguration.SECURITY_TYPE_OWE)) {
             if (!mHostapdHal.addVendorAccessPoint(ifaceName, config, listener::onFailure)) {
                 Log.e(TAG, "Failed to addVendorAP - " + ifaceName);
                 return false;
@@ -4293,5 +4356,9 @@ public class WifiNative {
 
     public SecurityParams getCurrentSecurityParams(@NonNull String ifaceName) {
         return mSupplicantStaIfaceHal.getCurrentSecurityParams(ifaceName);
+    }
+
+    public boolean needToDeleteIfacesDueToBridgeMode(int ifaceType, WorkSource requestorWs) {
+       return mWifiVendorHal.needToDeleteIfacesDueToBridgeMode(ifaceType, requestorWs);
     }
 }

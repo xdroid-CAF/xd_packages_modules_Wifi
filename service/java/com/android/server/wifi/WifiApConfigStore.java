@@ -356,17 +356,6 @@ public class WifiApConfigStore {
                     SoftApConfiguration.SECURITY_TYPE_WPA2_PSK);
         }
 
-        // It is new overlay configuration, it should always false in R. Add SdkLevel.isAtLeastS for
-        // lint check
-        if (ApConfigUtil.isBridgedModeSupported(mContext)) {
-            if (SdkLevel.isAtLeastS()) {
-                int[] dual_bands = new int[] {
-                        SoftApConfiguration.BAND_2GHZ,
-                        SoftApConfiguration.BAND_2GHZ | SoftApConfiguration.BAND_5GHZ};
-                configBuilder.setBands(dual_bands);
-            }
-        }
-
         // Update default MAC randomization setting to NONE when feature doesn't support it.
         if (!ApConfigUtil.isApMacRandomizationSupported(mContext)) {
             if (SdkLevel.isAtLeastS()) {
@@ -538,7 +527,8 @@ public class WifiApConfigStore {
             return false;
         }
 
-        if (authType == SoftApConfiguration.SECURITY_TYPE_OPEN) {
+        if (authType == SoftApConfiguration.SECURITY_TYPE_OPEN
+            || authType == SoftApConfiguration.SECURITY_TYPE_OWE) {
             // open networks should not have a password
             if (hasPreSharedKey) {
                 Log.d(TAG, "open softap network should not have a password");
