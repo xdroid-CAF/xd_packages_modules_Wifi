@@ -220,7 +220,7 @@
     <bool translatable="false" name="config_wifiAllowLinkingUnknownDefaultGatewayConfigurations">true</bool>
 
     <!-- Boolean indicating that enable roaming between linked networks -->
-    <bool translatable="false" name="config_wifiEnableLinkedNetworkRoaming">false</bool>
+    <bool translatable="false" name="config_wifiEnableLinkedNetworkRoaming">true</bool>
 
     <!-- Boolean indicating that only configurations that have the same pre-shared key will be linked -->
     <bool translatable="false" name="config_wifi_only_link_same_credential_configurations">true</bool>
