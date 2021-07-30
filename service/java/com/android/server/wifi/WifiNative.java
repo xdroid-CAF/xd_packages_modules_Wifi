@@ -961,7 +961,10 @@ public class WifiNative {
     @Nullable
     private List<String> getBridgedApInstances(@NonNull String ifaceName) {
         synchronized (mLock) {
-            if (mWifiVendorHal.isVendorHalSupported()) {
+            if (isVendorBridgeModeActive() && !TextUtils.isEmpty(mdualApInterfaces[0])
+                && !TextUtils.isEmpty(mdualApInterfaces[1])) {
+                    return Arrays.asList(mdualApInterfaces[0], mdualApInterfaces[1]);
+            } else if (mWifiVendorHal.isVendorHalSupported()) {
                 return mWifiVendorHal.getBridgedApInstances(ifaceName);
             } else {
                 Log.i(TAG, "Vendor Hal not supported, ignoring getBridgedApInstances.");
