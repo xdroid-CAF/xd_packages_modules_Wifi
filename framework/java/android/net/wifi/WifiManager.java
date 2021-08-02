@@ -8128,13 +8128,24 @@ public class WifiManager {
      * mode(s), that is allowed for the current regulatory domain. An empty list implies that there
      * are no available channels for use.
      *
-     * @param band one of the {@code WifiScanner#WIFI_BAND_*} constants
-     *        e.g. {@link WifiScanner#WIFI_BAND_24_GHZ}
+     * @param band one of the following band constants defined in {@code WifiScanner#WIFI_BAND_*}
+     *             constants.
+     *             1. {@code WifiScanner#WIFI_BAND_UNSPECIFIED} - no band specified; Looks for the
+     *                channels in all the available bands - 2.4 GHz, 5 GHz, 6 GHz and 60 GHz
+     *             2. {@code WifiScanner#WIFI_BAND_24_GHZ}
+     *             3. {@code WifiScanner#WIFI_BAND_5_GHZ_WITH_DFS}
+     *             4. {@code WifiScanner#WIFI_BAND_BOTH_WITH_DFS}
+     *             5. {@code WifiScanner#WIFI_BAND_6_GHZ}
+     *             6. {@code WifiScanner#WIFI_BAND_24_5_WITH_DFS_6_GHZ}
+     *             7. {@code WifiScanner#WIFI_BAND_60_GHZ}
+     *             8. {@code WifiScanner#WIFI_BAND_24_5_WITH_DFS_6_60_GHZ}
      * @param mode Bitwise OR of {@code WifiAvailableChannel#OP_MODE_*} constants
      *        e.g. {@link WifiAvailableChannel#OP_MODE_WIFI_AWARE}
      * @return a list of {@link WifiAvailableChannel}
      *
-     * @throws UnsupportedOperationException if this API is not supported on this device.
+     * @throws UnsupportedOperationException - if this API is not supported on this device
+     *         or IllegalArgumentException - if the band specified is not one among the list
+     *         of bands mentioned above.
      * @hide
      */
     @RequiresApi(Build.VERSION_CODES.S)
@@ -8161,13 +8172,24 @@ public class WifiManager {
      * state and interference due to other radios. An empty list implies that there are no available
      * channels for use.
      *
-     * @param band one of the {@code WifiScanner#WIFI_BAND_*} constants
-     *        e.g. {@link WifiScanner#WIFI_BAND_24_GHZ}
+     * @param band one of the following band constants defined in {@code WifiScanner#WIFI_BAND_*}
+     *             constants.
+     *             1. {@code WifiScanner#WIFI_BAND_UNSPECIFIED} - no band specified; Looks for the
+     *                channels in all the available bands - 2.4 GHz, 5 GHz, 6 GHz and 60 GHz
+     *             2. {@code WifiScanner#WIFI_BAND_24_GHZ}
+     *             3. {@code WifiScanner#WIFI_BAND_5_GHZ_WITH_DFS}
+     *             4. {@code WifiScanner#WIFI_BAND_BOTH_WITH_DFS}
+     *             5. {@code WifiScanner#WIFI_BAND_6_GHZ}
+     *             6. {@code WifiScanner#WIFI_BAND_24_5_WITH_DFS_6_GHZ}
+     *             7. {@code WifiScanner#WIFI_BAND_60_GHZ}
+     *             8. {@code WifiScanner#WIFI_BAND_24_5_WITH_DFS_6_60_GHZ}
      * @param mode Bitwise OR of {@code WifiAvailableChannel#OP_MODE_*} constants
      *        e.g. {@link WifiAvailableChannel#OP_MODE_WIFI_AWARE}
      * @return a list of {@link WifiAvailableChannel}
      *
-     * @throws UnsupportedOperationException if this API is not supported on this device.
+     * @throws UnsupportedOperationException - if this API is not supported on this device
+     *         or IllegalArgumentException - if the band specified is not one among the list
+     *         of bands mentioned above.
      * @hide
      */
     @RequiresApi(Build.VERSION_CODES.S)
@@ -8187,4 +8209,49 @@ public class WifiManager {
             throw e.rethrowFromSystemServer();
         }
     }
+
+    /**
+     * Check the WifiSharing mode.
+     *
+     * @return true if Current Sta network connected with extending coverage
+     * option. false if it is not.
+     *
+     * @hide no intent to publish
+     */
+     public boolean isExtendingWifi() {
+         try {
+             return mService.isExtendingWifi();
+         } catch (RemoteException e) {
+             throw e.rethrowFromSystemServer();
+         }
+     }
+
+    /**
+     * Check Wifi coverage extend feature enabled or not.
+     *
+     * @return true if Wifi extend feature is enabled.
+     *
+     * @hide no intent to publish
+     */
+     public boolean isWifiCoverageExtendFeatureEnabled() {
+         try {
+             return mService.isWifiCoverageExtendFeatureEnabled();
+         } catch (RemoteException e) {
+             throw e.rethrowFromSystemServer();
+         }
+     }
+
+    /**
+     * Enable/disable Wifi coverage extend feature.
+     *
+     * @hide no intent to publish
+     */
+     public void enableWifiCoverageExtendFeature(boolean enable) {
+         try {
+             mService.enableWifiCoverageExtendFeature(enable);
+         } catch (RemoteException e) {
+             throw e.rethrowFromSystemServer();
+         }
+     }
+
 }

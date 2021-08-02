@@ -51,6 +51,7 @@ import android.hidl.manager.V1_0.IServiceManager;
 import android.hidl.manager.V1_0.IServiceNotification;
 import android.net.MacAddress;
 import android.net.wifi.ScanResult;
+import android.net.wifi.SecurityParams;
 import android.net.wifi.WifiAnnotations.WifiStandard;
 import android.net.wifi.WifiConfiguration;
 import android.os.Handler;
@@ -994,9 +995,11 @@ public class SupplicantStaIfaceHal {
      */
     public boolean connectToNetwork(@NonNull String ifaceName, @NonNull WifiConfiguration config) {
         synchronized (mLock) {
-            logd("connectToNetwork " + config.getProfileKey());
+            boolean isMixedGbkUtf = WifiGbk.isMixedGbkUtf(config); // wifigbk++
+            logd("connectToNetwork " + config.getProfileKey()
+                    + " isMixedGbkUtf=" + isMixedGbkUtf);
             WifiConfiguration currentConfig = getCurrentNetworkLocalConfig(ifaceName);
-            if (WifiConfigurationUtil.isSameNetwork(config, currentConfig)) {
+            if (WifiConfigurationUtil.isSameNetwork(config, currentConfig) && !isMixedGbkUtf) {
                 String networkSelectionBSSID = config.getNetworkSelectionStatus()
                         .getNetworkSelectionBSSID();
                 String networkSelectionBSSIDCurrent =
@@ -3776,7 +3779,12 @@ public class SupplicantStaIfaceHal {
                 return false;
             }
 
-            if (!removeAllNetworksExcept(ifaceName, networkId)) {
+            if (!currentHandle.getId()) {
+                Log.e(TAG, "current network getId failed");
+                return false;
+            }
+
+            if (!removeAllNetworksExcept(ifaceName, currentHandle.getNetworkId())) {
                 Log.e(TAG, "couldn't remove non-current supplicant networks");
                 return false;
             }
@@ -3833,5 +3841,15 @@ public class SupplicantStaIfaceHal {
             }
             return true;
         }
+    }
+
+    public SecurityParams getCurrentSecurityParams(@NonNull String ifaceName) {
+        WifiConfiguration currentConfig = getCurrentNetworkLocalConfig(ifaceName);
+
+        if (currentConfig == null) {
+            return null;
+        }
+
+        return currentConfig.getNetworkSelectionStatus().getCandidateSecurityParams();
     }
 }

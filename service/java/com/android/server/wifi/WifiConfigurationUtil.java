@@ -61,7 +61,8 @@ public class WifiConfigurationUtil {
      */
     private static final int ENCLOSING_QUOTES_LEN = 2;
     private static final int SSID_UTF_8_MIN_LEN = 1 + ENCLOSING_QUOTES_LEN;
-    private static final int SSID_UTF_8_MAX_LEN = 32 + ENCLOSING_QUOTES_LEN;
+    private static final int SSID_UTF_8_MAX_LEN = // wifigbk++
+                        WifiGbk.MAX_SSID_UTF_LENGTH + ENCLOSING_QUOTES_LEN;
     private static final int SSID_HEX_MIN_LEN = 2;
     private static final int SSID_HEX_MAX_LEN = 64;
     private static final int PSK_ASCII_MIN_LEN = 8 + ENCLOSING_QUOTES_LEN;
@@ -688,14 +689,7 @@ public class WifiConfigurationUtil {
             return false;
         }
 
-        if ((config.isSecurityType(WifiConfiguration.SECURITY_TYPE_EAP)
-                || config.isSecurityType(WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE))
-                && !config.isEnterprise()) {
-            return false;
-        }
-        if (config.isSecurityType(WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE_192_BIT)
-                && (!config.isEnterprise()
-                || config.enterpriseConfig.getEapMethod() != WifiEnterpriseConfig.Eap.TLS)) {
+        if (!validateEnterpriseConfig(config)) {
             return false;
         }
 
@@ -1069,4 +1063,35 @@ public class WifiConfigurationUtil {
         return legacyConfigs;
     }
 
+    private static boolean validateEnterpriseConfig(WifiConfiguration config) {
+        if ((config.isSecurityType(WifiConfiguration.SECURITY_TYPE_EAP)
+                || config.isSecurityType(WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE))
+                && !config.isEnterprise()) {
+            return false;
+        }
+        if (config.isSecurityType(WifiConfiguration.SECURITY_TYPE_EAP_WPA3_ENTERPRISE_192_BIT)
+                && (!config.isEnterprise()
+                || config.enterpriseConfig.getEapMethod() != WifiEnterpriseConfig.Eap.TLS)) {
+            return false;
+        }
+
+        if (config.isEnterprise()) {
+            if (config.enterpriseConfig.getEapMethod() == WifiEnterpriseConfig.Eap.PEAP
+                    || config.enterpriseConfig.getEapMethod() == WifiEnterpriseConfig.Eap.TTLS) {
+
+                int phase2Method = config.enterpriseConfig.getPhase2Method();
+                if (phase2Method == WifiEnterpriseConfig.Phase2.MSCHAP
+                        || phase2Method == WifiEnterpriseConfig.Phase2.MSCHAPV2
+                        || phase2Method == WifiEnterpriseConfig.Phase2.PAP
+                        || phase2Method == WifiEnterpriseConfig.Phase2.GTC) {
+                    if (TextUtils.isEmpty(config.enterpriseConfig.getPassword())
+                            || TextUtils.isEmpty(config.enterpriseConfig.getIdentity())) {
+                        Log.e(TAG, "Enterprise network without an identity or a password set");
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
 }

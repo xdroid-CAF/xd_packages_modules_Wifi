@@ -28,6 +28,7 @@ import android.util.Log;
 
 import com.android.server.wifi.Clock;
 import com.android.server.wifi.ScanDetail;
+import com.android.server.wifi.WifiGbk;
 import com.android.server.wifi.WifiMonitor;
 import com.android.server.wifi.WifiNative;
 import com.android.server.wifi.scanner.ChannelHelper.ChannelCollection;
@@ -321,6 +322,7 @@ public class WificondScannerImpl extends WifiScannerImpl implements Handler.Call
             int numFilteredScanResults = 0;
             for (int i = 0; i < mNativePnoScanResults.size(); ++i) {
                 ScanResult result = mNativePnoScanResults.get(i).getScanResult();
+                WifiGbk.processScanResult(result); // wifigbk++
                 // nanoseconds -> microseconds
                 if (result.timestamp >= mLastPnoScanSettings.startTimeNanos / 1_000) {
                     hwPnoScanResults.add(result);
@@ -367,6 +369,7 @@ public class WificondScannerImpl extends WifiScannerImpl implements Handler.Call
             int numFilteredScanResults = 0;
             for (int i = 0; i < mNativeScanResults.size(); ++i) {
                 ScanResult result = mNativeScanResults.get(i).getScanResult();
+                WifiGbk.processScanResult(result); // wifigbk++
                 // nanoseconds -> microseconds
                 if (result.timestamp >= mLastScanSettings.startTimeNanos / 1_000) {
                     if (mLastScanSettings.singleScanFreqs.containsChannel(
@@ -397,6 +400,7 @@ public class WificondScannerImpl extends WifiScannerImpl implements Handler.Call
                         .onScanStatus(WifiNative.WIFI_SCAN_RESULTS_AVAILABLE);
             }
 
+            WifiGbk.ageBssCache(); // wifigbk++
             mLastScanSettings = null;
         }
     }

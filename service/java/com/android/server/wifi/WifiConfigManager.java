@@ -1105,6 +1105,8 @@ public class WifiConfigManager {
             }
         }
 
+        internalConfig.shareThisAp = externalConfig.shareThisAp;
+
         // Copy over the |WifiEnterpriseConfig| parameters if set.
         if (externalConfig.enterpriseConfig != null) {
             internalConfig.enterpriseConfig.copyFromExternal(
@@ -3756,7 +3758,15 @@ public class WifiConfigManager {
             return null;
         }
         for (String configKey : linkedConfigurations.keySet()) {
-            linkedNetworks.put(configKey, getConfiguredNetworkWithoutMasking(configKey));
+            WifiConfiguration linkConfig = getConfiguredNetworkWithoutMasking(configKey);
+            if (linkConfig == null ||
+                !linkConfig.isSecurityType(WifiConfiguration.SECURITY_TYPE_PSK))
+                continue;
+
+            linkConfig.getNetworkSelectionStatus().setCandidateSecurityParams(
+                    SecurityParams.createSecurityParamsBySecurityType(
+                            WifiConfiguration.SECURITY_TYPE_PSK));
+            linkedNetworks.put(configKey, linkConfig);
         }
         return linkedNetworks;
     }

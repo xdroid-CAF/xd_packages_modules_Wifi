@@ -34,6 +34,7 @@ import static com.android.server.wifi.ClientModeImpl.RESET_SIM_REASON_SIM_INSERT
 import static com.android.server.wifi.ClientModeImpl.RESET_SIM_REASON_SIM_REMOVED;
 import static com.android.server.wifi.SelfRecovery.REASON_API_CALL;
 import static com.android.server.wifi.WifiSettingsConfigStore.WIFI_VERBOSE_LOGGING_ENABLED;
+import static com.android.server.wifi.WifiSettingsConfigStore.WIFI_COVERAGE_EXTEND_FEATURE_ENABLED;
 
 import android.Manifest;
 import android.annotation.CheckResult;
@@ -97,6 +98,7 @@ import android.net.wifi.WifiScanner;
 import android.net.wifi.hotspot2.IProvisioningCallback;
 import android.net.wifi.hotspot2.OsuProvider;
 import android.net.wifi.hotspot2.PasspointConfiguration;
+import android.net.wifi.SupplicantState;
 import android.os.AsyncTask;
 import android.os.Binder;
 import android.os.Build;
@@ -256,10 +258,13 @@ public class WifiServiceImpl extends BaseWifiService {
 
         @Override
         public void onActiveDataSubscriptionIdChanged(int subId) {
-            Log.d(TAG, "OBSERVED active data subscription change, subId: " + subId);
-
-            mTetheredSoftApTracker.updateSoftApCapabilityWhenCarrierConfigChanged(subId);
-            mActiveModeWarden.updateSoftApCapability(mTetheredSoftApTracker.getSoftApCapability());
+            // post operation to handler thread
+            mWifiThreadRunner.post(() -> {
+                Log.d(TAG, "OBSERVED active data subscription change, subId: " + subId);
+                mTetheredSoftApTracker.updateSoftApCapabilityWhenCarrierConfigChanged(subId);
+                mActiveModeWarden.updateSoftApCapability(
+                        mTetheredSoftApTracker.getSoftApCapability());
+            });
         }
     }
 
@@ -552,6 +557,8 @@ public class WifiServiceImpl extends BaseWifiService {
             mCountryCode.registerListener(new CountryCodeListenerProxy());
             mTetheredSoftApTracker.handleBootCompleted();
             mWifiInjector.getSarManager().handleBootCompleted();
+
+            handleBootCompletedForCoverageExtendFeature();
         });
     }
 
@@ -1207,6 +1214,11 @@ public class WifiServiceImpl extends BaseWifiService {
         mLog.trace("startSoftApInternal uid=% mode=%")
                 .c(uid).c(apConfig.getTargetMode()).flush();
 
+        if (isSoftApForExtendingWifi(apConfig.getSoftApConfiguration())) {
+            startSoftApInRepeaterMode(apConfig.getTargetMode(), apConfig.getSoftApConfiguration(),
+                                     requestorWs);
+            return true;
+        }
         // null wifiConfig is a meaningful input for CMD_SET_AP; it means to use the persistent
         // AP config.
         SoftApConfiguration softApConfig = apConfig.getSoftApConfiguration();
@@ -1256,16 +1268,20 @@ public class WifiServiceImpl extends BaseWifiService {
     private void stopSoftApInternal(int mode) {
         mLog.trace("stopSoftApInternal uid=% mode=%").c(Binder.getCallingUid()).c(mode).flush();
 
+        mSoftApExtendingWifi = false;
         mActiveModeWarden.stopSoftAp(mode);
     }
 
     private final class CountryCodeListenerProxy implements WifiCountryCode.ChangeListener {
         @Override
         public void onDriverCountryCodeChanged(String countryCode) {
-            Log.i(TAG, "onDriverCountryCodeChanged " + countryCode);
-            mTetheredSoftApTracker.updateAvailChannelListInSoftApCapability();
-            mActiveModeWarden.updateSoftApCapability(
-                    mTetheredSoftApTracker.getSoftApCapability());
+            // post operation to handler thread
+            mWifiThreadRunner.post(() -> {
+                Log.i(TAG, "onDriverCountryCodeChanged " + countryCode);
+                mTetheredSoftApTracker.updateAvailChannelListInSoftApCapability();
+                mActiveModeWarden.updateSoftApCapability(
+                        mTetheredSoftApTracker.getSoftApCapability());
+            });
         }
     }
 
@@ -1463,6 +1479,17 @@ public class WifiServiceImpl extends BaseWifiService {
                 }
             }
             mRegisteredSoftApCallbacks.finishBroadcast();
+
+            if ((getState() == WifiManager.WIFI_AP_STATE_DISABLED) && mRestartWifiApIfRequired) {
+                mWifiThreadRunner.post(() -> {
+                    Log.d(TAG ,"Repeater mode: Restart SoftAP.");
+                    mRestartWifiApIfRequired = false;
+                    startSoftApInternal(new SoftApModeConfiguration(
+                            WifiManager.IFACE_IP_MODE_TETHERED, null,
+                            mTetheredSoftApTracker.getSoftApCapability()),
+                        mFrameworkFacade.getSettingsWorkSource(mContext));
+                });
+            }
         }
 
         /**
@@ -1479,15 +1506,17 @@ public class WifiServiceImpl extends BaseWifiService {
                     Log.d(TAG, "ShutDown bridged mode, clear isBridged cache in Service");
                     mIsBridgedMode = false;
                 }
-                mTetheredSoftApConnectedClientsMap = clients;
-                mTetheredSoftApInfoMap = infos;
+                mTetheredSoftApConnectedClientsMap =
+                        ApConfigUtil.deepCopyForWifiClientListMap(clients);
+                mTetheredSoftApInfoMap = ApConfigUtil.deepCopyForSoftApInfoMap(infos);
             }
             int itemCount = mRegisteredSoftApCallbacks.beginBroadcast();
             for (int i = 0; i < itemCount; i++) {
                 try {
                     mRegisteredSoftApCallbacks.getBroadcastItem(i).onConnectedClientsOrInfoChanged(
-                            mTetheredSoftApInfoMap, mTetheredSoftApConnectedClientsMap, isBridged,
-                            false);
+                            ApConfigUtil.deepCopyForSoftApInfoMap(mTetheredSoftApInfoMap),
+                            ApConfigUtil.deepCopyForWifiClientListMap(
+                                    mTetheredSoftApConnectedClientsMap), isBridged, false);
                 } catch (RemoteException e) {
                     Log.e(TAG, "onConnectedClientsOrInfoChanged: remote exception -- " + e);
                 }
@@ -3740,11 +3769,13 @@ public class WifiServiceImpl extends BaseWifiService {
             @Override
             public void onReceive(Context context, Intent intent) {
                 final int subId = SubscriptionManager.getActiveDataSubscriptionId();
-                Log.d(TAG, "ACTION_CARRIER_CONFIG_CHANGED, active subId: " + subId);
-
-                mTetheredSoftApTracker.updateSoftApCapabilityWhenCarrierConfigChanged(subId);
-                mActiveModeWarden.updateSoftApCapability(
-                        mTetheredSoftApTracker.getSoftApCapability());
+                // post operation to handler thread
+                mWifiThreadRunner.post(() -> {
+                    Log.d(TAG, "ACTION_CARRIER_CONFIG_CHANGED, active subId: " + subId);
+                    mTetheredSoftApTracker.updateSoftApCapabilityWhenCarrierConfigChanged(subId);
+                    mActiveModeWarden.updateSoftApCapability(
+                            mTetheredSoftApTracker.getSoftApCapability());
+                });
             }
         }, filter);
 
@@ -5281,11 +5312,29 @@ public class WifiServiceImpl extends BaseWifiService {
                 () -> mSettingsStore.handleWifiScoringEnabled(enabled), false);
     }
 
+    @VisibleForTesting
+    static boolean isValidBandForGetUsableChannels(@WifiScanner.WifiBand int band) {
+        switch (band) {
+            case WifiScanner.WIFI_BAND_UNSPECIFIED:
+            case WifiScanner.WIFI_BAND_24_GHZ:
+            case WifiScanner.WIFI_BAND_5_GHZ_WITH_DFS:
+            case WifiScanner.WIFI_BAND_BOTH_WITH_DFS:
+            case WifiScanner.WIFI_BAND_6_GHZ:
+            case WifiScanner.WIFI_BAND_24_5_WITH_DFS_6_GHZ:
+            case WifiScanner.WIFI_BAND_60_GHZ:
+            case WifiScanner.WIFI_BAND_24_5_WITH_DFS_6_60_GHZ:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     /**
      * See {@link android.net.wifi.WifiManager#getUsableChannels(int, int) and
      * See {@link android.net.wifi.WifiManager#getAllowedChannels(int, int).
      *
      * @throws SecurityException if the caller does not have permission
+     * or IllegalArgumentException if the band is invalid for this method.
      */
     @Override
     public List<WifiAvailableChannel> getUsableChannels(@WifiScanner.WifiBand int band,
@@ -5300,6 +5349,9 @@ public class WifiServiceImpl extends BaseWifiService {
         }
         if (!mWifiPermissionsUtil.checkCallersHardwareLocationPermission(uid)) {
             throw new SecurityException("UID " + uid + " does not have location h/w permission");
+        }
+        if (!isValidBandForGetUsableChannels(band)) {
+            throw new IllegalArgumentException("Unsupported band: " + band);
         }
         List<WifiAvailableChannel> channels = mWifiThreadRunner.call(
                 () -> mWifiNative.getUsableChannels(band, mode, filter), null);
@@ -5322,6 +5374,8 @@ public class WifiServiceImpl extends BaseWifiService {
      */
     @Override
     public void flushPasspointAnqpCache(@NonNull String packageName) {
+        mWifiPermissionsUtil.checkPackage(Binder.getCallingUid(), packageName);
+
         if (!isDeviceOrProfileOwner(Binder.getCallingUid(), packageName)) {
             enforceAnyPermissionOf(android.Manifest.permission.NETWORK_SETTINGS,
                     android.Manifest.permission.NETWORK_MANAGED_PROVISIONING,
@@ -5329,4 +5383,126 @@ public class WifiServiceImpl extends BaseWifiService {
         }
         mWifiThreadRunner.post(mPasspointManager::clearAnqpRequestsAndFlushCache);
     }
+
+    /* API to check whether SoftAp extending current sta connected AP network*/
+    @Override
+    public boolean isExtendingWifi() {
+        return mSoftApExtendingWifi;
+    }
+
+    private boolean isCurrentStaShareThisAp() {
+        if(!isWifiCoverageExtendFeatureEnabled())
+            return false;
+
+        WifiConfiguration currentStaConfig = getPrimaryClientModeManagerBlockingThreadSafe()
+                 .getConnectingWifiConfiguration();
+        if (currentStaConfig == null)
+            currentStaConfig = getPrimaryClientModeManagerBlockingThreadSafe()
+                     .getConnectedWifiConfiguration();
+
+        if (currentStaConfig != null && currentStaConfig.shareThisAp) {
+            int authType = currentStaConfig.getAuthType();
+
+            if (authType == WifiConfiguration.KeyMgmt.NONE || authType == WifiConfiguration.KeyMgmt.WPA_PSK)
+                return true;
+        }
+
+        return false;
+    }
+
+    private void startSoftApInRepeaterMode(int mode, SoftApConfiguration apConfig, WorkSource requestorWs) {
+        WifiInfo wifiInfo = getPrimaryClientModeManagerBlockingThreadSafe().syncRequestConnectionInfo();
+        WifiConfiguration currentStaConfig = mWifiConfigManager.getConfiguredNetworkWithPassword(wifiInfo.getNetworkId());
+        SoftApConfiguration.Builder softApConfigBuilder = new SoftApConfiguration.Builder(
+            ApConfigUtil.fromWifiConfiguration(currentStaConfig));
+
+        // Remove double quotes in SSID and psk
+        softApConfigBuilder.setSsid(WifiInfo.removeDoubleQuotes(currentStaConfig.SSID));
+        if (currentStaConfig.getAuthType() == WifiConfiguration.KeyMgmt.WPA_PSK) {
+            softApConfigBuilder.setPassphrase(WifiInfo.removeDoubleQuotes(currentStaConfig.preSharedKey),
+                SoftApConfiguration.SECURITY_TYPE_WPA2_PSK);
+        }
+
+        // Get band info from SoftAP configuration
+        if (apConfig == null)
+            softApConfigBuilder.setBand(mWifiApConfigStore.getApConfiguration().getBand());
+        else
+            softApConfigBuilder.setBand(apConfig.getBand());
+
+        SoftApConfiguration softApConfig = softApConfigBuilder.build();
+        Log.d(TAG,"Repeater mode config - " + softApConfig);
+        SoftApModeConfiguration softApModeConfig = new SoftApModeConfiguration(mode, softApConfig,
+                mTetheredSoftApTracker.getSoftApCapability());
+        mActiveModeWarden.startSoftAp(softApModeConfig, requestorWs);
+
+    }
+
+    @Override
+    public boolean isWifiCoverageExtendFeatureEnabled() {
+        enforceAccessPermission();
+        return mWifiInjector.getSettingsConfigStore().get(WIFI_COVERAGE_EXTEND_FEATURE_ENABLED);
+    }
+
+    @Override
+    public void enableWifiCoverageExtendFeature(boolean enable) {
+        enforceAccessPermission();
+        enforceNetworkSettingsPermission();
+        mLog.info("enableWifiCoverageExtendFeature uid=% enable=%")
+                .c(Binder.getCallingUid())
+                .c(enable).flush();
+         mWifiInjector.getSettingsConfigStore().put(WIFI_COVERAGE_EXTEND_FEATURE_ENABLED, enable);
+    }
+
+    private void restartSoftApIfNeeded() {
+        if (getWifiApEnabledState() == WifiManager.WIFI_AP_STATE_DISABLED) {
+            Log.d(TAG ,"Repeater mode: not restarting SoftAP as Hotspot is disabled.");
+            return;
+        }
+
+        Log.d(TAG ,"Repeater mode: Stop SoftAP.");
+        mRestartWifiApIfRequired = true;
+        stopSoftAp();
+    }
+
+    private boolean isSoftApForExtendingWifi(SoftApConfiguration apConfig) {
+        if (apConfig == null)
+            apConfig = mWifiApConfigStore.getApConfiguration();
+
+        mSoftApExtendingWifi = (apConfig != null
+            && apConfig.getBands().length == 1
+            && isCurrentStaShareThisAp());
+
+        return mSoftApExtendingWifi;
+    }
+
+
+    private boolean mRestartWifiApIfRequired = false;
+    private boolean mSoftApExtendingWifi = false;
+
+    private void handleBootCompletedForCoverageExtendFeature() {
+            // Register for system broadcasts.
+            IntentFilter intentFilter = new IntentFilter();
+            intentFilter.addAction("android.net.wifi.supplicant.STATE_CHANGE");
+            intentFilter.addAction("android.net.wifi.WIFI_STATE_CHANGED");
+            mContext.registerReceiver(new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    String action = intent.getAction();
+                    if (WifiManager.SUPPLICANT_STATE_CHANGED_ACTION.equals(action)) {
+                        SupplicantState state = (SupplicantState) intent.getParcelableExtra(WifiManager.EXTRA_NEW_STATE);
+                        if (isCurrentStaShareThisAp() && state == SupplicantState.COMPLETED && !mSoftApExtendingWifi) {
+                            restartSoftApIfNeeded();
+                        } else if (mSoftApExtendingWifi && state == SupplicantState.DISCONNECTED) {
+                            restartSoftApIfNeeded();
+                        }
+                    } else if (WifiManager.WIFI_STATE_CHANGED_ACTION.equals(action)) {
+                         int state = intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_UNKNOWN);
+                         if (mSoftApExtendingWifi && state == WifiManager.WIFI_STATE_DISABLED) {
+                             restartSoftApIfNeeded();
+                         }
+                    }
+                }
+            }, intentFilter);
+    }
+
 }

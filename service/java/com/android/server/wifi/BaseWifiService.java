@@ -793,5 +793,20 @@ public class BaseWifiService extends IWifiManager.Stub {
             int band, int mode, int filter) {
         throw new UnsupportedOperationException();
     }
+
+    @Override
+    public boolean isExtendingWifi() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean isWifiCoverageExtendFeatureEnabled() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void enableWifiCoverageExtendFeature(boolean enable) {
+        throw new UnsupportedOperationException();
+    }
 }
 
