@@ -1418,4 +1418,14 @@ public class ConcreteClientModeManager implements ClientModeManager {
                 + " role=" + getRole()
                 + "}";
     }
+
+    /**
+     * Run Driver Command
+     * @param : Command string
+     */
+    @Override
+    public String doDriverCmd(String command)
+    {
+        return getClientMode().doDriverCmd(command);
+    }
 }

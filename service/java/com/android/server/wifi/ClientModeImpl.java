@@ -1226,6 +1226,14 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
         return stats;
     }
 
+    public String doDriverCmd(String command) {
+        if (mInterfaceName == null) {
+            loge("doDriverCmd called without an interface");
+            return null;
+        }
+        return mWifiNative.doDriverCmd(mInterfaceName, command);
+    }
+
     /**
      * Update interface capabilities
      * This method is used to update some of interface capabilities defined in overlay
