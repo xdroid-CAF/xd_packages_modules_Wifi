@@ -1062,4 +1062,7 @@ public class WifiInjector {
     public LinkProbeManager getLinkProbeManager() {
         return mLinkProbeManager;
     }
+    public Context getContext() {
+        return mContext;
+    }
 }
