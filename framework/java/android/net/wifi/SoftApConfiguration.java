@@ -310,14 +310,23 @@ public final class SoftApConfiguration implements Parcelable {
     public static final int SECURITY_TYPE_WPA3_SAE = 3;
 
     /** @hide */
+    public static final int SECURITY_TYPE_OWE = 4;
+
+    /** @hide */
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(prefix = { "SECURITY_TYPE_" }, value = {
         SECURITY_TYPE_OPEN,
         SECURITY_TYPE_WPA2_PSK,
         SECURITY_TYPE_WPA3_SAE_TRANSITION,
         SECURITY_TYPE_WPA3_SAE,
+        SECURITY_TYPE_OWE,
     })
     public @interface SecurityType {}
+
+    /*
+     * Iface name for OWE transition mode.
+     */
+    private final @Nullable String mOweTransIfaceName;
 
     /** Private constructor for Builder and Parcelable implementation. */
     private SoftApConfiguration(@Nullable String ssid, @Nullable MacAddress bssid,
@@ -326,7 +335,8 @@ public final class SoftApConfiguration implements Parcelable {
             long shutdownTimeoutMillis, boolean clientControlByUser,
             @NonNull List<MacAddress> blockedList, @NonNull List<MacAddress> allowedList,
             int macRandomizationSetting, boolean bridgedModeOpportunisticShutdownEnabled,
-            boolean ieee80211axEnabled, boolean isUserConfiguration) {
+            boolean ieee80211axEnabled, boolean isUserConfiguration,
+            @Nullable String oweTransIfaceName) {
         mSsid = ssid;
         mBssid = bssid;
         mPassphrase = passphrase;
@@ -348,6 +358,7 @@ public final class SoftApConfiguration implements Parcelable {
         mBridgedModeOpportunisticShutdownEnabled = bridgedModeOpportunisticShutdownEnabled;
         mIeee80211axEnabled = ieee80211axEnabled;
         mIsUserConfiguration = isUserConfiguration;
+        mOweTransIfaceName = oweTransIfaceName;
     }
 
     @Override
@@ -375,7 +386,8 @@ public final class SoftApConfiguration implements Parcelable {
                 && mBridgedModeOpportunisticShutdownEnabled
                 == other.mBridgedModeOpportunisticShutdownEnabled
                 && mIeee80211axEnabled == other.mIeee80211axEnabled
-                && mIsUserConfiguration == other.mIsUserConfiguration;
+                && mIsUserConfiguration == other.mIsUserConfiguration
+                && mOweTransIfaceName == other.mOweTransIfaceName;
     }
 
     @Override
@@ -385,7 +397,7 @@ public final class SoftApConfiguration implements Parcelable {
                 mShutdownTimeoutMillis, mClientControlByUser, mBlockedClientList,
                 mAllowedClientList, mMacRandomizationSetting,
                 mBridgedModeOpportunisticShutdownEnabled, mIeee80211axEnabled,
-                mIsUserConfiguration);
+                mIsUserConfiguration, mOweTransIfaceName);
     }
 
     @Override
@@ -409,6 +421,7 @@ public final class SoftApConfiguration implements Parcelable {
                 .append(mBridgedModeOpportunisticShutdownEnabled);
         sbuf.append(" \n Ieee80211axEnabled = ").append(mIeee80211axEnabled);
         sbuf.append(" \n isUserConfiguration = ").append(mIsUserConfiguration);
+        sbuf.append(" \n OWE Transition mode Iface =").append(mOweTransIfaceName);
         return sbuf.toString();
     }
 
@@ -430,6 +443,7 @@ public final class SoftApConfiguration implements Parcelable {
         dest.writeBoolean(mBridgedModeOpportunisticShutdownEnabled);
         dest.writeBoolean(mIeee80211axEnabled);
         dest.writeBoolean(mIsUserConfiguration);
+        dest.writeString(mOweTransIfaceName);
     }
 
     /* Reference from frameworks/base/core/java/android/os/Parcel.java */
@@ -484,7 +498,7 @@ public final class SoftApConfiguration implements Parcelable {
                     in.readInt(), in.readBoolean(), in.readLong(), in.readBoolean(),
                     in.createTypedArrayList(MacAddress.CREATOR),
                     in.createTypedArrayList(MacAddress.CREATOR), in.readInt(), in.readBoolean(),
-                    in.readBoolean(), in.readBoolean());
+                    in.readBoolean(), in.readBoolean(), in.readString());
         }
 
         @Override
@@ -844,6 +858,17 @@ public final class SoftApConfiguration implements Parcelable {
     }
 
     /**
+     * Return the iface name for OWE transition mode for the AP.
+     * {@link #setOweTransIfaceName(String)}.
+     *
+     * @hide
+     */
+    @Nullable
+    public String getOweTransIfaceName() {
+      return mOweTransIfaceName;
+    }
+
+    /**
      * Builds a {@link SoftApConfiguration}, which allows an app to configure various aspects of a
      * Soft AP.
      *
@@ -870,6 +895,7 @@ public final class SoftApConfiguration implements Parcelable {
         private boolean mBridgedModeOpportunisticShutdownEnabled;
         private boolean mIeee80211axEnabled;
         private boolean mIsUserConfiguration;
+        private String mOweTransIfaceName;
 
         /**
          * Constructs a Builder with default values (see {@link Builder}).
@@ -892,6 +918,7 @@ public final class SoftApConfiguration implements Parcelable {
             mBridgedModeOpportunisticShutdownEnabled = true;
             mIeee80211axEnabled = true;
             mIsUserConfiguration = true;
+            mOweTransIfaceName = null;
         }
 
         /**
@@ -917,6 +944,7 @@ public final class SoftApConfiguration implements Parcelable {
                     other.mBridgedModeOpportunisticShutdownEnabled;
             mIeee80211axEnabled = other.mIeee80211axEnabled;
             mIsUserConfiguration = other.mIsUserConfiguration;
+            mOweTransIfaceName = other.mOweTransIfaceName;
         }
 
         /**
@@ -936,7 +964,7 @@ public final class SoftApConfiguration implements Parcelable {
                     mAutoShutdownEnabled, mShutdownTimeoutMillis, mClientControlByUser,
                     mBlockedClientList, mAllowedClientList, mMacRandomizationSetting,
                     mBridgedModeOpportunisticShutdownEnabled, mIeee80211axEnabled,
-                    mIsUserConfiguration);
+                    mIsUserConfiguration, mOweTransIfaceName);
         }
 
         /**
@@ -1024,7 +1052,7 @@ public final class SoftApConfiguration implements Parcelable {
          */
         @NonNull
         public Builder setPassphrase(@Nullable String passphrase, @SecurityType int securityType) {
-            if (securityType == SECURITY_TYPE_OPEN) {
+            if (securityType == SECURITY_TYPE_OPEN || securityType == SECURITY_TYPE_OWE) {
                 if (passphrase != null) {
                     throw new IllegalArgumentException(
                             "passphrase should be null when security type is open");
@@ -1522,6 +1550,22 @@ public final class SoftApConfiguration implements Parcelable {
         @NonNull
         public Builder setUserConfiguration(boolean isUserConfigured) {
             mIsUserConfiguration = isUserConfigured;
+            return this;
+        }
+
+        /**
+         * Specifies an iface name for OWE transition mode for the AP.
+         * <p>
+         * <li>If not set, defaults to null.</li>
+         *
+         * @param oweTransIfaceName iface name for OWE transition mode.
+         * @return Builder for chaining.
+         *
+         * @hide
+         */
+        @NonNull
+        public Builder setOweTransIfaceName(@Nullable String oweTransIfaceName) {
+            mOweTransIfaceName = oweTransIfaceName;
             return this;
         }
     }

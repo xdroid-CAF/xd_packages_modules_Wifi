@@ -3414,6 +3414,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
      *******************************************************/
 
     class ConnectableState extends State {
+        private boolean mIsScreenStateChangeReceiverRegistered = false;
         BroadcastReceiver mScreenStateChangeReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -3446,7 +3447,10 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             IntentFilter filter = new IntentFilter();
             filter.addAction(Intent.ACTION_SCREEN_ON);
             filter.addAction(Intent.ACTION_SCREEN_OFF);
-            mContext.registerReceiver(mScreenStateChangeReceiver, filter);
+            if (!mIsScreenStateChangeReceiverRegistered) {
+                mContext.registerReceiver(mScreenStateChangeReceiver, filter);
+                mIsScreenStateChangeReceiverRegistered = true;
+            }
             // Learn the initial state of whether the screen is on.
             // We update this field when we receive broadcasts from the system.
             handleScreenStateChanged(mContext.getSystemService(PowerManager.class).isInteractive());
@@ -3474,7 +3478,10 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             if (!mWifiNative.removeAllNetworks(mInterfaceName)) {
                 loge("Failed to remove networks on exiting connect mode");
             }
-            mContext.unregisterReceiver(mScreenStateChangeReceiver);
+            if (mIsScreenStateChangeReceiverRegistered) {
+                mContext.unregisterReceiver(mScreenStateChangeReceiver);
+                mIsScreenStateChangeReceiverRegistered = false;
+            }
 
             stopClientMode();
             mWifiScoreCard.doWrites();
@@ -4229,11 +4236,9 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             mCmiMonitor.onConnectionEnd(mClientModeManager);
 
             // Not connected/connecting to any network:
-            // 1. Disable the network in supplicant to prevent it from auto-connecting. We don't
-            // remove the network to avoid losing any cached info in supplicant (reauth, etc) in
-            // case we reconnect back to the same network.
+            // 1. remove the network in supplicant since PMKSA is now saved in framework.
             // 2. Set a random MAC address to ensure that we're not leaking the MAC address.
-            mWifiNative.disableNetwork(mInterfaceName);
+            mWifiNative.removeAllNetworks(mInterfaceName);
             if (mWifiGlobals.isConnectedMacRandomizationEnabled()) {
                 if (!mWifiNative.setStaMacAddress(
                         mInterfaceName, MacAddressUtils.createRandomUnicastAddress())) {
@@ -6129,6 +6134,9 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
     /**
      * Helper method to set the allowed key management schemes from
      * scan result.
+     * When the AKM is updated, changes should be propagated to the
+     * actual saved network, and the correct AKM could be retrieved
+     * on selecting the security params.
      */
     private void updateAllowedKeyManagementSchemesFromScanResult(
             WifiConfiguration config, ScanResult scanResult) {
@@ -6137,6 +6145,8 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
                 && ScanResultUtil.isScanResultForFilsSha256Network(scanResult),
                 isFilsSha384Supported()
                 && ScanResultUtil.isScanResultForFilsSha384Network(scanResult));
+        mWifiConfigManager.updateFilsAkms(config.networkId,
+                config.isFilsSha256Enabled(), config.isFilsSha384Enabled());
     }
     /**
      * Update wifi configuration based on the matching scan result.

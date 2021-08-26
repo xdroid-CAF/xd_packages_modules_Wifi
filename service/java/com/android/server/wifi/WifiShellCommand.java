@@ -1093,6 +1093,8 @@ public class WifiShellCommand extends BasicShellCommandHandler {
                     SoftApConfiguration.SECURITY_TYPE_WPA3_SAE_TRANSITION);
         } else if (TextUtils.equals(type, "open")) {
             configBuilder.setPassphrase(null, SoftApConfiguration.SECURITY_TYPE_OPEN);
+        } else if (TextUtils.equals(type, "owe")) {
+            configBuilder.setPassphrase(null, SoftApConfiguration.SECURITY_TYPE_OWE);
         } else {
             throw new IllegalArgumentException("Unknown network type " + type);
         }

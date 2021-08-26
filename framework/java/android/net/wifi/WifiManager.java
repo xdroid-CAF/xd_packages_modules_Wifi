@@ -1070,6 +1070,16 @@ public class WifiManager {
     public static final String SCAN_RESULTS_AVAILABLE_ACTION = "android.net.wifi.SCAN_RESULTS";
 
     /**
+     * An access point partial scan has completed, and results are available.
+     * Call {@link #getScanResults()} to obtain the results.
+     * The broadcast intent may contain an extra field with the key {@link #EXTRA_RESULTS_UPDATED}
+     * and a {@code boolean} value indicating if the scan was successful.
+     * @hide
+     */
+    public static final String PARTIAL_SCAN_RESULTS_AVAILABLE_ACTION =
+            "com.qualcomm.qti.net.wifi.PARTIAL_SCAN_RESULTS";
+
+    /**
      * Lookup key for a {@code boolean} extra in intent {@link #SCAN_RESULTS_AVAILABLE_ACTION}
      * representing if the scan was successful or not.
      * Scans may fail for multiple reasons, these may include:
@@ -2315,10 +2325,6 @@ public class WifiManager {
      * first required to remove it using {@link WifiManager#removePasspointConfiguration(String)}.
      * Otherwise, a new profile will be added with both configuration.
      *
-     * @param config The Passpoint configuration to be added
-     * @throws IllegalArgumentException if configuration is invalid or Passpoint is not enabled on
-     *                                  the device.
-     *
      * Deprecated for general app usage - except DO/PO apps.
      * See {@link WifiNetworkSuggestion.Builder#setPasspointConfig(PasspointConfiguration)} to
      * create a passpoint suggestion.
@@ -2332,6 +2338,10 @@ public class WifiManager {
      * <ul>
      * <li>Device Owner (DO), Profile Owner (PO) and system apps.
      * </ul>
+     *
+     * @param config The Passpoint configuration to be added
+     * @throws IllegalArgumentException if configuration is invalid or Passpoint is not enabled on
+     *                                  the device.
      */
     public void addOrUpdatePasspointConfiguration(PasspointConfiguration config) {
         try {
@@ -5510,6 +5520,19 @@ public class WifiManager {
         }
     }
 
+    /**
+     * Enable/disable quick connect on partial scan results.
+     *
+     * @param  enable true to not allow quick connect, false to allow quick connect
+     * @hide
+     */
+    public void allowConnectOnPartialScanResults(boolean enable) {
+        try {
+            mService.allowConnectOnPartialScanResults(enable);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
 
     /**
      * Sets the user choice for allowing auto-join to a network.
@@ -6703,7 +6726,6 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_CRYPTOGRAPHY_CURVE_PRIME256V1 = 0;
 
     /**
@@ -6712,7 +6734,6 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_CRYPTOGRAPHY_CURVE_SECP384R1 = 1;
 
     /**
@@ -6721,7 +6742,6 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_CRYPTOGRAPHY_CURVE_SECP521R1 = 2;
 
 
@@ -6731,7 +6751,6 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_CRYPTOGRAPHY_CURVE_BRAINPOOLP256R1 = 3;
 
 
@@ -6741,7 +6760,6 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_CRYPTOGRAPHY_CURVE_BRAINPOOLP384R1 = 4;
 
 
@@ -6751,7 +6769,6 @@ public class WifiManager {
      * @hide
      */
     @SystemApi
-    @RequiresApi(Build.VERSION_CODES.S)
     public static final int EASY_CONNECT_CRYPTOGRAPHY_CURVE_BRAINPOOLP512R1 = 5;
 
     /** @hide */

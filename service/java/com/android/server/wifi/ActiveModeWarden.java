@@ -25,6 +25,8 @@ import static com.android.server.wifi.ActiveModeManager.ROLE_CLIENT_SCAN_ONLY;
 import static com.android.server.wifi.ActiveModeManager.ROLE_CLIENT_SECONDARY_LONG_LIVED;
 import static com.android.server.wifi.ActiveModeManager.ROLE_CLIENT_SECONDARY_TRANSIENT;
 import static com.android.server.wifi.ActiveModeManager.ROLE_SOFTAP_TETHERED;
+import static com.android.server.wifi.HalDeviceManager.HDM_CREATE_IFACE_STA;
+import static com.android.server.wifi.HalDeviceManager.HDM_CREATE_IFACE_AP;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -572,8 +574,24 @@ public class ActiveModeWarden {
         return mRestartCallbacks.unregister(callback);
     }
 
+    private void stopSapInBridgeModeIfRequired(WorkSource requestorWs) {
+        mHandler.post(() -> {
+            if (!mWifiController.shouldEnableSta()) return; // Disable STA shouldn't impact SAP
+
+            SoftApManager softapManager = getTetheredSoftApManager();
+            if (softapManager == null || !softapManager.isBridgedMode())
+                return; // Nothing to do.
+
+            if (mWifiNative.needToDeleteIfacesDueToBridgeMode(HDM_CREATE_IFACE_STA, requestorWs)) {
+                Log.d(TAG, "Stopping SoftapManager in bridge mode to support station");
+                softapManager.stop();
+            }
+        });
+    }
+
     /** Wifi has been toggled. */
     public void wifiToggled(WorkSource requestorWs) {
+        stopSapInBridgeModeIfRequired(requestorWs);
         mWifiController.sendMessage(WifiController.CMD_WIFI_TOGGLED, requestorWs);
     }
 
@@ -582,8 +600,27 @@ public class ActiveModeWarden {
         mWifiController.sendMessage(WifiController.CMD_AIRPLANE_TOGGLED);
     }
 
+    private void stopStaIfRequired(SoftApModeConfiguration softApConfig, WorkSource requestorWs) {
+        mHandler.post(() -> {
+            SoftApConfiguration apConfig = softApConfig.getSoftApConfiguration();
+            if (apConfig == null)
+                apConfig = mWifiInjector.getWifiApConfigStore().getApConfiguration();
+
+            if (apConfig == null || (apConfig.getBands().length == 1
+                    && !(apConfig.getSecurityType() == SoftApConfiguration.SECURITY_TYPE_OWE
+                         && (apConfig.getBand() & SoftApConfiguration.BAND_6GHZ) == 0)))
+                return; // Noting to do.
+
+            if (mWifiNative.needToDeleteIfacesDueToBridgeMode(HDM_CREATE_IFACE_AP, requestorWs)) {
+                Log.d(TAG, "Stopping all clientModeManager to support bridge mode");
+                stopAllClientModeManagers();
+            }
+        });
+    }
+
     /** Starts SoftAp. */
     public void startSoftAp(SoftApModeConfiguration softApConfig, WorkSource requestorWs) {
+        stopStaIfRequired(softApConfig, requestorWs);
         mWifiController.sendMessage(WifiController.CMD_SET_AP, 1, 0,
                 Pair.create(softApConfig, requestorWs));
     }

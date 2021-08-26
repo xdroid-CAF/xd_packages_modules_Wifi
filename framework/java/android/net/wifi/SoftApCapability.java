@@ -119,6 +119,14 @@ public final class SoftApCapability implements Parcelable {
      */
     public static final long SOFTAP_FEATURE_BAND_60G_SUPPORTED = 1 << 8;
 
+    /**
+     * Support for WPA3 Opportunistic Wireless Encryption (WPA3-OWE).
+     *
+     * flag when {@link config_wifi_softap_owe_supported)} is true.
+     * @hide
+     */
+    public static final long SOFTAP_FEATURE_WPA3_OWE = 1 << 9;
+
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
     @LongDef(flag = true, prefix = { "SOFTAP_FEATURE_" }, value = {
@@ -130,7 +138,8 @@ public final class SoftApCapability implements Parcelable {
             SOFTAP_FEATURE_BAND_24G_SUPPORTED,
             SOFTAP_FEATURE_BAND_5G_SUPPORTED,
             SOFTAP_FEATURE_BAND_6G_SUPPORTED,
-            SOFTAP_FEATURE_BAND_60G_SUPPORTED
+            SOFTAP_FEATURE_BAND_60G_SUPPORTED,
+            SOFTAP_FEATURE_WPA3_OWE
     })
     public @interface HotspotFeatures {}
 
