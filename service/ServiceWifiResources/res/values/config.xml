@@ -219,6 +219,12 @@
     <!-- Integer for Wifi Partial scan results fetching period(in ms) -->
     <integer translatable="false" name="config_wifi_partial_scan_results_fetching_period_ms">0</integer>
 
+    <!-- Wifi driver supports Beacon Protection for SoftAp -->
+    <bool translatable="false" name="config_vendor_softap_beacon_protection_supported">false</bool>
+
+    <!-- Wifi driver supports Ocv for SoftAp -->
+    <bool translatable="false" name="config_vendor_softap_ocv_supported">false</bool>
+
     <!-- Boolean indicating whether single radio chain scan results are to be used for network selection -->
     <bool translatable="false" name="config_wifi_framework_use_single_radio_chain_scan_results_network_selection">true</bool>
 
