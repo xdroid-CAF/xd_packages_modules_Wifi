@@ -82,6 +82,8 @@
           <item type="bool" name="config_wifiAllowLinkingUnknownDefaultGatewayConfigurations" />
           <item type="bool" name="config_wifi_framework_enable_quick_connect" />
           <item type="integer" name="config_wifi_partial_scan_results_fetching_period_ms" />
+          <item type="bool" name="config_vendor_softap_beacon_protection_supported" />
+          <item type="bool" name="config_vendor_softap_ocv_supported" />
           <item type="bool" name="config_wifiEnableLinkedNetworkRoaming" />
           <item type="bool" name="config_wifi_only_link_same_credential_configurations" />
           <item type="bool" name="config_wifi_framework_enable_sar_tx_power_limit" />

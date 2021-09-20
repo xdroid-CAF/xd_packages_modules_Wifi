@@ -1552,6 +1552,10 @@ public class HostapdHal {
         vNetworkParamsV1_2.V1_0 = nwParamsV1_2.V1_0;
         vNetworkParamsV1_2.passphrase = nwParamsV1_2.passphrase;
         vNetworkParamsV1_2.vendorEncryptionType = getVendorEncryptionType(config);
+        vNetworkParamsV1_2.enableOCV = mContext.getResources().getBoolean(
+                R.bool.config_vendor_softap_ocv_supported);
+        vNetworkParamsV1_2.enableBeaconProtection = mContext.getResources().getBoolean(
+                R.bool.config_vendor_softap_beacon_protection_supported);
         return vNetworkParamsV1_2;
     }
 
