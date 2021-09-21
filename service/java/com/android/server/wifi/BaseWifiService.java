@@ -805,6 +805,11 @@ public class BaseWifiService extends IWifiManager.Stub {
     }
 
     @Override
+    public boolean isConcurrentBandSupported() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public boolean isWifiCoverageExtendFeatureEnabled() {
         throw new UnsupportedOperationException();
     }

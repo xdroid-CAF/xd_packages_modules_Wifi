@@ -351,4 +351,6 @@ interface IWifiManager
     boolean isWifiCoverageExtendFeatureEnabled();
 
     void enableWifiCoverageExtendFeature(boolean enable);
+
+    boolean isConcurrentBandSupported();
 }

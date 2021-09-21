@@ -38,6 +38,7 @@ import static com.android.server.wifi.WifiConfigurationUtil.convertWifiInfoSecur
 import static com.android.server.wifi.WifiConfigurationUtil.removeSecurityTypeFromNetworkId;
 import static com.android.server.wifi.WifiSettingsConfigStore.WIFI_VERBOSE_LOGGING_ENABLED;
 import static com.android.server.wifi.WifiSettingsConfigStore.WIFI_COVERAGE_EXTEND_FEATURE_ENABLED;
+import static com.android.server.wifi.WifiSettingsConfigStore.HW_SUPPORTED_FEATURES;
 
 import android.Manifest;
 import android.annotation.CheckResult;
@@ -185,6 +186,8 @@ public class WifiServiceImpl extends BaseWifiService {
     private static final int RUN_WITH_SCISSORS_TIMEOUT_MILLIS = 4000;
     @VisibleForTesting
     static final int AUTO_DISABLE_SHOW_KEY_COUNTDOWN_MILLIS = 24 * 60 * 60 * 1000;
+    /* QCA_WLAN_VENDOR_FEATURE_CONCURRENT_BAND_SESSIONS */
+    private static final int BIT_DEVICE_DBS_CAPABLE = 13;
 
     private final ActiveModeWarden mActiveModeWarden;
     private final ScanRequestProxy mScanRequestProxy;
@@ -5514,6 +5517,18 @@ public class WifiServiceImpl extends BaseWifiService {
                 .c(Binder.getCallingUid())
                 .c(enable).flush();
          mWifiInjector.getSettingsConfigStore().put(WIFI_COVERAGE_EXTEND_FEATURE_ENABLED, enable);
+    }
+
+    @Override
+    public boolean isConcurrentBandSupported() {
+        enforceAccessPermission();
+        int hwSupportedFeatureMask = mWifiInjector.getSettingsConfigStore()
+                .get(HW_SUPPORTED_FEATURES);
+        if (hwSupportedFeatureMask == -1 ||
+            (((hwSupportedFeatureMask >> BIT_DEVICE_DBS_CAPABLE) & 1) > 0)) {
+            return true;
+        }
+        return false;
     }
 
     private void restartSoftApIfNeeded() {

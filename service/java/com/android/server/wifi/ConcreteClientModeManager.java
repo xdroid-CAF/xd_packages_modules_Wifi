@@ -78,6 +78,7 @@ import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import static com.android.server.wifi.WifiSettingsConfigStore.HW_SUPPORTED_FEATURES;
 
 /**
  * Manage WiFi in Client Mode where we connect to configured networks and in Scan Only Mode where
@@ -1026,6 +1027,13 @@ public class ConcreteClientModeManager implements ClientModeManager {
                 setRoleInternalAndInvokeCallback(mConnectRoleChangeInfoToSetOnTransition);
                 updateConnectModeState(mConnectRoleChangeInfoToSetOnTransition.role,
                         WIFI_STATE_ENABLED, WIFI_STATE_ENABLING);
+
+                String hwSupportedFeatureMaskStr = mWifiNative.doDriverCmd(mClientInterfaceName,
+                        "GET_DRIVER_SUPPORTED_FEATURES");
+                Log.d(TAG, "output of doDriverCmd for concurrent band = " + hwSupportedFeatureMaskStr);
+                if (!TextUtils.isEmpty(hwSupportedFeatureMaskStr))
+                    mWifiInjector.getSettingsConfigStore().put(HW_SUPPORTED_FEATURES,
+                            Integer.parseInt(hwSupportedFeatureMaskStr));
             }
 
             @Override
@@ -1417,5 +1425,15 @@ public class ConcreteClientModeManager implements ClientModeManager {
                 + " iface=" + getInterfaceName()
                 + " role=" + getRole()
                 + "}";
+    }
+
+    /**
+     * Run Driver Command
+     * @param : Command string
+     */
+    @Override
+    public String doDriverCmd(String command)
+    {
+        return getClientMode().doDriverCmd(command);
     }
 }
