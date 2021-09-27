@@ -37,6 +37,8 @@ import android.hardware.wifi.supplicant.V1_0.ISupplicant;
 import vendor.qti.hardware.wifi.supplicant.V2_0.ISupplicantVendor;
 import vendor.qti.hardware.wifi.supplicant.V2_0.ISupplicantVendorIface;
 import vendor.qti.hardware.wifi.supplicant.V2_0.ISupplicantVendorStaIface;
+import vendor.qti.hardware.wifi.supplicant.V2_0.ISupplicantVendorNetwork;
+import vendor.qti.hardware.wifi.supplicant.V2_0.ISupplicantVendorStaNetwork;
 import android.hardware.wifi.supplicant.V1_0.ISupplicantIface;
 import android.hardware.wifi.supplicant.V1_0.ISupplicantNetwork;
 import android.hardware.wifi.supplicant.V1_0.ISupplicantStaIface;
@@ -1028,6 +1030,12 @@ public class SupplicantStaIfaceHal {
         }
     }
 
+    protected ISupplicantVendorStaNetwork getVendorStaNetworkMockable(ISupplicantVendorNetwork network) {
+        synchronized (mLock) {
+            return ISupplicantVendorStaNetwork.asInterface(network.asBinder());
+        }
+    }
+
     protected ISupplicantStaIface getStaIfaceMockable(ISupplicantIface iface) {
         synchronized (mLock) {
             return ISupplicantStaIface.asInterface(iface.asBinder());
@@ -1192,6 +1200,9 @@ public class SupplicantStaIfaceHal {
                 loge("Failed to add a network!");
                 return null;
             }
+
+            network.setVendorStaNetwork(getVendorNetwork(ifaceName, network.getNetworkId()));
+
             boolean saveSuccess = false;
             try {
                 saveSuccess = network.saveWifiConfiguration(config);
@@ -4191,5 +4202,32 @@ public class SupplicantStaIfaceHal {
             }
             return reply.value;
          }
+    }
+
+    /**
+     * @return The ISupplicantVendorStaNetwork object for the given SupplicantNetworkId int, returns null if
+     * the call fails
+     */
+    private ISupplicantVendorStaNetwork getVendorNetwork(@NonNull String ifaceName, int id) {
+        synchronized (mLock) {
+            final String methodStr = "getVendorNetwork";
+            ISupplicantVendorStaIface iface = checkSupplicantVendorStaIfaceAndLogFailure(ifaceName, methodStr);
+            if (iface == null) return null;
+            Mutable<ISupplicantVendorNetwork> gotNetwork = new Mutable<>();
+            try {
+                iface.getVendorNetwork(id, (SupplicantStatus status, ISupplicantVendorNetwork network) -> {
+                    if (checkStatusAndLogFailure(status, methodStr)) {
+                        gotNetwork.value = network;
+                    }
+                });
+            } catch (RemoteException e) {
+                handleRemoteException(e, methodStr);
+            }
+            if (gotNetwork.value != null) {
+                return getVendorStaNetworkMockable(gotNetwork.value);
+            } else {
+                return null;
+            }
+        }
     }
 }
