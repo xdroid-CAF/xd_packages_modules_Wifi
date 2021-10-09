@@ -103,6 +103,12 @@ public class WifiSettingsConfigStore {
     public static final Key<Boolean> WIFI_COVERAGE_EXTEND_FEATURE_ENABLED =
             new Key<>("wifi_coverage_extend_feature_enabled", false);
 
+    /**
+     * Stores hw supported features.
+     */
+    public static final Key<Integer> HW_SUPPORTED_FEATURES =
+            new Key<>("hw_supported_features", 0);
+
     /******** Wifi shared pref keys ***************/
 
     private final Context mContext;

@@ -219,4 +219,8 @@ public interface ClientModeDefaults extends ClientMode {
 
     @Override
     default void setShouldReduceNetworkScore(boolean shouldReduceNetworkScore) { }
+
+    default String doDriverCmd(String command) {
+        return null;
+    }
 }

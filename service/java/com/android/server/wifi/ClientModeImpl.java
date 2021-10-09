@@ -589,6 +589,9 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
     /* Tracks IpClient start state until (FILS_)NETWORK_CONNECTION_EVENT event */
     private boolean mIpClientWithPreConnection = false;
 
+    /* Track setupClientMode to defer WifiConnectivityManger start */
+    private boolean isClientSetupCompleted = false;
+
     /**
      * Work source to use to blame usage on the WiFi service
      */
@@ -1221,6 +1224,14 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
         }
         mWifiMetrics.incrementWifiLinkLayerUsageStats(mInterfaceName, stats);
         return stats;
+    }
+
+    public String doDriverCmd(String command) {
+        if (mInterfaceName == null) {
+            loge("doDriverCmd called without an interface");
+            return null;
+        }
+        return mWifiNative.doDriverCmd(mInterfaceName, command);
     }
 
     /**
@@ -3211,6 +3222,8 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             }
         }
         mWifiInfo.setMacAddress(mWifiNative.getMacAddress(mInterfaceName));
+        mWifiConnectivityManager.handleConnectionStateChanged(mClientModeManager,
+                WifiConnectivityManager.WIFI_STATE_DISCONNECTED);
         // TODO: b/79504296 This broadcast has been deprecated and should be removed
         sendSupplicantConnectionChangedBroadcast(true);
 
@@ -3249,6 +3262,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
 
         // Retrieve and store the factory MAC address (on first bootup).
         retrieveFactoryMacAddressAndStoreIfNecessary();
+        isClientSetupCompleted = true;
     }
 
     /**
@@ -3269,6 +3283,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
         deregisterForWifiMonitorEvents(); // uses mInterfaceName, must call before nulling out
         // TODO: b/79504296 This broadcast has been deprecated and should be removed
         sendSupplicantConnectionChangedBroadcast(false);
+        isClientSetupCompleted = false;
     }
 
     /**
@@ -3809,7 +3824,18 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
                             WifiDiagnostics.CONNECTION_EVENT_TIMEOUT, mClientModeManager);
                     break;
                 }
+                case WifiP2pServiceImpl.SET_MIRACAST_MODE:
+                    if (mVerboseLoggingEnabled) logd("SET_MIRACAST_MODE: " + (int)message.arg1);
+                    mWifiConnectivityManager.saveMiracastMode((int)message.arg1);
+                    break;
                 case WifiP2pServiceImpl.P2P_CONNECTION_CHANGED:
+                    NetworkInfo info = (NetworkInfo) message.obj;
+                    if (info != null) {
+                        NetworkInfo.DetailedState detailedState = info.getDetailedState();
+                        mWifiConnectivityManager.saveP2pGroupStarted(
+                                detailedState == NetworkInfo.DetailedState.CONNECTED);
+                    }
+                    break;
                 case CMD_RESET_SIM_NETWORKS:
                 case WifiMonitor.NETWORK_CONNECTION_EVENT:
                 case WifiMonitor.NETWORK_DISCONNECTION_EVENT:
@@ -5773,9 +5799,11 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             mIsAutoRoaming = false;
             mTargetNetworkId = WifiConfiguration.INVALID_NETWORK_ID;
 
-            mWifiConnectivityManager.handleConnectionStateChanged(
-                    mClientModeManager,
-                    WifiConnectivityManager.WIFI_STATE_DISCONNECTED);
+            if (isClientSetupCompleted) {
+                mWifiConnectivityManager.handleConnectionStateChanged(
+                        mClientModeManager,
+                        WifiConnectivityManager.WIFI_STATE_DISCONNECTED);
+            }
         }
 
         @Override

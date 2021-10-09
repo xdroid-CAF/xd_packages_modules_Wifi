@@ -3338,6 +3338,10 @@ public class WifiNative {
         return mWifiVendorHal.getWifiLinkLayerStats(ifaceName);
     }
 
+    public String doDriverCmd(String ifaceName, String command) {
+        return mSupplicantStaIfaceHal.doDriverCmd(ifaceName, command);
+    }
+
     /**
      * Gets the usable channels
      * @param band one of the {@code WifiScanner#WIFI_BAND_*} constants.
